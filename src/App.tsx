@@ -1116,7 +1116,7 @@ function App() {
             const rankIndex = items.findIndex((candidate) => candidate.hot_id === item.hot_id && candidate.title === item.title);
             const itemKey = item.hot_id || `${options.keyPrefix}-${rankIndex >= 0 ? rankIndex : index}`;
             return (
-              <HotspotRankRow
+              <ResponsiveHotspotRankRow
                 key={itemKey}
                 rank={(rankIndex >= 0 ? rankIndex : index) + 1}
                 active={selectedHotspotKey === itemKey}
@@ -1202,7 +1202,7 @@ function App() {
       resultBlock = (
         <div className="grid gap-4">
           {factPack ? (
-            <SearchFactPackCard
+            <ResponsiveSearchFactPackCard
               eventAnchor={factPack.eventAnchor || ""}
               summary={factPack.summary}
               facts={factPack.keyFacts}
@@ -1219,7 +1219,7 @@ function App() {
             searchItems.map((item, index) => {
               const itemKey = `${hotspotPanelTab}-${index}`;
               return (
-                <SearchSourceCard
+                <ResponsiveSearchSourceCard
                   key={itemKey}
                   active={selectedHotspotKey === itemKey}
                   title={(item as any).displayTitle || item.title || "未命名搜索结果"}
@@ -1235,22 +1235,22 @@ function App() {
     }
 
     return (
-      <div className="rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(0,212,255,0.14),transparent_34%),linear-gradient(180deg,rgba(10,17,32,0.96),rgba(10,17,32,0.80))] p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+      <div className="rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(0,212,255,0.14),transparent_34%),linear-gradient(180deg,rgba(10,17,32,0.96),rgba(10,17,32,0.80))] p-4 sm:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 lg:flex-1">
             <div className="section-eyebrow">今日热榜中心</div>
             <div className="mt-3 text-lg font-semibold text-white">自动热榜 + 手动搜索事实包</div>
             <div className="mt-2 text-sm leading-7 text-slate-300">
               热榜会在页面打开后自动预加载。搜索结果不会直接塞进正文，而是先整理成一份可用于写稿的事实包，再回填到内容输入区。
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="mobile-scroll-row flex items-center gap-2 md:flex-wrap lg:justify-end">
             <SoftBadge>{cacheText}</SoftBadge>
             {allHotItems.length > 0 ? <SoftBadge>全网 {allHotItems.length}</SoftBadge> : null}
             {businessHotItems.length > 0 ? <SoftBadge>AI行业 {businessHotItems.length}</SoftBadge> : null}
             {factPack ? <SoftBadge>事实包已就绪</SoftBadge> : null}
             <button
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
+              className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
               onClick={() => setShowHotspotCenter((prev) => !prev)}
             >
               {showHotspotCenter ? "收起热榜" : "展开热榜"}
@@ -1270,7 +1270,7 @@ function App() {
           </div>
         ) : (
           <>
-            <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto]">
+            <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
               <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
                 <div className="text-sm font-semibold text-white">手动搜索事件</div>
                 <div className="mt-2 text-xs leading-6 text-slate-400">输入一个事件或热点主题，系统会先抓原始搜索源，再自动清洗成可写稿事实包。</div>
@@ -1278,14 +1278,14 @@ function App() {
                   <div className="flex-1">
                     <Input value={manualSearchQuery} onChange={setManualSearchQuery} placeholder="例如：伊朗美国战争实时战况" />
                   </div>
-                  <button className="brand-btn md:w-auto" onClick={() => void handleSearchTopic()} disabled={isLoadingManualSearch}>
+                  <button className="brand-btn w-full md:w-auto" onClick={() => void handleSearchTopic()} disabled={isLoadingManualSearch}>
                     {isLoadingManualSearch ? "清洗中..." : "搜索并生成事实包"}
                   </button>
                 </div>
               </div>
 
               <button
-                className="brand-btn h-fit md:w-auto"
+                className="brand-btn h-fit w-full xl:w-auto"
                 onClick={confirmRefreshHotRank}
                 disabled={isLoadingHotRank}
               >
@@ -1293,7 +1293,7 @@ function App() {
               </button>
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-2">
+            <div className="mobile-scroll-row mt-5 flex gap-2 md:flex-wrap">
               <ResultTabChip active={hotspotPanelTab === "all"} label="全网热榜" count={allHotItems.length} onClick={() => setHotspotPanelTab("all")} />
               <ResultTabChip active={hotspotPanelTab === "business"} label="AI行业热榜" count={businessHotItems.length} onClick={() => setHotspotPanelTab("business")} />
               <ResultTabChip active={hotspotPanelTab === "douyin"} label="抖音" count={douyinHotItems.length} onClick={() => setHotspotPanelTab("douyin")} />
@@ -1884,7 +1884,7 @@ function App() {
       <HistoryDrawer open={showHistory} history={history} onClose={() => setShowHistory(false)} onRestore={restoreHistory} onDelete={deleteHistory} />
       {notice ? <Notice toast={notice} /> : null}
 
-      <main className="relative z-10 px-6 pb-20 pt-24">
+      <main className="relative z-10 px-4 pb-20 pt-20 md:px-6 md:pt-24">
         {!enteredWorkbench ? (
           <Landing onSelectMode={openWorkbench} />
         ) : (
@@ -2082,7 +2082,7 @@ function StepPill(props: {
 }
 
 function GlassCard({ children }: { children: ReactNode }) {
-  return <div className="glass-panel rounded-[28px] p-6 md:p-7">{children}</div>;
+  return <div className="glass-panel rounded-[28px] p-4 sm:p-6 md:p-7">{children}</div>;
 }
 
 function ChoiceCard(props: { active: boolean; title: string; description: string; onClick: () => void }) {
@@ -2099,11 +2099,11 @@ function ChoiceRow(props: { active: boolean; title: string; description: string;
   const { active, title, description, onClick } = props;
   return (
     <button className={classNames("choice-row", active && "choice-row-active")} onClick={onClick}>
-      <div>
+      <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold text-white">{title}</div>
         <div className="mt-1 text-xs leading-5 text-slate-400">{description}</div>
       </div>
-      <div className={classNames("h-3.5 w-3.5 rounded-full border", active ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
+      <div className={classNames("mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border", active ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
     </button>
   );
 }
@@ -2121,21 +2121,21 @@ function SelectableResultCard(props: {
   const { active, badge, title, meta, description, copyText, onCopy, onClick } = props;
   return (
     <button className={classNames("result-card text-left", active && "result-card-active")} onClick={onClick}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <div className="inline-flex rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold text-cyan-200">
             {badge}
           </div>
-          <div className="mt-3 text-sm font-semibold leading-7 text-white">{title}</div>
-          <div className="mt-2 text-xs leading-5 text-slate-400">{meta}</div>
-          {description ? <div className="mt-3 text-sm leading-7 text-slate-300">{description}</div> : null}
+          <div className="mt-3 break-words text-sm font-semibold leading-6 text-white sm:leading-7">{title}</div>
+          <div className="mt-2 break-words text-xs leading-5 text-slate-400">{meta}</div>
+          {description ? <div className="mt-3 break-words text-sm leading-7 text-slate-300">{description}</div> : null}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center justify-end gap-3 self-end sm:self-auto">
           {copyText && onCopy ? (
             <span
               role="button"
               tabIndex={0}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300 hover:border-cyan-400/25 hover:text-white"
+              className="whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300 hover:border-cyan-400/25 hover:text-white"
               onClick={(event) => {
                 event.stopPropagation();
                 onCopy(copyText);
@@ -2191,7 +2191,11 @@ function StepBlock({ title, children }: { title: string; children: ReactNode }) 
 }
 
 function StepFooter({ children }: { children: ReactNode }) {
-  return <div className="mt-6 flex flex-wrap items-center justify-between gap-3">{children}</div>;
+  return (
+    <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between [&>.brand-btn]:w-full [&>.ghost-btn]:w-full sm:[&>.brand-btn]:w-auto sm:[&>.ghost-btn]:w-auto">
+      {children}
+    </div>
+  );
 }
 
 function SelectionSummaryBar(props: {
@@ -2280,7 +2284,7 @@ function StatusRow({ label, status, value }: { label: string; status: string; va
 
 function SourceBadge({ meta }: { meta: ModuleMeta }) {
   return (
-    <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
+    <div className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
       {meta.source === "api" ? "实时 API" : "本地兜底"} · {formatTime(meta.updatedAt)}
     </div>
   );
@@ -2302,7 +2306,7 @@ function ModuleMetaHint({ meta }: { meta: ModuleMeta | null }) {
 }
 
 function SoftBadge({ children }: { children: ReactNode }) {
-  return <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">{children}</span>;
+  return <span className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">{children}</span>;
 }
 
 function ResultTabChip(props: { active: boolean; label: string; count: number; onClick: () => void }) {
@@ -2310,7 +2314,7 @@ function ResultTabChip(props: { active: boolean; label: string; count: number; o
   return (
     <button
       className={classNames(
-        "rounded-full border px-3 py-1 text-xs transition-all",
+        "shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs transition-all",
         active ? "border-cyan-400/35 bg-cyan-400/12 text-cyan-100" : "border-white/10 bg-white/5 text-slate-300 hover:border-cyan-400/20 hover:text-white"
       )}
       onClick={onClick}
@@ -2343,14 +2347,14 @@ function HotspotRankRow(props: {
   return (
     <button
       className={classNames(
-        "group rounded-3xl border p-4 text-left transition-all",
+        "group rounded-3xl border p-4 text-left transition-all sm:p-5",
         active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/10 bg-white/5 hover:border-cyan-400/20 hover:bg-white/8",
         loading && "cursor-wait opacity-80"
       )}
       onClick={onUse}
       disabled={loading}
     >
-      <div className="flex items-start gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className={classNames("flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-lg font-bold", rankStyle)}>{rank}</div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -2457,6 +2461,333 @@ function SearchSourceCard(props: { active: boolean; title: string; summary: stri
         ) : (
           <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-400">仅作参考</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/*
+function ResponsiveHotspotRankRow(props: {
+  rank: number;
+  active: boolean;
+  loading?: boolean;
+  title: string;
+  summary: string;
+  meta: string;
+  onUse: () => void;
+  tone?: "hot" | "business";
+}) {
+  const { rank, active, loading = false, title, summary, meta, onUse, tone = "hot" } = props;
+  const rankStyle =
+    rank === 1
+      ? "from-[#ff7a59]/30 to-[#ff4d6d]/15 text-[#ffb199]"
+      : rank === 2
+        ? "from-[#ffb347]/25 to-[#ffcc33]/10 text-[#ffd27d]"
+        : rank === 3
+          ? "from-[#8b5cf6]/25 to-[#00d4ff]/10 text-[#b7c7ff]"
+          : "from-white/10 to-white/5 text-slate-300";
+
+  return (
+    <button
+      className={classNames(
+        "group rounded-3xl border p-4 text-left transition-all sm:p-5",
+        active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/10 bg-white/5 hover:border-cyan-400/20 hover:bg-white/8",
+        loading && "cursor-wait opacity-80"
+      )}
+      onClick={onUse}
+      disabled={loading}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
+          <div className={classNames("flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-lg font-bold", rankStyle)}>{rank}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="break-words text-sm font-semibold leading-6 text-white sm:text-base sm:leading-7">{title}</span>
+              <span
+                className={classNames(
+                  "shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px]",
+                  tone === "business" ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200" : "border-cyan-400/20 bg-cyan-400/10 text-cyan-200"
+                )}
+              >
+                {tone === "business" ? "AI琛屼笟" : "浠婃棩鐑"}
+              </span>
+            </div>
+            <div className="mobile-clamp-3 mt-2 break-words text-sm leading-6 text-slate-300">{summary || "鏆傛棤鎽樿"}</div>
+            <div className="mobile-clamp-2 mt-3 break-words text-xs leading-5 text-slate-500">{meta || "姝ｅ湪琛ュ厖鏇村涓婁笅鏂?"}</div>
+          </div>
+        </div>
+        <div className="w-full sm:w-auto">
+          <div
+            className={classNames(
+              "inline-flex w-full justify-center whitespace-nowrap rounded-full border px-3 py-2 text-xs transition-all sm:w-auto sm:py-1",
+              active ? "border-cyan-300 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-white/5 text-slate-300 group-hover:border-cyan-400/25 group-hover:text-white"
+            )}
+          >
+            {loading ? "鎻愬彇涓?" : active ? "宸查€夌敤" : "閫夌敤"}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function ResponsiveSearchFactPackCard(props: {
+  eventAnchor: string;
+  summary: string;
+  facts: string[];
+  timelineClues: string[];
+  businessSignals: string[];
+  guardrailNote: string;
+  sourcesCount: number;
+  onUse: () => void;
+}) {
+  const { eventAnchor, summary, facts, timelineClues, businessSignals, guardrailNote, sourcesCount, onUse } = props;
+
+  return (
+    <div className="rounded-3xl border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(0,212,255,0.12),rgba(139,92,246,0.08))] p-5">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="section-eyebrow">鎼滅储浜嬪疄鍖?/div>
+          <div className="mt-2 text-base font-semibold text-white">宸叉妸澶氭潵婧愭悳绱㈢粨鏋滄竻娲楁垚涓€浠藉彲鍐欑浜嬪疄鍖?/div>
+          {eventAnchor ? <div className="mt-2 text-sm font-medium text-cyan-100">{eventAnchor}</div> : null}
+          <div className="mt-2 break-words text-sm leading-7 text-slate-300">{summary}</div>
+        </div>
+        <button className="brand-btn w-full md:w-auto" onClick={onUse}>
+          浣跨敤娓呮礂鍚庝簨瀹炲寘
+        </button>
+      </div>
+      {facts.length > 0 ? (
+        <div className="mt-4 grid gap-2">
+          {facts.slice(0, 4).map((fact, index) => (
+            <div key={`${fact}-${index}`} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm leading-7 text-slate-200">
+              {fact}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {(timelineClues.length > 0 || businessSignals.length > 0) ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {timelineClues.slice(0, 3).map((item) => (
+            <SoftBadge key={item}>{item}</SoftBadge>
+          ))}
+          {businessSignals.slice(0, 3).map((item) => (
+            <SoftBadge key={item}>{item}</SoftBadge>
+          ))}
+        </div>
+      ) : null}
+      {guardrailNote ? (
+        <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-xs leading-6 text-amber-100">
+          {guardrailNote}
+        </div>
+      ) : null}
+      <div className="mt-4 text-xs text-slate-400">宸叉眹鎬?{sourcesCount} 涓潵婧愩€傚彧鏈夎繖浠芥竻娲楀悗鐨勪簨瀹炲寘浼氳繘鍏ュ悗缁毊楠ㄨ倝锛屼笅闈㈠師濮嬫悳绱㈡簮浠呬緵鏍稿鍙傝€冦€?/div>
+    </div>
+  );
+}
+
+function ResponsiveSearchSourceCard(props: { active: boolean; title: string; summary: string; source: string; url: string }) {
+  const { active, title, summary, source, url } = props;
+
+  return (
+    <div
+      className={classNames(
+        "rounded-3xl border p-4 text-left transition-all",
+        active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/10 bg-white/5 hover:border-cyan-400/20 hover:bg-white/8"
+      )}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {source ? <span className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">{source}</span> : null}
+            <span className="break-words text-sm font-semibold leading-6 text-white sm:leading-7">{title}</span>
+          </div>
+          <div className="mobile-clamp-3 mt-3 break-words text-sm leading-6 text-slate-300 sm:leading-7">{summary || "鏆傛棤鎽樿"}</div>
+          {url ? <div className="mt-3 break-all text-xs leading-5 text-slate-500 sm:truncate">{url}</div> : null}
+        </div>
+        <div className="w-full sm:w-auto">
+          {url ? (
+            <a
+              className={classNames(
+                "inline-flex w-full justify-center whitespace-nowrap rounded-full border px-3 py-2 text-xs transition sm:w-auto sm:py-1",
+                active ? "border-cyan-300 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-white/5 text-slate-300 hover:border-cyan-400/25 hover:text-white"
+              )}
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+            >
+              鏌ョ湅鍘熸枃
+            </a>
+          ) : (
+            <div className="inline-flex w-full justify-center whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-400 sm:w-auto sm:py-1">
+              浠呬綔鍙傝€?
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+*/
+
+function ResponsiveHotspotRankRow(props: {
+  rank: number;
+  active: boolean;
+  loading?: boolean;
+  title: string;
+  summary: string;
+  meta: string;
+  onUse: () => void;
+  tone?: "hot" | "business";
+}) {
+  const { rank, active, loading = false, title, summary, meta, onUse, tone = "hot" } = props;
+  const rankStyle =
+    rank === 1
+      ? "from-[#ff7a59]/30 to-[#ff4d6d]/15 text-[#ffb199]"
+      : rank === 2
+        ? "from-[#ffb347]/25 to-[#ffcc33]/10 text-[#ffd27d]"
+        : rank === 3
+          ? "from-[#8b5cf6]/25 to-[#00d4ff]/10 text-[#b7c7ff]"
+          : "from-white/10 to-white/5 text-slate-300";
+
+  return (
+    <button
+      className={classNames(
+        "group rounded-3xl border p-4 text-left transition-all sm:p-5",
+        active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/10 bg-white/5 hover:border-cyan-400/20 hover:bg-white/8",
+        loading && "cursor-wait opacity-80"
+      )}
+      onClick={onUse}
+      disabled={loading}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
+          <div className={classNames("flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-lg font-bold", rankStyle)}>{rank}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="break-words text-sm font-semibold leading-6 text-white sm:text-base sm:leading-7">{title}</span>
+              <span
+                className={classNames(
+                  "shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px]",
+                  tone === "business" ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200" : "border-cyan-400/20 bg-cyan-400/10 text-cyan-200"
+                )}
+              >
+                {tone === "business" ? "AI行业" : "今日热榜"}
+              </span>
+            </div>
+            <div className="mobile-clamp-3 mt-2 break-words text-sm leading-6 text-slate-300">{summary || "暂无摘要"}</div>
+            <div className="mobile-clamp-2 mt-3 break-words text-xs leading-5 text-slate-500">{meta || "正在补充更多信息"}</div>
+          </div>
+        </div>
+        <div className="w-full sm:w-auto">
+          <div
+            className={classNames(
+              "inline-flex w-full justify-center whitespace-nowrap rounded-full border px-3 py-2 text-xs transition-all sm:w-auto sm:py-1",
+              active ? "border-cyan-300 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-white/5 text-slate-300 group-hover:border-cyan-400/25 group-hover:text-white"
+            )}
+          >
+            {loading ? "提取中" : active ? "已选用" : "选用"}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function ResponsiveSearchFactPackCard(props: {
+  eventAnchor: string;
+  summary: string;
+  facts: string[];
+  timelineClues: string[];
+  businessSignals: string[];
+  guardrailNote: string;
+  sourcesCount: number;
+  onUse: () => void;
+}) {
+  const { eventAnchor, summary, facts, timelineClues, businessSignals, guardrailNote, sourcesCount, onUse } = props;
+
+  return (
+    <div className="rounded-3xl border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(0,212,255,0.12),rgba(139,92,246,0.08))] p-5">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="section-eyebrow">搜索事实包</div>
+          <div className="mt-2 text-base font-semibold text-white">已把多来源搜索结果清洗成可写稿事实包</div>
+          {eventAnchor ? <div className="mt-2 text-sm font-medium text-cyan-100">{eventAnchor}</div> : null}
+          <div className="mt-2 break-words text-sm leading-7 text-slate-300">{summary}</div>
+        </div>
+        <button className="brand-btn w-full md:w-auto" onClick={onUse}>
+          使用清洗后事实包
+        </button>
+      </div>
+      {facts.length > 0 ? (
+        <div className="mt-4 grid gap-2">
+          {facts.slice(0, 4).map((fact, index) => (
+            <div key={`${fact}-${index}`} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm leading-7 text-slate-200">
+              {fact}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {(timelineClues.length > 0 || businessSignals.length > 0) ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {timelineClues.slice(0, 3).map((item) => (
+            <SoftBadge key={item}>{item}</SoftBadge>
+          ))}
+          {businessSignals.slice(0, 3).map((item) => (
+            <SoftBadge key={item}>{item}</SoftBadge>
+          ))}
+        </div>
+      ) : null}
+      {guardrailNote ? (
+        <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-xs leading-6 text-amber-100">
+          {guardrailNote}
+        </div>
+      ) : null}
+      <div className="mt-4 text-xs text-slate-400">已汇总 {sourcesCount} 个来源。只有这份清洗后的事实包会进入后续皮骨肉，下面原始搜索源仅作核对参考。</div>
+    </div>
+  );
+}
+
+function ResponsiveSearchSourceCard(props: { active: boolean; title: string; summary: string; source: string; url: string }) {
+  const { active, title, summary, source, url } = props;
+
+  return (
+    <div
+      className={classNames(
+        "rounded-3xl border p-4 text-left transition-all",
+        active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/10 bg-white/5 hover:border-cyan-400/20 hover:bg-white/8"
+      )}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {source ? <span className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">{source}</span> : null}
+            <span className="break-words text-sm font-semibold leading-6 text-white sm:leading-7">{title}</span>
+          </div>
+          <div className="mobile-clamp-3 mt-3 break-words text-sm leading-6 text-slate-300 sm:leading-7">{summary || "暂无摘要"}</div>
+          {url ? <div className="mt-3 break-all text-xs leading-5 text-slate-500 sm:truncate">{url}</div> : null}
+        </div>
+        <div className="w-full sm:w-auto">
+          {url ? (
+            <a
+              className={classNames(
+                "inline-flex w-full justify-center whitespace-nowrap rounded-full border px-3 py-2 text-xs transition sm:w-auto sm:py-1",
+                active ? "border-cyan-300 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-white/5 text-slate-300 hover:border-cyan-400/25 hover:text-white"
+              )}
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+            >
+              查看原文
+            </a>
+          ) : (
+            <div className="inline-flex w-full justify-center whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-400 sm:w-auto sm:py-1">
+              仅作参考
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
