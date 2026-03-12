@@ -102,7 +102,7 @@ type HotspotExpandState = { all: boolean; business: boolean; douyin: boolean; we
 type OriginalEntryType = Exclude<EntryType, "viral">;
 
 const DEFAULT_ORIGINAL_ENTRY_TYPE: OriginalEntryType = "hotspot";
-const COMPACT_HOTSPOT_COLLAPSED_COUNT = 10;
+const COMPACT_HOTSPOT_COLLAPSED_COUNT = 3;
 
 function isOriginalEntryType(value: EntryType): value is OriginalEntryType {
   return value !== "viral";
@@ -433,7 +433,7 @@ function App() {
   const [isLoadingManualSearch, setIsLoadingManualSearch] = useState(false);
   const [loadingHotspotKey, setLoadingHotspotKey] = useState<string | null>(null);
   const [isRewriteStructureCollapsed, setIsRewriteStructureCollapsed] = useState(false);
-  const [isWorkbenchIntroCollapsed, setIsWorkbenchIntroCollapsed] = useState(() => inferWorkbenchMode(task.entryType) === "original");
+  const [isWorkbenchIntroCollapsed, setIsWorkbenchIntroCollapsed] = useState(true);
   const [hotspotListExpanded, setHotspotListExpanded] = useState<HotspotExpandState>({
     all: false,
     business: false,
@@ -448,15 +448,15 @@ function App() {
   );
   const currentWorkbenchMode = workbenchMode ?? inferWorkbenchMode(task.entryType);
   const normalizedTask = useMemo(() => normalizeTaskState(task), [task]);
-  const canCollapseWorkbenchIntro = currentWorkbenchMode === "original";
-  const isWorkbenchIntroHidden = canCollapseWorkbenchIntro && isWorkbenchIntroCollapsed;
+  const canCollapseWorkbenchIntro = true;
+  const isWorkbenchIntroHidden = isWorkbenchIntroCollapsed;
   const lastOriginalEntryRef = useRef<{ entryType: OriginalEntryType; chosen: boolean }>({
     entryType: isOriginalEntryType(defaultTask.entryType) ? defaultTask.entryType : DEFAULT_ORIGINAL_ENTRY_TYPE,
     chosen: false
   });
 
   useEffect(() => {
-    setIsWorkbenchIntroCollapsed(currentWorkbenchMode === "original");
+    setIsWorkbenchIntroCollapsed(true);
   }, [currentWorkbenchMode]);
   const taskChoiceMissing = useMemo(() => {
     const missing: string[] = [];
@@ -1121,15 +1121,15 @@ function App() {
       }
 
       return (
-        <div className="grid gap-3">
+        <div className="grid max-w-full gap-3 overflow-hidden">
           {hasMoreRows ? (
-            <div className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs text-slate-400">
+            <div className="flex min-w-0 flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 text-xs text-slate-400">
                 {expanded ? `已展开 ${items.length} 条热点` : `当前显示前 ${visibleItems.length} 条，共 ${items.length} 条`}
               </div>
               <button
                 type="button"
-                className="self-start rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
+                className="self-start whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
                 onClick={() => setHotspotListExpanded((prev) => ({ ...prev, [options.expandKey]: !prev[options.expandKey] }))}
               >
                 {expanded ? "收起列表" : `展开全部 ${items.length} 条`}
@@ -1137,7 +1137,7 @@ function App() {
             </div>
           ) : null}
 
-          <div className="grid gap-2">
+          <div className="grid max-w-full gap-2 overflow-hidden">
           {visibleItems.map((item, index) => {
             const rankIndex = items.findIndex((candidate) => candidate.hot_id === item.hot_id && candidate.title === item.title);
             const itemKey = item.hot_id || `${options.keyPrefix}-${rankIndex >= 0 ? rankIndex : index}`;
@@ -1158,7 +1158,7 @@ function App() {
             <div className="flex justify-center sm:justify-end">
               <button
                 type="button"
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
+                className="whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
                 onClick={() => setHotspotListExpanded((prev) => ({ ...prev, [options.expandKey]: false }))}
               >
                 收起列表
@@ -1244,7 +1244,7 @@ function App() {
     }
 
     return (
-      <div className="rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(0,212,255,0.14),transparent_34%),linear-gradient(180deg,rgba(10,17,32,0.96),rgba(10,17,32,0.80))] p-4 sm:p-5">
+      <div className="w-full max-w-full overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(0,212,255,0.14),transparent_34%),linear-gradient(180deg,rgba(10,17,32,0.96),rgba(10,17,32,0.80))] p-4 sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 lg:flex-1">
             <div className="section-eyebrow">今日热榜中心</div>
@@ -1253,7 +1253,7 @@ function App() {
               热榜会在页面打开后自动预加载。搜索结果不会直接塞进正文，而是先整理成一份可用于写稿的事实包，再回填到内容输入区。
             </div>
           </div>
-          <div className="mobile-scroll-row flex items-center gap-2 md:flex-wrap lg:justify-end">
+          <div className="flex max-w-full flex-wrap items-center gap-2 lg:justify-end">
             <SoftBadge>{cacheText}</SoftBadge>
             {allHotItems.length > 0 ? <SoftBadge>全网 {allHotItems.length}</SoftBadge> : null}
             {businessHotItems.length > 0 ? <SoftBadge>AI行业 {businessHotItems.length}</SoftBadge> : null}
@@ -1302,7 +1302,7 @@ function App() {
               </button>
             </div>
 
-            <div className="mobile-scroll-row mt-5 flex gap-2 md:flex-wrap">
+            <div className="mt-5 flex max-w-full flex-wrap gap-2">
               <ResultTabChip active={hotspotPanelTab === "all"} label="全网热榜" count={allHotItems.length} onClick={() => setHotspotPanelTab("all")} />
               <ResultTabChip active={hotspotPanelTab === "business"} label="AI行业热榜" count={businessHotItems.length} onClick={() => setHotspotPanelTab("business")} />
               <ResultTabChip active={hotspotPanelTab === "douyin"} label="抖音" count={douyinHotItems.length} onClick={() => setHotspotPanelTab("douyin")} />
@@ -2356,7 +2356,7 @@ function ModuleMetaHint({ meta }: { meta: ModuleMeta | null }) {
 }
 
 function SoftBadge({ children }: { children: ReactNode }) {
-  return <span className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">{children}</span>;
+  return <span className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-300 sm:px-3 sm:text-xs">{children}</span>;
 }
 
 function ResultTabChip(props: { active: boolean; label: string; count: number; onClick: () => void }) {
@@ -2364,7 +2364,7 @@ function ResultTabChip(props: { active: boolean; label: string; count: number; o
   return (
     <button
       className={classNames(
-        "shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs transition-all",
+        "shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] transition-all sm:px-3 sm:text-xs",
         active ? "border-cyan-400/35 bg-cyan-400/12 text-cyan-100" : "border-white/10 bg-white/5 text-slate-300 hover:border-cyan-400/20 hover:text-white"
       )}
       onClick={onClick}
@@ -2395,7 +2395,7 @@ function CompactHotspotListRow(props: {
   return (
     <button
       className={classNames(
-        "group flex items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-all sm:px-4 sm:py-3",
+        "group flex w-full max-w-full items-center gap-2 overflow-hidden rounded-2xl border px-3 py-2.5 text-left transition-all sm:gap-3 sm:px-4 sm:py-3",
         active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/10 bg-white/5 hover:border-cyan-400/20 hover:bg-white/8",
         loading && "cursor-wait opacity-80"
       )}
@@ -2407,7 +2407,7 @@ function CompactHotspotListRow(props: {
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-white sm:text-[15px]">{title}</div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
         {leadOnly ? (
           <span className="hidden rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200 sm:inline-flex">
             线索
@@ -2415,7 +2415,7 @@ function CompactHotspotListRow(props: {
         ) : null}
         <span
           className={classNames(
-            "whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] transition-all",
+            "whitespace-nowrap rounded-full border px-2 py-1 text-[11px] transition-all sm:px-2.5",
             active ? "border-cyan-300 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-white/5 text-slate-300 group-hover:border-cyan-400/25 group-hover:text-white"
           )}
         >
