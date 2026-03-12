@@ -1,0 +1,3035 @@
+from __future__ import annotations
+
+import asyncio
+import html
+import json
+import os
+import re
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+try:
+    import urllib.error
+    import urllib.request
+except ImportError as exc:  # pragma: no cover
+    raise SystemExit("当前 Python 环境缺少 urllib，无法启动后端。") from exc
+
+try:
+    from fastapi import FastAPI, HTTPException, Request, Query
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import FileResponse, JSONResponse
+    from fastapi.staticfiles import StaticFiles
+    import uvicorn
+except ImportError as exc:  # pragma: no cover
+    raise SystemExit("缺少 FastAPI 依赖，请先运行：pip install -r backend/requirements.txt") from exc
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DIST_DIR = ROOT_DIR / "dist"
+IS_VERCEL = bool(os.getenv("VERCEL"))
+
+
+def resolve_runtime_dir() -> Path:
+    if IS_VERCEL:
+        return Path(tempfile.gettempdir()) / "ai-copy-workbench"
+    return ROOT_DIR / "runtime"
+
+
+RUNTIME_DIR = resolve_runtime_dir()
+RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = RUNTIME_DIR / "api_requests.jsonl"
+HOT_RANK_CACHE_PATH = RUNTIME_DIR / "hot_rank_cache.json"
+
+LOCAL_CONFIG_PATH = Path(__file__).resolve().parent / "config.local.json"
+BACKEND_EXAMPLE_CONFIG_PATH = Path(__file__).resolve().parent / "config.example.json"
+LEGACY_CONFIG_PATH = ROOT_DIR / "server" / "config.local.json"
+EXAMPLE_CONFIG_PATH = ROOT_DIR / "server" / "config.example.json"
+
+HOT_RANK_CACHE_MAX_AGE_SECONDS = 45 * 60
+HOT_RANK_CACHE_VERSION = 2
+HOT_RANK_DEFAULT_ALL_LIMIT = 20
+HOT_RANK_DEFAULT_BUSINESS_LIMIT = 10
+HOT_RANK_WARM_PARAMETERS = {
+    "all_limit": HOT_RANK_DEFAULT_ALL_LIMIT,
+    "business_limit": HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+}
+OFFICIAL_SOURCE_KEYWORDS = [
+    "新华社",
+    "人民日报",
+    "央视",
+    "央视新闻",
+    "中国日报",
+    "北京日报",
+    "中国网",
+    "新浪财经",
+    "财联社",
+    "新华财经",
+    "极目新闻",
+    "澎湃",
+    "界面",
+    "第一财经",
+    "中国新闻周刊",
+    "南方周末",
+    "大风新闻",
+]
+AGGREGATE_HOT_KEYWORDS = [
+    "今日热点",
+    "热点新闻",
+    "新闻摘要",
+    "早知道",
+    "top",
+    "盘点",
+    "合集",
+    "看完",
+    "速览",
+    "汇总",
+]
+BUSINESS_RELEVANT_KEYWORDS = [
+    "ai",
+    "人工智能",
+    "智能体",
+    "获客",
+    "流量",
+    "创业",
+    "老板",
+    "企业",
+    "平台",
+    "监管",
+    "合规",
+    "内容",
+    "短剧",
+    "带货",
+    "数字",
+    "ip",
+    "自动化",
+    "私域",
+    "商用",
+    "量产",
+    "订单",
+    "人才",
+    "教育",
+    "文旅",
+]
+BUSINESS_KEYWORD_WEIGHTS: dict[str, int] = {
+    "ai": 4,
+    "人工智能": 4,
+    "智能体": 4,
+    "数字人": 4,
+    "数字资产": 4,
+    "数字ip": 4,
+    "获客": 4,
+    "流量": 3,
+    "客户": 3,
+    "订单": 3,
+    "转化": 3,
+    "创业": 3,
+    "企业": 3,
+    "监管": 3,
+    "合规": 3,
+    "自动化": 3,
+    "私域": 3,
+    "商用": 3,
+    "平台": 2,
+    "内容": 2,
+    "老板": 2,
+    "经营": 2,
+    "短剧": 2,
+    "带货": 2,
+    "数字": 2,
+    "ip": 2,
+    "量产": 2,
+    "人才": 2,
+    "教育": 2,
+    "文旅": 2,
+}
+BRIDGE_DIRECTION_RULES: list[tuple[list[str], str]] = [
+    (["ai", "人工智能", "智能体", "算法"], "AI获客"),
+    (["数字ip", "数字资产", "ip"], "数字IP"),
+    (["流量", "热度", "爆火"], "流量增长"),
+    (["创业", "创始", "补贴"], "创业"),
+    (["老板", "经营"], "老板增长"),
+    (["企业", "产业", "订单", "人才", "商用"], "企业增长"),
+    (["内容", "短剧", "带货", "视频", "创作"], "内容增长"),
+    (["私域", "会员", "社群"], "私域"),
+    (["自动化", "智能体", "效率工具"], "自动化"),
+    (["平台", "监管", "治理", "规则", "封号"], "平台变化"),
+    (["趋势", "量产", "商用", "落地", "增长"], "商业趋势"),
+]
+AI_INDUSTRY_KEYWORDS = [
+    "ai",
+    "aigc",
+    "gpt",
+    "agent",
+    "rag",
+    "copilot",
+    "chatgpt",
+    "openai",
+    "claude",
+    "deepseek",
+    "cursor",
+    "sora",
+    "midjourney",
+    "人工智能",
+    "生成式",
+    "大模型",
+    "模型",
+    "智能体",
+    "工作流",
+    "自动化",
+    "数字人",
+    "虚拟人",
+    "机器人",
+    "机器学习",
+    "算力",
+    "芯片",
+    "gpu",
+    "npu",
+    "语音识别",
+    "计算机视觉",
+    "知识库",
+    "向量",
+    "多模态",
+    "提示词",
+    "文心",
+    "通义",
+    "豆包",
+]
+AI_KEYWORD_WEIGHTS: dict[str, int] = {
+    "ai": 5,
+    "aigc": 5,
+    "gpt": 5,
+    "agent": 5,
+    "rag": 4,
+    "copilot": 4,
+    "chatgpt": 5,
+    "openai": 5,
+    "claude": 4,
+    "deepseek": 5,
+    "cursor": 4,
+    "sora": 4,
+    "midjourney": 4,
+    "人工智能": 5,
+    "生成式": 4,
+    "大模型": 5,
+    "模型": 3,
+    "智能体": 5,
+    "工作流": 3,
+    "自动化": 4,
+    "数字人": 5,
+    "虚拟人": 4,
+    "机器人": 4,
+    "机器学习": 4,
+    "算力": 4,
+    "芯片": 4,
+    "gpu": 4,
+    "npu": 4,
+    "语音识别": 3,
+    "计算机视觉": 3,
+    "知识库": 3,
+    "向量": 3,
+    "多模态": 4,
+    "提示词": 3,
+    "文心": 3,
+    "通义": 3,
+    "豆包": 3,
+}
+AI_DIRECTION_RULES: list[tuple[list[str], str]] = [
+    (["agent", "智能体", "工作流", "自动化", "copilot"], "AI自动化"),
+    (["数字人", "虚拟人", "口播"], "AI数字人"),
+    (["获客", "营销", "广告", "销售", "内容", "短视频"], "AI营销"),
+    (["算力", "芯片", "gpu", "npu"], "AI算力"),
+    (["机器人", "机械臂"], "AI机器人"),
+    (["rag", "知识库", "向量"], "AI知识库"),
+    (["大模型", "模型", "生成式", "多模态"], "AI模型"),
+    (["人工智能", "ai", "aigc"], "AI趋势"),
+]
+AI_HARD_KEYWORDS = {
+    "ai",
+    "aigc",
+    "gpt",
+    "agent",
+    "chatgpt",
+    "openai",
+    "claude",
+    "deepseek",
+    "cursor",
+    "sora",
+    "midjourney",
+    "人工智能",
+    "生成式",
+    "大模型",
+    "智能体",
+    "数字人",
+    "虚拟人",
+    "机器人",
+    "机器学习",
+    "多模态",
+    "文心",
+    "通义",
+    "豆包",
+}
+TIME_CLUE_PATTERNS = [
+    re.compile(r"\d{4}-\d{1,2}-\d{1,2}(?:\s*\d{1,2}:\d{2})?"),
+    re.compile(r"\d{1,2}月\d{1,2}日(?:\s*\d{1,2}[:：]\d{2})?"),
+    re.compile(r"当地时间\d{1,2}日"),
+    re.compile(r"\d{1,2}日(?:上午|下午|晚间|晚)?"),
+]
+URL_NOISE_PATTERN = re.compile(r"(https?://\S+|//\S+|www\.\S+)")
+REFERENCE_MARK_PATTERN = re.compile(r"\[\d+\]")
+HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
+READER_META_LINE_PATTERN = re.compile(
+    r"^(Title|URL Source|Published Time|Markdown Content|Description|原标题|原文标题|发布时间|来源)\s*[:：]",
+    re.IGNORECASE,
+)
+READER_NAV_NOISE_PATTERN = re.compile(
+    r"(javascript:|栏目大全|节目单|主持人|下载央视影音|English|iPanda|Image \d|首页|直播中国|CCTV\.直播|请直接登录|扫码|扫描成功|微博客户端|邮箱帐号|新浪微博|确认即可登录|点击手机上的确认)",
+    re.IGNORECASE,
+)
+READER_CREDIT_LINE_PATTERN = re.compile(
+    r"^(?:监制|制片人|编导|记者|编辑|责编|责任编辑|后期|配音|素材支持|统筹|审核|监审|出品人|策划|剪辑|主播|主持人|作者|通讯员|文案|拍摄|美编|校对|翻译)\s*[丨|：:]",
+    re.IGNORECASE,
+)
+READER_SOCIAL_NOISE_PATTERN = re.compile(
+    r"(打开微信|扫一扫|微信扫一扫|分享至朋友圈|分享到朋友圈|分享到微信|媒体矩阵|下载客户端|下载APP|打开APP|二维码|工人日报客户端|客户端下载)",
+    re.IGNORECASE,
+)
+READER_FOOTER_NOISE_PATTERN = re.compile(
+    r"(Copyright|版权所有|ICP备|关于我们|联系我们|广告合作|返回首页|上一条|下一条|相关阅读|延伸阅读|推荐阅读|猜你喜欢|热点推荐|相关新闻|专题推荐|更多精彩)",
+    re.IGNORECASE,
+)
+READER_PAGE_NOISE_PATTERN = re.compile(
+    r"(百度一下|文心助手|APP内查看|点击查看|点击进入专题|点击底部的[“\"]发现[”\"]|使用[“\"]扫一扫[”\"]|网页链接|正文\s*$|滚动\s*$)",
+    re.IGNORECASE,
+)
+READER_INFOBAR_NOISE_PATTERN = re.compile(
+    r"(Language|Audio and Subscription|Subscription|全球视野|常人故事|其它|联合国新闻|UN News|Unsplash/[A-Za-z0-9_-]+|©\s*\S+)",
+    re.IGNORECASE,
+)
+READER_COMMENTARY_NOISE_PATTERN = re.compile(
+    r"(评论区|网友|说实话|不稀奇|再近点|我要看看|有没人|看不清|革命尚未成功|同志仍需努力|腿毛|挖鼻孔|都是人才|心里清楚|焦虑啊|必须要看清楚)",
+    re.IGNORECASE,
+)
+READER_RANK_BOARD_PATTERN = re.compile(
+    r"(热搜榜|民生榜|财经榜|关注榜|热榜|榜单|(?:^|\s)\d{1,2}\s*(?:热|新)(?=\s|$)|(?:^|\s)\d{1,2}(?:\s+\d{1,2}){5,})",
+    re.IGNORECASE,
+)
+UPSTREAM_ERROR_TEXT_PATTERN = re.compile(
+    r"(SecurityCompromiseError|Anonymous access to domain blocked|DDoS attack suspected|readableMessage|[\"“]code[\"”]\s*:\s*451|[\"“]status[\"”]\s*:\s*45102)",
+    re.IGNORECASE,
+)
+MARKDOWN_LINK_LINE_PATTERN = re.compile(r"(?:^|\s)#+\s*\[[^\]]{4,120}\]|\[[^\]]{4,120}\]\([^)]{0,240}\)")
+QUOTE_TERM_PATTERN = re.compile(r"[“\"']([^”“\"'\n]{2,18})[”\"']")
+CONTENT_FIELD_CANDIDATES = (
+    "content",
+    "clean_content",
+    "full_content",
+    "article_content",
+    "body",
+    "excerpt",
+)
+SUMMARY_FIELD_CANDIDATES = (
+    "summary",
+    "snippet",
+    "description",
+    "excerpt",
+    "body",
+)
+SEARCH_CONTENT_MAX_LENGTH = 1800
+DISPLAY_TITLE_MAX_LENGTH = 24
+DISPLAY_SUMMARY_MAX_LENGTH = 28
+BUSINESS_REASON_MAX_LENGTH = 90
+
+HOT_RANK_CACHE: dict[str, Any] | None = None
+HOT_RANK_REFRESH_TASK: asyncio.Task[Any] | None = None
+HOT_RANK_REFRESH_LOCK = asyncio.Lock()
+HOT_RANK_REFRESH_RETRY_COOLDOWN_SECONDS = 5 * 60
+HOT_RANK_REFRESH_ERROR: dict[str, Any] | None = None
+
+
+class UpstreamHttpError(Exception):
+    def __init__(self, status_code: int, raw_text: str):
+        super().__init__(f"HTTP {status_code}")
+        self.status_code = status_code
+        self.raw_text = raw_text
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        return
+
+
+def now_text() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def to_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def to_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
+def clean_config_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    placeholder_patterns = ("请替换", "your_", "your-", "example", "示例", "placeholder")
+    if any(pattern.lower() in text.lower() for pattern in placeholder_patterns):
+        return ""
+    return text
+
+
+def deep_copy_json(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+def env_text(*names: str) -> str:
+    for name in names:
+        value = clean_config_text(os.getenv(name, ""))
+        if value:
+            return value
+    return ""
+
+
+def env_int(*names: str) -> int | None:
+    for name in names:
+        raw = os.getenv(name)
+        if raw is None:
+            continue
+        try:
+            return int(raw)
+        except ValueError:
+            continue
+    return None
+
+
+def read_config() -> dict[str, Any]:
+    config = (
+        read_json(LOCAL_CONFIG_PATH)
+        or read_json(LEGACY_CONFIG_PATH)
+        or read_json(BACKEND_EXAMPLE_CONFIG_PATH)
+        or read_json(EXAMPLE_CONFIG_PATH)
+        or {}
+    )
+
+    base_url = env_text("UPSTREAM_BASE_URL", "OPENAI_BASE_URL") or clean_config_text(config.get("baseUrl", "")).rstrip("/")
+    api_key = env_text("UPSTREAM_API_KEY", "OPENAI_API_KEY") or clean_config_text(config.get("apiKey", ""))
+    default_model = env_text("UPSTREAM_DEFAULT_MODEL", "OPENAI_MODEL") or clean_config_text(config.get("defaultModel", "gemini-3-flash")) or "gemini-3-flash"
+    prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
+    port = env_int("PORT") or to_int(config.get("port", 8788), 8788)
+    retries = env_int("API_RETRIES") or to_int(config.get("retries", 2), 2)
+    timeout_seconds = env_int("API_TIMEOUT_SECONDS") or to_int(config.get("timeoutSeconds", 45), 45)
+
+    return {
+        "baseUrl": base_url.rstrip("/"),
+        "apiKey": api_key,
+        "defaultModel": default_model,
+        "port": port,
+        "promptVersion": prompt_version,
+        "retries": retries,
+        "timeoutSeconds": max(10, timeout_seconds),
+    }
+
+
+CONFIG = read_config()
+FREE_WORKFLOW_HOT_RANK = {"id": "free_scrapers", "name": "免费热榜兼容入口"}
+FREE_WORKFLOW_MANUAL_SEARCH = {"id": "free_search", "name": "免费搜索兼容入口"}
+
+app = FastAPI(title="云智道AI后端", version="0.4.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def append_log(payload: dict[str, Any]) -> None:
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_FILE.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
+async def fetch_with_retry(url: str, payload: dict[str, Any], headers: dict[str, str], retries: int) -> tuple[int, str]:
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    last_error: Exception | None = None
+
+    def send_once() -> tuple[int, str]:
+        request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=CONFIG["timeoutSeconds"]) as response:
+                return response.getcode(), response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            raw = error.read().decode("utf-8", errors="ignore")
+            raise UpstreamHttpError(error.code, raw) from error
+
+    for attempt in range(retries + 1):
+        try:
+            return await asyncio.to_thread(send_once)
+        except UpstreamHttpError as error:
+            if error.status_code == 429 and attempt < retries:
+                await asyncio.sleep(0.8 * (attempt + 1))
+                continue
+            return error.status_code, error.raw_text
+        except Exception as error:  # pragma: no cover
+            last_error = error
+            if attempt < retries:
+                await asyncio.sleep(0.8 * (attempt + 1))
+                continue
+
+    raise RuntimeError(str(last_error) if last_error else "上游请求失败")
+
+
+async def read_request_json(request: Request) -> dict[str, Any]:
+    raw = await request.body()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="请求体不是合法 JSON") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+    return parsed
+
+
+def unwrap_json_value(value: Any) -> Any:
+    current = value
+    for _ in range(8):
+        if not isinstance(current, str):
+            return current
+        text = current.strip()
+        if not text:
+            return ""
+        try:
+            current = json.loads(text)
+        except json.JSONDecodeError:
+            return current
+    return current
+
+
+def stringify_error(detail: Any) -> str:
+    if isinstance(detail, str):
+        return detail
+    try:
+        return json.dumps(detail, ensure_ascii=False)
+    except TypeError:
+        return str(detail)
+
+
+def get_hot_rank_cache() -> dict[str, Any] | None:
+    global HOT_RANK_CACHE
+    if isinstance(HOT_RANK_CACHE, dict):
+        if to_int(HOT_RANK_CACHE.get("cacheVersion"), 0) == HOT_RANK_CACHE_VERSION:
+            return HOT_RANK_CACHE
+        HOT_RANK_CACHE = None
+
+    cache = read_json(HOT_RANK_CACHE_PATH)
+    if isinstance(cache, dict):
+        if to_int(cache.get("cacheVersion"), 0) != HOT_RANK_CACHE_VERSION:
+            return None
+        HOT_RANK_CACHE = cache
+        return cache
+    return None
+
+
+def cache_age_seconds(cache: dict[str, Any] | None) -> int:
+    if not isinstance(cache, dict):
+        return 10**9
+    fetched_at_ts = to_int(cache.get("fetchedAtTs"), 0)
+    if fetched_at_ts <= 0:
+        return 10**9
+    return max(0, int(time.time()) - fetched_at_ts)
+
+
+def hot_rank_cache_is_fresh(cache: dict[str, Any] | None) -> bool:
+    return cache_age_seconds(cache) < HOT_RANK_CACHE_MAX_AGE_SECONDS
+
+
+def get_hot_rank_refresh_error() -> dict[str, Any] | None:
+    global HOT_RANK_REFRESH_ERROR
+    if not isinstance(HOT_RANK_REFRESH_ERROR, dict):
+        return None
+    error_ts = to_int(HOT_RANK_REFRESH_ERROR.get("ts"), 0)
+    if error_ts <= 0:
+        return None
+    if int(time.time()) - error_ts > HOT_RANK_REFRESH_RETRY_COOLDOWN_SECONDS:
+        HOT_RANK_REFRESH_ERROR = None
+        return None
+    return HOT_RANK_REFRESH_ERROR
+
+
+def build_hot_rank_cache_payload(result: dict[str, Any], workflow_id: str, workflow_name: str) -> dict[str, Any]:
+    normalized_result = normalize_hot_rank_result(result)
+    return {
+        "cacheVersion": HOT_RANK_CACHE_VERSION,
+        "fetchedAt": now_text(),
+        "fetchedAtTs": int(time.time()),
+        "workflow": {
+            "id": workflow_id,
+            "name": workflow_name,
+        },
+        "result": {
+            "snapshot_title": str(normalized_result.get("snapshot_title", "今日热榜中心")),
+            "generated_at": str(normalized_result.get("generated_at", "")),
+            "debug": normalized_result.get("debug") if isinstance(normalized_result.get("debug"), dict) else {},
+            "all_hot_list": normalized_result.get("all_hot_list") if isinstance(normalized_result.get("all_hot_list"), list) else [],
+            "business_hot_list": normalized_result.get("business_hot_list") if isinstance(normalized_result.get("business_hot_list"), list) else [],
+        },
+    }
+
+
+def build_hot_rank_response_content(
+    cache_payload: dict[str, Any],
+    all_limit: int,
+    business_limit: int,
+    *,
+    from_cache: bool,
+    stale: bool,
+    refreshing: bool,
+    warning: str = "",
+) -> dict[str, Any]:
+    raw_result = cache_payload.get("result") if isinstance(cache_payload.get("result"), dict) else {}
+    result = normalize_hot_rank_result(raw_result)
+    workflow = cache_payload.get("workflow") if isinstance(cache_payload.get("workflow"), dict) else {}
+    all_hot_list = result.get("all_hot_list") if isinstance(result.get("all_hot_list"), list) else []
+    business_hot_list = result.get("business_hot_list") if isinstance(result.get("business_hot_list"), list) else []
+
+    return {
+        "snapshotTitle": str(result.get("snapshot_title", "今日热榜中心")),
+        "generatedAt": str(result.get("generated_at", "")),
+        "debug": result.get("debug") if isinstance(result.get("debug"), dict) else {},
+        "allHotList": deep_copy_json(all_hot_list[: max(1, all_limit)]),
+        "businessHotList": deep_copy_json(business_hot_list[: max(1, business_limit)]),
+        "workflow": {
+            "id": str(workflow.get("id", "")),
+            "name": str(workflow.get("name", "")),
+        },
+        "cache": {
+            "fetchedAt": str(cache_payload.get("fetchedAt", "")),
+            "ageSeconds": cache_age_seconds(cache_payload),
+            "stale": stale,
+            "refreshing": refreshing,
+            "fromCache": from_cache,
+            "warning": warning,
+        },
+    }
+
+
+def build_hot_rank_placeholder(workflow_id: str, workflow_name: str, *, refreshing: bool, warning: str = "") -> dict[str, Any]:
+    return {
+        "snapshotTitle": "今日热榜中心",
+        "generatedAt": "",
+        "debug": {},
+        "allHotList": [],
+        "businessHotList": [],
+        "workflow": {
+            "id": workflow_id,
+            "name": workflow_name,
+        },
+        "cache": {
+            "fetchedAt": "",
+            "ageSeconds": 0,
+            "stale": False,
+            "refreshing": refreshing,
+            "fromCache": False,
+            "warning": warning,
+        },
+    }
+
+
+def contains_keyword(text: str, keyword: str) -> bool:
+    return keyword.lower() in text.lower()
+
+
+def dedupe_strings(values: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = clean_text(value)
+        key = re.sub(r"[\W_]+", "", text.lower())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(text)
+    return cleaned
+
+
+def collect_business_keyword_hits(text: str) -> tuple[list[str], int]:
+    normalized = clean_text(text).lower()
+    hits: list[str] = []
+    score = 0
+
+    for keyword, weight in BUSINESS_KEYWORD_WEIGHTS.items():
+        if keyword in normalized:
+            hits.append(keyword)
+            score += weight
+
+    if re.search(r"(监管|合规|治理|处罚|封号|风险)", normalized):
+        score += 2
+    if re.search(r"(获客|流量|转化|客户|成交|订单)", normalized):
+        score += 2
+    if re.search(r"(创业|企业|经营|老板)", normalized):
+        score += 1
+
+    return dedupe_strings(hits)[:6], score
+
+
+def collect_ai_keyword_hits(text: str) -> tuple[list[str], int]:
+    normalized = clean_text(text).lower()
+    hits: list[str] = []
+    score = 0
+
+    for keyword, weight in AI_KEYWORD_WEIGHTS.items():
+        if keyword in normalized:
+            hits.append(keyword)
+            score += weight
+
+    if re.search(r"(ai|人工智能|aigc|大模型|生成式|智能体|agent|自动化|数字人|机器人)", normalized):
+        score += 2
+    if re.search(r"(deepseek|openai|chatgpt|claude|gpt|通义|文心|豆包|copilot|cursor|sora|midjourney)", normalized):
+        score += 2
+    if re.search(r"(芯片|算力|gpu|npu|知识库|rag|向量)", normalized):
+        score += 1
+
+    return dedupe_strings(hits)[:8], score
+
+
+def infer_ai_directions(text: str) -> list[str]:
+    directions: list[str] = []
+    for keywords, direction in AI_DIRECTION_RULES:
+        if any(contains_keyword(text, keyword) for keyword in keywords):
+            directions.append(direction)
+    if not directions:
+        directions.append("AI趋势")
+    deduped: list[str] = []
+    for direction in directions:
+        if direction not in deduped:
+            deduped.append(direction)
+    return deduped[:4]
+
+
+def collect_ai_anchor_hits(text: str) -> list[str]:
+    normalized = clean_text(text).lower()
+    hits = [keyword for keyword in AI_HARD_KEYWORDS if keyword in normalized]
+    return dedupe_strings(hits)[:6]
+
+
+def infer_ai_recommend_reason(text: str, directions: list[str], matched_keywords: list[str]) -> str:
+    normalized = clean_text(text)
+    if re.search(r"(监管|合规|治理|处罚|备案|安全)", normalized) and matched_keywords:
+        return "这条热点和AI监管、合规边界或平台治理直接相关，适合做AI行业解读。"
+    if re.search(r"(算力|芯片|gpu|npu|服务器|模型训练)", normalized):
+        return "这条热点和AI基础设施、模型能力或产业链变化直接相关，适合做AI行业解读。"
+    if re.search(r"(数字人|智能体|agent|自动化|工作流|机器人)", normalized):
+        return "这条热点和AI工具、智能体或自动化应用直接相关，适合做AI行业解读。"
+    if directions:
+        return f"这条热点已经能往{'、'.join(directions[:2])}上延伸，适合拆成AI行业判断。"
+    if matched_keywords:
+        return f"这条热点和{'、'.join(matched_keywords[:2])}直接相关，适合做AI行业解读。"
+    return ""
+
+
+def infer_ai_recommended_angle(text: str, directions: list[str], reason: str) -> str:
+    normalized = clean_text(text)
+    if "AI营销" in directions:
+        return "从AI营销和内容获客落地切入，判断接下来会带来什么变化。"
+    if "AI自动化" in directions:
+        return "从AI自动化和智能体落地切入，判断对企业效率和流程的影响。"
+    if "AI数字人" in directions:
+        return "从AI数字人和内容生产切入，判断这条变化会带来哪些新机会。"
+    if "AI算力" in directions or re.search(r"(芯片|算力|gpu|npu)", normalized):
+        return "从AI基础设施和产业链切入，判断接下来哪些方向会先受影响。"
+    if "AI模型" in directions:
+        return "从模型能力和AI工具演进切入，判断下一步的应用机会。"
+    return reason
+
+
+def clean_list_text(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    cleaned: list[str] = []
+    for value in values:
+        text = clean_text(value)
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def hot_item_identity(item: dict[str, Any]) -> str:
+    title = clean_text(item.get("title")).lower()
+    url = clean_text(item.get("source_url")).lower()
+    summary = clean_text(item.get("summary")).lower()
+    if title and url:
+        return f"{title}|{url}"
+    return title or url or summary
+
+
+def business_item_identity(item: dict[str, Any]) -> str:
+    title = clean_text(item.get("title")).lower()
+    url = clean_text(item.get("source_url")).lower()
+    summary = clean_text(item.get("summary")).lower()
+    if title and url:
+        return f"{title}|{url}"
+    return title or url or summary
+
+
+def dedupe_items(items: list[dict[str, Any]], identity_getter) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for item in items:
+        key = identity_getter(item)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+
+    return deduped
+
+
+def normalize_hot_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = deep_copy_json(item)
+    key_points = clean_list_text(item.get("key_points"))
+    timeline = clean_list_text(item.get("timeline"))
+    title = clean_text(item.get("title")) or (trim_text(key_points[0], 80) if key_points else "")
+    why_hot = clean_text(item.get("why_hot"))
+    business_reason = build_business_reason(item.get("business_reason"), item.get("boss_impact"))
+    clean_content = build_clean_content(item.get("clean_content"), item.get("content"), item.get("summary"), title)
+    summary = clean_text(item.get("summary")) or summarize_search_content(clean_content, max_length=220) or (trim_text(key_points[0], 220) if key_points else "")
+    display_title = clean_text(item.get("display_title")) or build_display_title(title, summary, why_hot, clean_content)
+    display_summary = clean_text(item.get("display_summary")) or build_display_summary(summary, why_hot, clean_content, title)
+    quality_score, quality_status = assess_content_quality(clean_content, source_count=1)
+    normalized.update(
+        {
+            "hot_id": clean_text(item.get("hot_id")),
+            "title": title,
+            "summary": summary,
+            "display_title": display_title,
+            "display_summary": display_summary,
+            "publish_time": clean_text(item.get("publish_time")),
+            "source_platform": clean_text(item.get("source_platform")),
+            "media_name": clean_text(item.get("media_name")),
+            "source_url": clean_text(item.get("source_url")),
+            "content": clean_content,
+            "clean_content": clean_content,
+            "article_source": clean_text(item.get("article_source")),
+            "article_url": clean_text(item.get("article_url")) or clean_text(item.get("source_url")),
+            "topic_type": clean_text(item.get("topic_type")),
+            "heat_score": max(0, min(100, to_int(item.get("heat_score"), 0))),
+            "why_hot": why_hot or display_summary,
+            "key_points": key_points or split_search_sentences(clean_content or summary, limit=3),
+            "timeline": timeline,
+            "public_impact": clean_text(item.get("public_impact")),
+            "boss_impact": business_reason,
+            "business_reason": business_reason,
+            "quality_score": quality_score,
+            "quality_status": quality_status,
+        }
+    )
+    return normalized
+
+
+def normalize_business_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = deep_copy_json(item)
+    title = clean_text(item.get("title"))
+    summary = clean_text(item.get("summary"))
+    business_reason = build_business_reason(item.get("business_reason"), item.get("recommend_reason"), item.get("recommended_angle"))
+    clean_content = build_clean_content(item.get("clean_content"), item.get("content"), summary, title)
+    if not summary:
+        summary = summarize_search_content(clean_content, max_length=220) or trim_text(title, 220)
+    display_title = clean_text(item.get("display_title")) or build_display_title(title, summary, clean_content)
+    display_summary = clean_text(item.get("display_summary")) or build_display_summary(summary, clean_content, title)
+    quality_score, quality_status = assess_content_quality(clean_content, source_count=1)
+    normalized.update(
+        {
+            "hot_id": clean_text(item.get("hot_id")),
+            "title": title,
+            "summary": summary,
+            "display_title": display_title,
+            "display_summary": display_summary,
+            "publish_time": clean_text(item.get("publish_time")),
+            "topic_type": clean_text(item.get("topic_type")),
+            "business_relevance_score": max(0, min(100, to_int(item.get("business_relevance_score"), 0))),
+            "recommend_reason": business_reason or clean_text(item.get("recommend_reason")),
+            "recommended_angle": clean_text(item.get("recommended_angle")),
+            "recommended_content_type": clean_text(item.get("recommended_content_type")),
+            "bridge_directions": clean_list_text(item.get("bridge_directions")),
+            "source_url": clean_text(item.get("source_url")),
+            "content": clean_content,
+            "clean_content": clean_content,
+            "article_source": clean_text(item.get("article_source")),
+            "article_url": clean_text(item.get("article_url")) or clean_text(item.get("source_url")),
+            "business_reason": business_reason,
+            "quality_score": quality_score,
+            "quality_status": quality_status,
+        }
+    )
+    return normalized
+
+
+def sort_hot_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        items,
+        key=lambda item: (
+            -to_int(item.get("heat_score"), 0),
+            clean_text(item.get("publish_time")),
+            clean_text(item.get("title")),
+        ),
+        reverse=False,
+    )
+
+
+def sort_business_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        items,
+        key=lambda item: (
+            -to_int(item.get("business_relevance_score"), 0),
+            clean_text(item.get("publish_time")),
+            clean_text(item.get("title")),
+        ),
+        reverse=False,
+    )
+
+
+def is_aggregate_hot_item(item: dict[str, Any]) -> bool:
+    title = clean_text(item.get("title"))
+    summary = clean_text(item.get("summary"))
+    key_points = clean_list_text(item.get("key_points"))
+    if len(key_points) < 2:
+        return False
+
+    title_lower = title.lower()
+    if any(keyword in title_lower for keyword in AGGREGATE_HOT_KEYWORDS):
+        return True
+    if title.count("、") >= 2 or title.count("，") >= 2 or "10条" in title or "15条" in title:
+        return True
+    if sum(1 for token in ("1.", "2.", "3.", "1、", "2、", "3、") if token in summary) >= 2:
+        return True
+    return False
+
+
+def expand_hot_item(item: dict[str, Any]) -> list[dict[str, Any]]:
+    normalized = normalize_hot_item(item)
+    if not is_aggregate_hot_item(normalized):
+        return [normalized]
+
+    base_id = clean_text(normalized.get("hot_id")) or "hot"
+    expanded: list[dict[str, Any]] = []
+    for index, point in enumerate(clean_list_text(normalized.get("key_points"))):
+        point_title = trim_text(point.rstrip("。；; "), 80)
+        if len(point_title) < 6:
+            continue
+        expanded.append(
+            {
+                **normalized,
+                "hot_id": f"{base_id}_split_{index + 1:02d}",
+                "title": point_title,
+                "summary": point_title,
+                "key_points": [point_title],
+                "heat_score": max(40, to_int(normalized.get("heat_score"), 0) - index * 3),
+            }
+        )
+
+    return expanded or [normalized]
+
+
+def hot_item_from_business(item: dict[str, Any], index: int) -> dict[str, Any]:
+    normalized = normalize_business_item(item)
+    directions = clean_list_text(normalized.get("bridge_directions"))
+    summary = clean_text(normalized.get("summary")) or clean_text(normalized.get("recommend_reason"))
+    return {
+        "hot_id": clean_text(normalized.get("hot_id")) or f"hot_fill_{index + 1:02d}",
+        "title": clean_text(normalized.get("title")),
+        "summary": summary,
+        "publish_time": clean_text(normalized.get("publish_time")),
+        "source_platform": "",
+        "media_name": "",
+        "source_url": clean_text(normalized.get("source_url")),
+        "content": clean_text(normalized.get("content")),
+        "article_source": clean_text(normalized.get("article_source")),
+        "article_url": clean_text(normalized.get("article_url")) or clean_text(normalized.get("source_url")),
+        "topic_type": clean_text(normalized.get("topic_type")),
+        "heat_score": max(45, min(95, to_int(normalized.get("business_relevance_score"), 0) - 3)),
+        "why_hot": clean_text(normalized.get("recommend_reason")),
+        "key_points": directions,
+        "timeline": [],
+        "public_impact": "",
+        "boss_impact": clean_text(normalized.get("recommended_angle")) or clean_text(normalized.get("recommend_reason")),
+    }
+
+
+def infer_bridge_directions(text: str) -> list[str]:
+    directions: list[str] = []
+    for keywords, direction in BRIDGE_DIRECTION_RULES:
+        if any(contains_keyword(text, keyword) for keyword in keywords):
+            directions.append(direction)
+    if not directions:
+        directions.append("商业趋势")
+    deduped: list[str] = []
+    for direction in directions:
+        if direction not in deduped:
+            deduped.append(direction)
+    return deduped[:4]
+
+
+def infer_business_content_type(text: str) -> str:
+    lowered = text.lower()
+    if any(keyword in lowered for keyword in ["监管", "合规", "治理", "安全", "备案"]):
+        return "AI政策"
+    if any(keyword in lowered for keyword in ["agent", "智能体", "工作流", "自动化", "copilot"]):
+        return "AI工具"
+    if any(keyword in lowered for keyword in ["芯片", "算力", "gpu", "npu", "服务器", "大模型"]):
+        return "AI产业链"
+    if any(keyword in lowered for keyword in ["数字人", "机器人", "营销", "内容", "短视频"]):
+        return "AI应用"
+    return "AI趋势"
+
+
+def infer_business_relevance_score(item: dict[str, Any]) -> int:
+    text = " ".join(
+        filter(
+            None,
+            [
+                clean_text(item.get("title")),
+                clean_text(item.get("summary")),
+                clean_text(item.get("topic_type")),
+                clean_text(item.get("boss_impact")),
+                clean_text(item.get("why_hot")),
+            ],
+        )
+    )
+    score = max(20, min(92, to_int(item.get("heat_score"), 0)))
+    matched_keywords, signal_score = collect_ai_keyword_hits(text)
+    anchor_hits = collect_ai_anchor_hits(text)
+    if anchor_hits:
+        score = min(98, score + min(24, signal_score * 2))
+    else:
+        score = min(score, 38)
+    return score
+
+
+def is_business_relevant_hot_item(item: dict[str, Any]) -> bool:
+    text = " ".join(
+        filter(
+            None,
+            [
+                clean_text(item.get("title")),
+                clean_text(item.get("summary")),
+                clean_text(item.get("topic_type")),
+                clean_text(item.get("boss_impact")),
+                clean_text(item.get("why_hot")),
+            ],
+        )
+    )
+    matched_keywords, signal_score = collect_ai_keyword_hits(text)
+    anchor_hits = collect_ai_anchor_hits(text)
+    title_text = " ".join(filter(None, [clean_text(item.get("title")), clean_text(item.get("summary"))])).lower()
+    title_anchor_hits = [keyword for keyword in AI_HARD_KEYWORDS if keyword in title_text]
+    return bool(title_anchor_hits) or (bool(anchor_hits) and (signal_score >= 6 or len(matched_keywords) >= 2))
+
+
+def filter_ai_relevant_hot_ranks(hot_ranks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    relevant_items: list[dict[str, Any]] = []
+
+    for item in hot_ranks:
+        title_text = " ".join(filter(None, [clean_text(item.get("title")), clean_text(item.get("summary"))]))
+        content_text = " ".join(filter(None, [clean_text(item.get("content")), clean_text(item.get("article_source"))]))
+        merged_text = " ".join(filter(None, [title_text, content_text]))
+        matched_keywords, signal_score = collect_ai_keyword_hits(merged_text)
+        anchor_hits = collect_ai_anchor_hits(merged_text)
+        title_anchor_hits = [keyword for keyword in AI_HARD_KEYWORDS if keyword in title_text.lower()]
+
+        if not title_anchor_hits and not anchor_hits:
+            continue
+        if signal_score < 6 and len(matched_keywords) < 2:
+            continue
+
+        enriched_item = dict(item)
+        enriched_item["matched_keywords"] = matched_keywords[:8]
+        enriched_item["business_score"] = max(signal_score * 3, to_int(item.get("business_score"), 0))
+        relevant_items.append(enriched_item)
+
+    return sorted(
+        relevant_items,
+        key=lambda item: (
+            -int(item.get("business_score", 0)),
+            -len(clean_text(item.get("summary", ""))),
+            int(item.get("rank", 9999)),
+        ),
+    )
+
+
+def business_item_from_hot(item: dict[str, Any], index: int) -> dict[str, Any]:
+    normalized = normalize_hot_item(item)
+    text = " ".join(
+        filter(
+            None,
+            [
+                clean_text(normalized.get("title")),
+                clean_text(normalized.get("summary")),
+                clean_text(normalized.get("boss_impact")),
+                clean_text(normalized.get("why_hot")),
+            ],
+        )
+    )
+    matched_keywords, _ = collect_ai_keyword_hits(text)
+    directions = infer_ai_directions(text)
+    reason = infer_ai_recommend_reason(text, directions, matched_keywords) or clean_text(normalized.get("why_hot")) or clean_text(normalized.get("summary"))
+    recommended_angle = infer_ai_recommended_angle(text, directions, reason)
+    return {
+        "hot_id": clean_text(normalized.get("hot_id")) or f"biz_fill_{index + 1:02d}",
+        "title": clean_text(normalized.get("title")),
+        "summary": clean_text(normalized.get("summary")),
+        "publish_time": clean_text(normalized.get("publish_time")),
+        "topic_type": "AI行业热榜",
+        "business_relevance_score": infer_business_relevance_score(normalized),
+        "recommend_reason": reason,
+        "recommended_angle": recommended_angle,
+        "recommended_content_type": infer_business_content_type(text),
+        "bridge_directions": directions,
+        "source_url": clean_text(normalized.get("source_url")),
+        "content": clean_text(normalized.get("content")),
+        "article_source": clean_text(normalized.get("article_source")),
+        "article_url": clean_text(normalized.get("article_url")) or clean_text(normalized.get("source_url")),
+    }
+
+
+def normalize_hot_rank_result(result: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {
+            "snapshot_title": "今日热榜中心",
+            "generated_at": "",
+            "debug": {},
+            "all_hot_list": [],
+            "business_hot_list": [],
+        }
+
+    raw_all = result.get("all_hot_list") if isinstance(result.get("all_hot_list"), list) else []
+    raw_business = result.get("business_hot_list") if isinstance(result.get("business_hot_list"), list) else []
+
+    expanded_all: list[dict[str, Any]] = []
+    for item in raw_all:
+        if isinstance(item, dict):
+            expanded_all.extend(expand_hot_item(item))
+    all_hot_items = dedupe_items(sort_hot_items(expanded_all), hot_item_identity)
+
+    if len(all_hot_items) < 5:
+        for index, item in enumerate(raw_business):
+            if not isinstance(item, dict):
+                continue
+            candidate = hot_item_from_business(item, index)
+            key = hot_item_identity(candidate)
+            if key and not any(hot_item_identity(existing) == key for existing in all_hot_items):
+                all_hot_items.append(candidate)
+            if len(all_hot_items) >= 5:
+                break
+        all_hot_items = dedupe_items(sort_hot_items(all_hot_items), hot_item_identity)
+
+    business_candidates = [normalize_business_item(item) for item in raw_business if isinstance(item, dict)]
+    for index, item in enumerate(all_hot_items):
+        if is_business_relevant_hot_item(item):
+            business_candidates.append(business_item_from_hot(item, index))
+
+    business_items = dedupe_items(sort_business_items(business_candidates), business_item_identity)
+    first_all_key = hot_item_identity(all_hot_items[0]) if all_hot_items else ""
+    if first_all_key and len(business_items) > 1:
+        business_items = sorted(business_items, key=lambda item: 1 if business_item_identity(item) == first_all_key else 0)
+
+    debug = result.get("debug") if isinstance(result.get("debug"), dict) else {}
+    next_debug = {
+        **debug,
+        "display_all_count": len(all_hot_items),
+        "display_business_count": len(business_items),
+    }
+
+    return {
+        **result,
+        "snapshot_title": clean_text(result.get("snapshot_title")) or "今日热榜中心",
+        "generated_at": clean_text(result.get("generated_at")),
+        "debug": next_debug,
+        "all_hot_list": all_hot_items,
+        "business_hot_list": business_items,
+    }
+
+
+async def refresh_hot_rank_cache(*, force: bool) -> dict[str, Any]:
+    global HOT_RANK_CACHE, HOT_RANK_REFRESH_ERROR
+    cache = get_hot_rank_cache()
+    if cache and hot_rank_cache_is_fresh(cache) and not force:
+        return cache
+
+    async with HOT_RANK_REFRESH_LOCK:
+        cache = get_hot_rank_cache()
+        if cache and hot_rank_cache_is_fresh(cache) and not force:
+            return cache
+
+        if not FREE_SCRAPERS_AVAILABLE:
+            raise HTTPException(status_code=503, detail="免费热榜模块不可用，请检查 backend 依赖。")
+
+        cache_payload = await asyncio.to_thread(
+            build_free_hot_rank_cache_payload,
+            limit_per_platform=max(10, HOT_RANK_DEFAULT_ALL_LIMIT // 2 + 4),
+            display_all_limit=HOT_RANK_DEFAULT_ALL_LIMIT,
+            display_business_limit=HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+        )
+        HOT_RANK_CACHE = cache_payload
+        HOT_RANK_REFRESH_ERROR = None
+        write_json(HOT_RANK_CACHE_PATH, cache_payload)
+        return cache_payload
+
+
+def start_hot_rank_refresh(*, force: bool) -> None:
+    global HOT_RANK_REFRESH_TASK, HOT_RANK_REFRESH_ERROR
+    if HOT_RANK_REFRESH_TASK and not HOT_RANK_REFRESH_TASK.done():
+        return
+
+    async def runner() -> None:
+        global HOT_RANK_REFRESH_ERROR
+        try:
+            await refresh_hot_rank_cache(force=force)
+        except Exception as error:  # pragma: no cover
+            HOT_RANK_REFRESH_ERROR = {
+                "message": str(error),
+                "ts": int(time.time()),
+            }
+            append_log(
+                {
+                    "time": now_text(),
+                    "route": "background:hot-rank-refresh",
+                    "status": 500,
+                    "durationMs": 0,
+                    "error": str(error),
+                }
+            )
+
+    HOT_RANK_REFRESH_TASK = asyncio.create_task(runner())
+
+    def clear_task(_: asyncio.Task[Any]) -> None:
+        global HOT_RANK_REFRESH_TASK
+        HOT_RANK_REFRESH_TASK = None
+
+    HOT_RANK_REFRESH_TASK.add_done_callback(clear_task)
+
+
+def clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = html.unescape(str(value))
+    text = text.replace("\u3000", " ").replace("\xa0", " ")
+    text = re.sub(r"[\u0000-\u001f\u007f-\u009f\uE000-\uF8FF\uFFF0-\uFFFF�]+", " ", text)
+    text = re.sub(r"(?:更多资讯请)?(?:下载|打开)(?:[^\s，。！？!?]{0,10})?客户端", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if text and UPSTREAM_ERROR_TEXT_PATTERN.search(text) and (text.startswith("{") or "SecurityCompromiseError" in text):
+        return ""
+    return text
+
+
+def has_chinese(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text))
+
+
+def strip_non_chinese_prefix(text: str) -> str:
+    if not text:
+        return ""
+    if has_chinese(text):
+        match = re.search(r"[\u4e00-\u9fff]", text)
+        if match and match.start() > 24:
+            return text[match.start() :].strip()
+    return text
+
+
+def remove_url_noise(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = URL_NOISE_PATTERN.sub(" ", text)
+    cleaned = REFERENCE_MARK_PATTERN.sub(" ", cleaned)
+    cleaned = HTML_TAG_PATTERN.sub(" ", cleaned)
+    cleaned = re.sub(r"[\u0000-\u001f\u007f-\u009f\uE000-\uF8FF\uFFF0-\uFFFF�]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def text_dedupe_key(text: str) -> str:
+    return re.sub(r"[\W_]+", "", clean_text(text).lower())
+
+
+def reader_line_is_noise(text: str) -> bool:
+    normalized = clean_text(text)
+    if not normalized:
+        return True
+    if READER_META_LINE_PATTERN.match(normalized):
+        return True
+    if READER_NAV_NOISE_PATTERN.search(normalized):
+        return True
+    if READER_CREDIT_LINE_PATTERN.match(normalized):
+        return True
+    if READER_SOCIAL_NOISE_PATTERN.search(normalized):
+        return True
+    if READER_PAGE_NOISE_PATTERN.search(normalized):
+        return True
+    if READER_INFOBAR_NOISE_PATTERN.search(normalized) and len(normalized) <= 220:
+        return True
+    if READER_FOOTER_NOISE_PATTERN.search(normalized) and len(normalized) <= 200:
+        return True
+    if READER_RANK_BOARD_PATTERN.search(normalized) and len(normalized) <= 180:
+        return True
+    if MARKDOWN_LINK_LINE_PATTERN.search(normalized):
+        return True
+    if "登录" in normalized and len(normalized) <= 24:
+        return True
+    if re.fullmatch(r"[=\-*#]{4,}", normalized):
+        return True
+    if normalized.startswith("* [") or normalized.startswith("["):
+        return True
+    if normalized.endswith("(") and len(normalized) <= 24:
+        return True
+    if re.match(r"^(?:[*-]\s*)?\[[^\]]{0,80}\]$", normalized):
+        return True
+    if re.match(r"^(?:[*-]\s*)?\[[^\]]{0,80}\]\([^)]*\)$", normalized):
+        return True
+    if re.match(r"^(?:[*-]\s*)?\[[^\]]{0,80}\]\([^)]*$", normalized):
+        return True
+    if normalized.count("[") + normalized.count("]") + normalized.count("(") + normalized.count(")") >= 3 and len(re.sub(r"[\[\]\(\)\*=\-\s]", "", normalized)) < 8:
+        return True
+    if normalized.count("[") + normalized.count("]") >= 4:
+        return True
+    if len(normalized) < 4:
+        return True
+    return False
+
+
+def reader_sentence_is_noise(text: str) -> bool:
+    normalized = clean_text(text)
+    if not normalized:
+        return True
+    if reader_line_is_noise(normalized):
+        return True
+    if READER_COMMENTARY_NOISE_PATTERN.search(normalized):
+        return True
+    if READER_RANK_BOARD_PATTERN.search(normalized):
+        return True
+    if READER_INFOBAR_NOISE_PATTERN.search(normalized):
+        return True
+    if len(normalized) < 10:
+        return True
+    return False
+
+
+def dedupe_text_lines(lines: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen_keys: list[str] = []
+    for line in lines:
+        normalized = clean_text(line)
+        key = text_dedupe_key(normalized)
+        if not key:
+            continue
+        if any(existing == key or existing in key or key in existing for existing in seen_keys):
+            continue
+        seen_keys.append(key)
+        deduped.append(normalized)
+    return deduped
+
+
+def dedupe_inline_sentences(text: str) -> str:
+    normalized = clean_text(text)
+    if not normalized:
+        return ""
+    chunks = [clean_text(part) for part in re.findall(r"[^。！？!?；;\n]+[。！？!?；;]?", normalized) if clean_text(part)]
+    if len(chunks) <= 1:
+        return normalized
+
+    deduped: list[str] = []
+    seen_keys: list[str] = []
+    for chunk in chunks:
+        key = text_dedupe_key(chunk)
+        if not key:
+            continue
+        if any(existing == key or existing in key or key in existing for existing in seen_keys):
+            continue
+        seen_keys.append(key)
+        deduped.append(chunk)
+    return " ".join(deduped).strip()
+
+
+def strip_reader_noise_fragments(text: str) -> str:
+    normalized = clean_text(text)
+    if not normalized:
+        return ""
+    normalized = re.sub(r"\s*[-|｜]\s*滚动\s*[-|｜]\s*[^。！？!?]{0,40}", " ", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\*\s*更多", " ", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?:\|\s*\|?\s*\d*\s*)?(?:联合国新闻|UN News)\b.*?(?=Language|Audio and Subscription|全球视野|常人故事|其它|©|$)", " ", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?:Language|Audio and Subscription|Subscription|全球视野|常人故事|其它|©\s*\S+|Unsplash/[A-Za-z0-9_-]+).*$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?:监制|制片人|编导|记者|编辑|责编|责任编辑|后期|配音|素材支持|统筹|审核|监审|出品人|策划|剪辑|作者|主持人|通讯员|文案|拍摄|美编|校对|翻译)\s*[丨|：:].*$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?:媒体矩阵|打开微信|扫一扫|微信扫一扫|分享至朋友圈|分享到朋友圈|分享到微信|下载客户端|下载APP|打开APP|二维码|工人日报客户端|客户端下载).*$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?:Copyright|版权所有|相关阅读|延伸阅读|推荐阅读|热点推荐|相关新闻|专题推荐|更多精彩).*$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?:[_\s]{0,4}播报[_\s]{0,4}暂停.*$|播报\s*暂停.*$)", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"###.*$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?:相关阅读|推荐阅读|更多精彩|热点推荐|相关新闻|专题推荐|延伸阅读|相关内容).*$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"(?:\*{1,3}\s*)?[^\s]{0,20}\s*\(\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}.*$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\s+", " ", normalized).strip(" -*#")
+    return normalized
+
+
+def split_meaningful_sentences(text: str) -> list[str]:
+    normalized = clean_text(text)
+    if not normalized:
+        return []
+    parts = [clean_text(part) for part in re.split(r"[。！？!?；;\n]+", normalized) if clean_text(part)]
+    kept: list[str] = []
+    seen_keys: set[str] = set()
+    for part in parts:
+        sentence = strip_reader_noise_fragments(remove_url_noise(part))
+        sentence = re.sub(r"^[#*>\-]+\s*", "", sentence)
+        sentence = re.sub(r"\s+", " ", sentence).strip(" -*#")
+        if reader_sentence_is_noise(sentence):
+            continue
+        key = text_dedupe_key(sentence)
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        kept.append(sentence)
+    return kept
+
+
+def chinese_ratio(text: str) -> float:
+    sample = re.sub(r"\s+", "", text)
+    if not sample:
+        return 0.0
+    chinese_count = sum(1 for char in sample if "\u4e00" <= char <= "\u9fff")
+    return chinese_count / max(1, len(sample))
+
+
+def normalize_search_text(value: Any, *, max_length: int) -> str:
+    text = remove_url_noise(clean_text(value))
+    text = strip_non_chinese_prefix(text)
+    text = re.sub(r"[|｜]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" -—_、,，。；;")
+    return trim_text(text, max_length)
+
+
+def clean_reader_content(value: Any, *, max_length: int) -> str:
+    if value is None:
+        return ""
+    raw = html.unescape(str(value)).replace("\u3000", " ").replace("\xa0", " ")
+    if not raw:
+        return ""
+
+    cleaned_lines: list[str] = []
+    for line in raw.splitlines():
+        normalized = remove_url_noise(clean_text(line))
+        normalized = normalized.replace("* * *", " ").replace("|", " ").replace("｜", " ")
+        normalized = strip_reader_noise_fragments(normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip(" -*#")
+        normalized = dedupe_inline_sentences(normalized)
+        if reader_line_is_noise(normalized):
+            continue
+        split_sentences = split_meaningful_sentences(normalized)
+        if not split_sentences:
+            continue
+        cleaned_lines.extend(split_sentences)
+
+    joined = "\n".join(dedupe_text_lines(cleaned_lines)).strip()
+    if not joined:
+        return ""
+    return trim_text(joined, max_length)
+
+
+def summarize_search_content(value: Any, *, max_length: int) -> str:
+    content = clean_reader_content(value, max_length=max_length * 4)
+    if not content:
+        return ""
+
+    parts = [
+        clean_text(part)
+        for part in re.split(r"[。！？!?；;\n]", content)
+        if clean_text(part)
+    ]
+    picked: list[str] = []
+    seen_keys: set[str] = set()
+    total_length = 0
+    for part in parts:
+        if reader_sentence_is_noise(part):
+            continue
+        key = text_dedupe_key(part)
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        picked.append(part)
+        total_length += len(part)
+        if len(picked) >= 2 or total_length >= max_length - 12:
+            break
+
+    summary = "。".join(picked) if picked else content
+    if summary and not summary.endswith(("。", "！", "？", "!", "?")):
+        summary += "。"
+    return trim_text(summary, max_length)
+
+
+def extract_item_field(item: dict[str, Any], field_names: tuple[str, ...], *, max_length: int, content: bool = False) -> str:
+    for field_name in field_names:
+        value = item.get(field_name)
+        if value is None:
+            continue
+        text = clean_reader_content(value, max_length=max_length) if content else normalize_search_text(value, max_length=max_length)
+        if text:
+            return text
+    return ""
+
+
+def split_search_sentences(text: str, *, limit: int = 8) -> list[str]:
+    sentences: list[str] = []
+    seen_keys: set[str] = set()
+    for chunk in re.split(r"[。！？!?；;\n]", clean_text(text)):
+        sentence = remove_url_noise(clean_text(chunk)).strip(" -—_、,，。；;")
+        if reader_sentence_is_noise(sentence):
+            continue
+        key = text_dedupe_key(sentence)
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        sentences.append(sentence)
+        if len(sentences) >= limit:
+            break
+    return sentences
+
+
+def infer_fact_pack_summary(topic_query: str, event_anchor: str, key_facts: list[str], time_clues: list[str]) -> str:
+    parts: list[str] = []
+    if event_anchor:
+        parts.append(sentence_end(event_anchor))
+    if key_facts:
+        parts.append(sentence_end(key_facts[0]))
+    if time_clues:
+        parts.append(sentence_end(f"公开时间线里反复出现的节点包括{'；'.join(time_clues[:3])}"))
+    summary = " ".join(parts[:2]).strip()
+    return summary or f"已整理出与“{topic_query}”相关的公开事实线索。"
+
+
+def infer_ambiguous_terms(*texts: str) -> list[str]:
+    merged = " ".join(clean_text(text) for text in texts if clean_text(text))
+    if not merged:
+        return []
+
+    candidates = [clean_text(match.group(1)) for match in QUOTE_TERM_PATTERN.finditer(merged)]
+    filtered: list[str] = []
+    for candidate in candidates:
+        if len(candidate) < 2 or len(candidate) > 12:
+            continue
+        if candidate not in filtered:
+            filtered.append(candidate)
+    return filtered[:4]
+
+
+def trim_text(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 1].rstrip(" ，。；;:：") + "…"
+
+
+def sentence_end(text: str) -> str:
+    value = clean_text(text).rstrip("，,；; ")
+    if not value:
+        return ""
+    return value if value.endswith(("。", "！", "？", "!", "?")) else f"{value}。"
+
+
+def collect_meaningful_sentences_from_values(*values: Any, limit: int = 8) -> list[str]:
+    sentences: list[str] = []
+    seen_keys: set[str] = set()
+
+    for value in values:
+        text = clean_text(value)
+        if not text:
+            continue
+        for sentence in split_meaningful_sentences(text):
+            key = text_dedupe_key(sentence)
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            sentences.append(sentence)
+            if len(sentences) >= limit:
+                return sentences
+
+    return sentences
+
+
+def build_display_title(*values: Any, max_length: int = DISPLAY_TITLE_MAX_LENGTH) -> str:
+    for value in values:
+        text = clean_text(value)
+        if not text:
+            continue
+        sentence = collect_meaningful_sentences_from_values(text, limit=1)
+        candidate = sentence[0] if sentence else text
+        candidate = candidate.rstrip("，。；;:： ")
+        if candidate:
+            return trim_text(candidate, max_length)
+    return ""
+
+
+def build_display_summary(*values: Any, max_length: int = DISPLAY_SUMMARY_MAX_LENGTH) -> str:
+    sentences = collect_meaningful_sentences_from_values(*values, limit=2)
+    if not sentences:
+        return ""
+    candidate = sentences[0].rstrip("，。；;:： ")
+    if len(candidate) < 14 and len(sentences) > 1:
+        candidate = f"{candidate}，{sentences[1].rstrip('，。；;:： ')}"
+    return trim_text(candidate, max_length)
+
+
+def build_clean_content(*values: Any, max_length: int = SEARCH_CONTENT_MAX_LENGTH, sentence_limit: int = 12) -> str:
+    sentences = collect_meaningful_sentences_from_values(*values, limit=sentence_limit)
+    if not sentences:
+        return ""
+    content = "\n".join(sentence_end(sentence) for sentence in sentences if sentence)
+    return trim_text(content, max_length)
+
+
+def build_business_reason(*values: Any, max_length: int = BUSINESS_REASON_MAX_LENGTH) -> str:
+    for value in values:
+        text = clean_text(value)
+        if not text:
+            continue
+        sentence = collect_meaningful_sentences_from_values(text, limit=1)
+        candidate = sentence[0] if sentence else text
+        candidate = candidate.rstrip("，。；;:： ")
+        if candidate:
+            return trim_text(candidate, max_length)
+    return ""
+
+
+def assess_content_quality(clean_content: str, *, source_count: int = 1) -> tuple[int, str]:
+    normalized = clean_text(clean_content)
+    if not normalized:
+        return 0, "blocked"
+
+    fact_sentences = split_search_sentences(normalized, limit=12)
+    basic_sentences = [clean_text(part) for part in re.split(r"[。！？!?；;\n]", normalized) if len(clean_text(part)) >= 8]
+    sentence_count = max(len(fact_sentences), len(basic_sentences[:12]))
+    score = min(
+        100,
+        sentence_count * 12
+        + min(24, len(normalized) // 40)
+        + min(12, max(0, source_count - 1) * 4),
+    )
+
+    if sentence_count >= 2 and len(normalized) >= 70:
+        return max(68, score), "ready"
+    if sentence_count >= 1 and len(normalized) >= 35:
+        return max(35, score), "lead_only"
+    return min(28, score), "blocked"
+
+
+def normalize_search_item(item: dict[str, Any], source_platform: str) -> dict[str, Any] | None:
+    title = normalize_search_text(item.get("title"), max_length=120)
+    summary = extract_item_field(item, SUMMARY_FIELD_CANDIDATES, max_length=220)
+    content = extract_item_field(item, CONTENT_FIELD_CANDIDATES, max_length=SEARCH_CONTENT_MAX_LENGTH, content=True)
+    site_name = trim_text(clean_text(item.get("sitename")), 40)
+    url = clean_text(item.get("url"))
+
+    if title and not has_chinese(title) and chinese_ratio(title) < 0.25:
+        title = ""
+    if summary and not has_chinese(summary) and chinese_ratio(summary) < 0.2:
+        summary = ""
+    if content and not has_chinese(content) and chinese_ratio(content) < 0.2:
+        content = ""
+    if not summary and content:
+        summary = summarize_search_content(content, max_length=220)
+    if not title and summary and has_chinese(summary):
+        title = trim_text(summary, 48)
+
+    if not title and not summary and not content:
+        return None
+
+    clean_content = build_clean_content(content, summary, title)
+    display_title = build_display_title(title, summary, clean_content)
+    display_summary = build_display_summary(summary, clean_content, title)
+    quality_score, quality_status = assess_content_quality(clean_content, source_count=1)
+
+    ranking_score = 0
+    if title:
+        ranking_score += 1
+    if summary:
+        ranking_score += 2 if len(summary) > 60 else 1
+    if clean_content:
+        ranking_score += 2 if len(clean_content) > 300 else 1
+    if url.startswith("http://") or url.startswith("https://"):
+        ranking_score += 1
+    if site_name and any(keyword in site_name for keyword in OFFICIAL_SOURCE_KEYWORDS):
+        ranking_score += 3
+    if source_platform == "全网搜索":
+        ranking_score += 1
+
+    return {
+        "title": title,
+        "summary": summary,
+        "displayTitle": display_title,
+        "displaySummary": display_summary,
+        "content": clean_content,
+        "cleanContent": clean_content,
+        "sitename": site_name,
+        "url": url,
+        "sourcePlatform": source_platform,
+        "qualityScore": max(ranking_score, quality_score),
+        "qualityStatus": quality_status,
+    }
+
+
+def dedupe_search_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for item in items:
+        key = clean_text(item.get("url")) or clean_text(item.get("title")).lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+
+    return deduped
+
+
+def extract_time_clues(text: str) -> list[str]:
+    clues: list[str] = []
+    normalized = clean_text(text)
+    if not normalized:
+        return clues
+
+    for pattern in TIME_CLUE_PATTERNS:
+        for match in pattern.finditer(normalized):
+            clue = clean_text(match.group(0))
+            if clue and clue not in clues:
+                clues.append(clue)
+
+    return clues[:6]
+
+
+def fetch_reader_content(url: str, timeout: int = 8) -> str:
+    if not url:
+        return ""
+
+    reader_url = f"https://r.jina.ai/{url}"
+
+    def send_once() -> str:
+        request = urllib.request.Request(
+            reader_url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read().decode("utf-8", errors="ignore")
+
+    try:
+        raw = send_once()
+    except Exception:
+        return ""
+
+    return clean_reader_content(raw, max_length=SEARCH_CONTENT_MAX_LENGTH)
+
+
+async def enrich_search_items_with_content(items: list[dict[str, Any]], *, max_items: int = 5) -> list[dict[str, Any]]:
+    candidates = [item for item in items if clean_text(item.get("url"))]
+    if not candidates:
+        return items
+
+    ranked = sorted(
+        candidates,
+        key=lambda item: (
+            -to_int(item.get("qualityScore"), 0),
+            -len(clean_text(item.get("summary"))),
+            clean_text(item.get("title")),
+        ),
+    )[:max_items]
+
+    async def enrich_one(item: dict[str, Any]) -> None:
+        if clean_text(item.get("content")):
+            return
+        content = await asyncio.to_thread(fetch_reader_content, clean_text(item.get("url")), 8)
+        if not content:
+            return
+        item["content"] = content
+        if not clean_text(item.get("summary")):
+            item["summary"] = summarize_search_content(content, max_length=220)
+        item["qualityScore"] = to_int(item.get("qualityScore"), 0) + (2 if len(content) > 300 else 1)
+
+    await asyncio.gather(*(enrich_one(item) for item in ranked))
+    return items
+
+
+def build_search_fact_pack(topic_query: str, search_items: list[dict[str, Any]], toutiao_items: list[dict[str, Any]]) -> dict[str, Any]:
+    merged = dedupe_search_items(search_items + toutiao_items)
+    merged.sort(key=lambda item: (-to_int(item.get("qualityScore"), 0), -len(clean_text(item.get("content"))), -len(clean_text(item.get("summary"))), clean_text(item.get("title"))))
+
+    sources = merged[:8]
+    key_facts: list[str] = []
+    seen_facts: set[str] = set()
+    focus_titles: list[str] = []
+    source_names: list[str] = []
+    time_clues: list[str] = []
+
+    for item in sources:
+        title = clean_text(item.get("title"))
+        if title and title not in focus_titles:
+            focus_titles.append(title)
+
+        site_name = clean_text(item.get("sitename"))
+        if site_name and site_name not in source_names:
+            source_names.append(site_name)
+
+        text_pool = "\n".join(
+            filter(
+                None,
+                [
+                    clean_text(item.get("summary")),
+                    clean_text(item.get("content")),
+                    title,
+                ],
+            )
+        )
+        for fact in split_search_sentences(text_pool, limit=6):
+            fact_key = text_dedupe_key(fact)
+            if not fact_key or fact_key in seen_facts:
+                continue
+            seen_facts.add(fact_key)
+            key_facts.append(fact)
+            if len(key_facts) >= 6:
+                break
+
+        for clue in extract_time_clues(f"{title} {clean_text(item.get('summary'))} {clean_text(item.get('content'))}"):
+            if clue not in time_clues:
+                time_clues.append(clue)
+            if len(time_clues) >= 4:
+                break
+
+        if len(key_facts) >= 6 and len(time_clues) >= 4:
+            break
+
+    event_anchor = focus_titles[0] if focus_titles else (key_facts[0] if key_facts else topic_query)
+    merged_text = "\n".join(
+        filter(
+            None,
+            [event_anchor, *focus_titles[:4], *key_facts[:6]],
+        )
+    )
+    ambiguous_terms = infer_ambiguous_terms(merged_text)
+    forbidden_expansions = [f"对“{term}”保持原词，不要擅自脑补具体场景或行业含义。" for term in ambiguous_terms]
+    business_signals = infer_bridge_directions(" ".join([event_anchor, *key_facts, *focus_titles])) if key_facts or focus_titles else []
+    core_conflict = ""
+    conflict_text = " ".join([event_anchor, *key_facts[:4]])
+    if re.search(r"(监管|合规|治理|处罚|封号|风险|边界)", conflict_text):
+        core_conflict = "效率提升和使用边界之间的冲突正在被放大。"
+    elif re.search(r"(暴跌|暴涨|冲突|战争|停运|换人|供应|油价)", conflict_text):
+        core_conflict = "外部冲击正在改写市场预期和经营成本。"
+    elif key_facts:
+        core_conflict = sentence_end(key_facts[0]).rstrip("。")
+
+    source_text_lines = dedupe_text_lines([event_anchor, *key_facts[:5]])
+    source_text = "\n".join(sentence_end(line) for line in source_text_lines if line).strip()
+    clean_content = build_clean_content(source_text, *key_facts[:6], *focus_titles[:3], max_length=1800, sentence_limit=10)
+    summary = infer_fact_pack_summary(topic_query, event_anchor, key_facts, time_clues)
+    display_event_anchor = build_display_title(event_anchor, topic_query)
+    display_summary = build_display_summary(summary, clean_content, event_anchor)
+    quality_score, quality_status = assess_content_quality(clean_content, source_count=len(sources))
+    business_reason = build_business_reason(core_conflict, "；".join(business_signals[:2])) if core_conflict or business_signals else ""
+
+    return {
+        "topic": topic_query,
+        "eventAnchor": display_event_anchor,
+        "fullEventAnchor": event_anchor,
+        "summary": display_summary,
+        "displaySummary": display_summary,
+        "keyFacts": key_facts,
+        "focusTitles": focus_titles[:4],
+        "timelineClues": time_clues[:4],
+        "coreConflict": core_conflict,
+        "businessSignals": business_signals,
+        "ambiguousTerms": ambiguous_terms,
+        "forbiddenExpansions": forbidden_expansions,
+        "guardrailNote": "；".join(forbidden_expansions),
+        "sourceText": clean_content or source_text,
+        "cleanContent": clean_content or source_text,
+        "businessReason": business_reason,
+        "qualityScore": quality_score,
+        "qualityStatus": quality_status,
+        "sources": [
+            {
+                "title": item.get("title", ""),
+                "summary": item.get("summary", ""),
+                "displayTitle": item.get("displayTitle", ""),
+                "displaySummary": item.get("displaySummary", ""),
+                "content": item.get("content", ""),
+                "cleanContent": item.get("cleanContent", item.get("content", "")),
+                "sitename": item.get("sitename", ""),
+                "url": item.get("url", ""),
+                "sourcePlatform": item.get("sourcePlatform", ""),
+                "qualityScore": item.get("qualityScore", 0),
+                "qualityStatus": item.get("qualityStatus", ""),
+            }
+            for item in sources
+        ],
+    }
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    cache = get_hot_rank_cache()
+    if FREE_SCRAPERS_AVAILABLE and not hot_rank_cache_is_fresh(cache):
+        start_hot_rank_refresh(force=True)
+
+
+@app.get("/api/health")
+async def health() -> dict[str, Any]:
+    cache = get_hot_rank_cache()
+    return {
+        "ok": True,
+        "configured": bool(CONFIG["apiKey"]),
+        "proxy": "/api/chat/completions",
+        "upstream": CONFIG["baseUrl"],
+        "defaultModel": CONFIG["defaultModel"],
+        "promptVersion": CONFIG["promptVersion"],
+        "workflowMode": "free",
+        "freeData": {
+            "enabled": FREE_SCRAPERS_AVAILABLE,
+            "hotRankRoute": "/api/free/hot-rank",
+            "manualSearchRoute": "/api/free/manual-search",
+            "workflowCompatRoutes": {
+                "hotRank": "/api/workflows/hot-rank",
+                "manualSearch": "/api/workflows/manual-search",
+            },
+            "hotRankCacheReady": isinstance(cache, dict),
+            "hotRankCacheFresh": hot_rank_cache_is_fresh(cache),
+        },
+    }
+
+
+@app.get("/api/logs/recent")
+async def recent_logs() -> dict[str, Any]:
+    if not LOG_FILE.exists():
+        return {"items": []}
+
+    lines = LOG_FILE.read_text(encoding="utf-8").splitlines()[-30:]
+    items = [json.loads(line) for line in reversed(lines) if line.strip()]
+    return {"items": items}
+
+
+@app.post("/api/chat/completions")
+async def chat_completions(request: Request) -> JSONResponse:
+    if not CONFIG["apiKey"] or not CONFIG["baseUrl"]:
+        raise HTTPException(status_code=500, detail="本地后端未配置 API Key 或 Base URL")
+
+    start = time.perf_counter()
+    body = await read_request_json(request)
+    prompt_version = request.headers.get("X-Prompt-Version", CONFIG["promptVersion"])
+    task_entry = request.headers.get("X-Task-Entry", "unknown")
+    model_name = str(body.get("model") or CONFIG["defaultModel"])
+    upstream_url = f"{CONFIG['baseUrl']}/chat/completions"
+
+    status_code = 500
+    raw_text = ""
+    error_message = ""
+
+    try:
+        status_code, raw_text = await fetch_with_retry(
+            upstream_url,
+            {
+                **body,
+                "model": model_name,
+            },
+            {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {CONFIG['apiKey']}",
+            },
+            CONFIG["retries"],
+        )
+        return JSONResponse(content=json.loads(raw_text), status_code=status_code)
+    except json.JSONDecodeError:
+        error_message = "上游返回了非 JSON 内容"
+        return JSONResponse(
+            content={"error": {"message": error_message, "raw": raw_text[:400]}},
+            status_code=status_code if status_code >= 400 else 502,
+        )
+    except HTTPException as exc:
+        error_message = stringify_error(exc.detail)
+        raise
+    except Exception as error:  # pragma: no cover
+        error_message = str(error)
+        return JSONResponse(content={"error": {"message": error_message}}, status_code=500)
+    finally:
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        append_log(
+            {
+                "time": now_text(),
+                "route": "/api/chat/completions",
+                "model": model_name,
+                "entryType": task_entry,
+                "promptVersion": prompt_version,
+                "status": status_code,
+                "durationMs": duration_ms,
+                "error": error_message or (raw_text[:180] if status_code >= 400 else ""),
+            }
+        )
+
+
+@app.post("/api/workflows/hot-rank")
+async def workflow_hot_rank(request: Request) -> JSONResponse:
+    global HOT_RANK_REFRESH_ERROR
+    body = await read_request_json(request)
+    start = time.perf_counter()
+    status = 200
+    error_message = ""
+    workflow_id = FREE_WORKFLOW_HOT_RANK["id"]
+    workflow_name = FREE_WORKFLOW_HOT_RANK["name"]
+
+    all_limit = to_int(body.get("allLimit", HOT_RANK_DEFAULT_ALL_LIMIT), HOT_RANK_DEFAULT_ALL_LIMIT)
+    business_limit = to_int(body.get("businessLimit", HOT_RANK_DEFAULT_BUSINESS_LIMIT), HOT_RANK_DEFAULT_BUSINESS_LIMIT)
+    force_refresh = to_bool(body.get("forceRefresh"), False)
+
+    cache = get_hot_rank_cache()
+    refreshing = HOT_RANK_REFRESH_TASK is not None and not HOT_RANK_REFRESH_TASK.done()
+    recent_refresh_error = get_hot_rank_refresh_error()
+    recent_refresh_warning = stringify_error(recent_refresh_error.get("message")) if recent_refresh_error else ""
+
+    try:
+        if force_refresh:
+            if recent_refresh_error:
+                recent_refresh_error = None
+                HOT_RANK_REFRESH_ERROR = None
+                recent_refresh_warning = ""
+            if not refreshing:
+                start_hot_rank_refresh(force=True)
+                refreshing = True
+            if cache:
+                return JSONResponse(
+                    content=build_hot_rank_response_content(
+                        cache,
+                        all_limit,
+                        business_limit,
+                        from_cache=True,
+                        stale=not hot_rank_cache_is_fresh(cache),
+                        refreshing=True,
+                        warning=recent_refresh_warning,
+                    )
+                )
+            return JSONResponse(
+                content=build_hot_rank_placeholder(
+                    workflow_id,
+                    workflow_name,
+                    refreshing=True,
+                    warning=recent_refresh_warning,
+                )
+            )
+
+        if cache and not force_refresh:
+            stale = not hot_rank_cache_is_fresh(cache)
+            warning = recent_refresh_warning
+            if stale and not refreshing and not recent_refresh_error:
+                start_hot_rank_refresh(force=True)
+                refreshing = True
+            return JSONResponse(
+                content=build_hot_rank_response_content(
+                    cache,
+                    all_limit,
+                    business_limit,
+                    from_cache=True,
+                    stale=stale,
+                    refreshing=refreshing,
+                    warning=warning,
+                )
+            )
+
+        if not cache and refreshing and not force_refresh:
+            return JSONResponse(
+                content=build_hot_rank_placeholder(
+                    workflow_id,
+                    workflow_name,
+                    refreshing=True,
+                )
+            )
+
+        if not cache and not force_refresh:
+            if recent_refresh_error:
+                return JSONResponse(
+                    content=build_hot_rank_placeholder(
+                        workflow_id,
+                        workflow_name,
+                        refreshing=False,
+                        warning=recent_refresh_warning,
+                    )
+                )
+            start_hot_rank_refresh(force=True)
+            return JSONResponse(
+                content=build_hot_rank_placeholder(
+                    workflow_id,
+                    workflow_name,
+                    refreshing=True,
+                )
+            )
+
+        fresh_cache = await refresh_hot_rank_cache(force=not cache)
+        return JSONResponse(
+            content=build_hot_rank_response_content(
+                fresh_cache,
+                all_limit,
+                business_limit,
+                from_cache=bool(cache),
+                stale=False,
+                refreshing=False,
+            )
+        )
+    except HTTPException as exc:
+        status = exc.status_code
+        error_message = stringify_error(exc.detail)
+        stale_cache = get_hot_rank_cache()
+        if stale_cache:
+            return JSONResponse(
+                content=build_hot_rank_response_content(
+                    stale_cache,
+                    all_limit,
+                    business_limit,
+                    from_cache=True,
+                    stale=True,
+                    refreshing=refreshing,
+                    warning=error_message,
+                )
+            )
+        return JSONResponse(
+            content=build_hot_rank_placeholder(
+                workflow_id,
+                workflow_name,
+                refreshing=refreshing,
+                warning=error_message,
+            )
+        )
+    except Exception as exc:  # pragma: no cover
+        status = 500
+        error_message = str(exc)
+        stale_cache = get_hot_rank_cache()
+        if stale_cache:
+            return JSONResponse(
+                content=build_hot_rank_response_content(
+                    stale_cache,
+                    all_limit,
+                    business_limit,
+                    from_cache=True,
+                    stale=True,
+                    refreshing=refreshing,
+                    warning=error_message,
+                )
+            )
+        if not refreshing:
+            start_hot_rank_refresh(force=True)
+            refreshing = True
+        return JSONResponse(
+            content=build_hot_rank_placeholder(
+                workflow_id,
+                workflow_name,
+                refreshing=refreshing,
+                warning=error_message,
+            )
+        )
+    finally:
+        append_log(
+            {
+                "time": now_text(),
+                "route": "/api/workflows/hot-rank",
+                "workflow": workflow_name,
+                "status": status,
+                "durationMs": round((time.perf_counter() - start) * 1000, 2),
+                "error": error_message,
+            }
+        )
+
+
+@app.post("/api/workflows/manual-search")
+async def workflow_manual_search(request: Request) -> JSONResponse:
+    body = await read_request_json(request)
+    workflow_id = FREE_WORKFLOW_MANUAL_SEARCH["id"]
+    workflow_name = FREE_WORKFLOW_MANUAL_SEARCH["name"]
+    topic_query = clean_text(body.get("topicQuery") or body.get("topic_query") or "")
+    start = time.perf_counter()
+    status = 200
+    error_message = ""
+    max_results = min(20, max(5, to_int(body.get("count"), 8)))
+
+    if not topic_query:
+        raise HTTPException(status_code=400, detail="请输入要搜索的话题关键词")
+
+    try:
+        raw_search_results = search_with_content(topic_query, max_results=max_results, fetch_content=True, content_limit=SEARCH_CONTENT_MAX_LENGTH)
+        search_data = [
+            item
+            for item in (
+                normalize_search_item(result, "全网搜索")
+                for result in raw_search_results
+                if isinstance(result, dict)
+            )
+            if item
+        ]
+        await enrich_search_items_with_content(search_data, max_items=min(5, len(search_data)))
+        toutiao_data: list[dict[str, Any]] = []
+        fact_pack = build_search_fact_pack(topic_query, search_data, toutiao_data)
+
+        return JSONResponse(
+            content={
+                "topicQuery": topic_query,
+                "searchCode": 200,
+                "searchMessage": "success",
+                "searchData": [
+                    {key: value for key, value in item.items() if key != "qualityScore"}
+                    for item in search_data
+                ],
+                "toutiaoCode": 200,
+                "toutiaoMessage": "disabled",
+                "toutiaoData": [],
+                "factPack": fact_pack,
+                "workflow": {
+                    "id": workflow_id,
+                    "name": workflow_name,
+                },
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        status = 500
+        error_message = str(exc)
+        raise HTTPException(status_code=500, detail=f"免费搜索兼容入口执行失败: {error_message}")
+    finally:
+        append_log(
+            {
+                "time": now_text(),
+                "route": "/api/workflows/manual-search",
+                "workflow": workflow_name,
+                "topicQuery": topic_query,
+                "status": status,
+                "durationMs": round((time.perf_counter() - start) * 1000, 2),
+                "error": error_message,
+            }
+        )
+
+
+# ============================================================================
+# 免费热榜和搜索接口
+# ============================================================================
+
+try:
+    try:
+        from .free_scrapers import (
+            fetch_weibo_hot,
+            fetch_zhihu_hot,
+            fetch_baidu_hot,
+            fetch_douyin_hot,
+            fetch_all_hot_ranks,
+            aggregate_hot_ranks,
+            filter_business_relevant_hot_ranks,
+            enrich_hot_ranks_with_content,
+            discover_topic_context,
+        )
+        from .free_search import (
+            search_duckduckgo,
+            search_with_content,
+            search_news,
+            build_search_fact_pack as build_free_search_fact_pack
+        )
+    except ImportError:
+        from free_scrapers import (
+            fetch_weibo_hot,
+            fetch_zhihu_hot,
+            fetch_baidu_hot,
+            fetch_douyin_hot,
+            fetch_all_hot_ranks,
+            aggregate_hot_ranks,
+            filter_business_relevant_hot_ranks,
+            enrich_hot_ranks_with_content,
+            discover_topic_context,
+        )
+        from free_search import (
+            search_duckduckgo,
+            search_with_content,
+            search_news,
+            build_search_fact_pack as build_free_search_fact_pack
+        )
+    FREE_SCRAPERS_AVAILABLE = True
+except ImportError as e:
+    FREE_SCRAPERS_AVAILABLE = False
+    print(f"警告: 免费爬虫模块导入失败: {e}")
+    print("请确保在 backend 目录下运行，或运行: pip install -r backend/requirements.txt")
+
+
+FREE_HOT_PLATFORM_ORDER = ("douyin", "weibo", "zhihu", "baidu")
+FREE_HOT_PLATFORM_LABELS = {
+    "douyin": "抖音",
+    "weibo": "微博",
+    "zhihu": "知乎",
+    "baidu": "百度",
+}
+
+
+def free_hot_item_key(item: dict[str, Any]) -> str:
+    title = clean_text(item.get("title")).lower()
+    article_url = clean_text(item.get("article_url")).lower()
+    url = clean_text(item.get("url")).lower()
+    return article_url or url or title
+
+
+def dedupe_free_hot_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    seen_titles: set[str] = set()
+
+    for item in items:
+        key = free_hot_item_key(item)
+        title_key = re.sub(r"[^\w\u4e00-\u9fff]+", "", clean_text(item.get("title")).lower())
+        if not key and not title_key:
+            continue
+        if key and key in seen:
+            continue
+        if title_key and title_key in seen_titles:
+            continue
+        if key:
+            seen.add(key)
+        if title_key:
+            seen_titles.add(title_key)
+        deduped.append(item)
+
+    return deduped
+
+
+def interleave_platform_hot_items(platform_buckets: dict[str, list[dict[str, Any]]], limit: int) -> list[dict[str, Any]]:
+    rounds = max((len(items) for items in platform_buckets.values()), default=0)
+    mixed: list[dict[str, Any]] = []
+
+    for round_index in range(rounds):
+        for platform in FREE_HOT_PLATFORM_ORDER:
+            items = platform_buckets.get(platform, [])
+            if round_index < len(items):
+                mixed.append(items[round_index])
+                if len(mixed) >= limit:
+                    return mixed
+
+    return mixed
+
+
+def normalize_free_heat_score(raw_hot_value: Any, rank: int) -> int:
+    digits = re.sub(r"\D", "", clean_text(raw_hot_value))
+    score = 96 - max(0, rank - 1) * 2
+    if digits:
+        score += min(10, len(digits) + (2 if len(digits) >= 6 else 0))
+    return max(50, min(98, score))
+
+
+def infer_hot_boss_impact(text: str, directions: list[str], signal_score: int) -> str:
+    normalized = clean_text(text)
+    if re.search(r"(监管|合规|治理|处罚|封号|风险|边界)", normalized):
+        return "这条变化和平台规则、使用边界、经营合规直接相关，适合继续往老板决策和执行动作上拆。"
+    if re.search(r"(暴跌|暴涨|冲突|战争|停运|供应|油价|关税)", normalized):
+        return "这类外部冲击会直接传导到经营成本、客户决策和市场预期，老板需要提前准备应对动作。"
+    if signal_score >= 4 and directions:
+        return f"这条热点已经能往{ '、'.join(directions[:2]) }上延伸，适合继续拆成老板能落地的经营判断。"
+    return ""
+
+
+def free_item_to_hot_item(item: dict[str, Any], index: int, generated_at: str) -> dict[str, Any]:
+    title = clean_text(item.get("title"))
+    summary = clean_text(item.get("summary")) or title
+    content = clean_text(item.get("content")) or summary or title
+    merged_text = " ".join(filter(None, [title, summary, content]))
+    directions = infer_bridge_directions(merged_text)
+    matched_keywords, signal_score = collect_business_keyword_hits(merged_text)
+    key_points = split_search_sentences("\n".join(filter(None, [summary, content])), limit=3)
+    timeline = extract_time_clues("\n".join(filter(None, [title, summary, content])))
+    source_platform = clean_text(item.get("source_platform")).lower()
+    platform_label = FREE_HOT_PLATFORM_LABELS.get(source_platform, clean_text(item.get("platform")) or source_platform or "热榜")
+    article_source = clean_text(item.get("article_source"))
+    topic_type = "平台热榜"
+    if directions and signal_score >= 4:
+        topic_type = f"{platform_label} · {'/'.join(directions[:2])}"
+
+    boss_impact = infer_hot_boss_impact(merged_text, directions, signal_score)
+    why_hot = summary or (key_points[0] if key_points else title)
+
+    return {
+        "hot_id": clean_text(item.get("article_url")) or clean_text(item.get("url")) or f"free_hot_{source_platform}_{index + 1:02d}",
+        "title": title,
+        "summary": summary,
+        "content": content,
+        "publish_time": generated_at,
+        "source_platform": platform_label,
+        "media_name": article_source or platform_label,
+        "source_url": clean_text(item.get("article_url")) or clean_text(item.get("url")),
+        "article_source": article_source,
+        "article_url": clean_text(item.get("article_url")) or clean_text(item.get("url")),
+        "topic_type": topic_type,
+        "heat_score": normalize_free_heat_score(item.get("hot_value"), to_int(item.get("rank"), index + 1)),
+        "why_hot": why_hot,
+        "key_points": key_points[:3],
+        "timeline": timeline[:3],
+        "public_impact": "",
+        "boss_impact": boss_impact,
+    }
+
+
+def hot_item_to_business_item(hot_item: dict[str, Any], index: int) -> dict[str, Any]:
+    business_item = business_item_from_hot(hot_item, index)
+    text = " ".join(
+        filter(
+            None,
+            [
+                clean_text(hot_item.get("title")),
+                clean_text(hot_item.get("summary")),
+                clean_text(hot_item.get("boss_impact")),
+                clean_text(hot_item.get("why_hot")),
+            ],
+        )
+    )
+    matched_keywords, signal_score = collect_ai_keyword_hits(text)
+    directions = infer_ai_directions(text)
+    if matched_keywords:
+        business_item["recommend_reason"] = clean_text(business_item.get("recommend_reason")) or infer_ai_recommend_reason(text, directions, matched_keywords)
+    if signal_score:
+        business_item["business_relevance_score"] = min(98, max(to_int(business_item.get("business_relevance_score"), 0), 55 + signal_score * 3))
+    if not clean_list_text(business_item.get("bridge_directions")):
+        business_item["bridge_directions"] = directions
+    if not clean_text(business_item.get("recommended_angle")):
+        business_item["recommended_angle"] = infer_ai_recommended_angle(text, directions, clean_text(business_item.get("recommend_reason")))
+    business_item["topic_type"] = "AI行业热榜"
+    if not clean_text(business_item.get("content")):
+        business_item["content"] = clean_text(hot_item.get("content"))
+    if not clean_text(business_item.get("article_source")):
+        business_item["article_source"] = clean_text(hot_item.get("article_source"))
+    if not clean_text(business_item.get("article_url")):
+        business_item["article_url"] = clean_text(hot_item.get("article_url")) or clean_text(hot_item.get("source_url"))
+    return business_item
+
+
+def diversify_business_items(all_hot_list: list[dict[str, Any]], business_items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    top_all_keys = {hot_item_identity(item) for item in all_hot_list[:5]}
+    distinct = [item for item in business_items if business_item_identity(item) not in top_all_keys]
+    overlap = [item for item in business_items if business_item_identity(item) in top_all_keys]
+    merged = dedupe_items(distinct + overlap, business_item_identity)
+    return merged[:limit]
+
+
+def enrich_platform_bucket(items: list[dict[str, Any]], max_items: int) -> list[dict[str, Any]]:
+    if not items:
+        return []
+    return enrich_hot_ranks_with_content(items[:], max_items=max_items)
+
+
+def build_free_hot_rank_cache_payload(
+    *,
+    limit_per_platform: int = 10,
+    display_all_limit: int = HOT_RANK_DEFAULT_ALL_LIMIT,
+    display_business_limit: int = HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+) -> dict[str, Any]:
+    generated_at = now_text()
+    platform_raw = fetch_all_hot_ranks(limit_per_platform, False)
+    aggregated_seed = dedupe_free_hot_items(
+        interleave_platform_hot_items(platform_raw, limit=limit_per_platform * max(2, len(FREE_HOT_PLATFORM_ORDER)))
+    )
+    enriched_aggregated = enrich_hot_ranks_with_content(
+        aggregated_seed[: max(8, min(display_all_limit + 2, 10))],
+        max_items=min(8, len(aggregated_seed)),
+    )
+    enriched_lookup = {free_hot_item_key(item): item for item in enriched_aggregated if free_hot_item_key(item)}
+
+    platform_data: dict[str, list[dict[str, Any]]] = {}
+    for platform in FREE_HOT_PLATFORM_ORDER:
+        merged_items: list[dict[str, Any]] = []
+        for item in platform_raw.get(platform, []) or []:
+            merged_items.append(enriched_lookup.get(free_hot_item_key(item), item))
+        platform_data[platform] = merged_items[:limit_per_platform]
+
+    aggregated_free = dedupe_free_hot_items(
+        [
+            enriched_lookup.get(free_hot_item_key(item), item)
+            for item in interleave_platform_hot_items(platform_data, limit=limit_per_platform * max(2, len(FREE_HOT_PLATFORM_ORDER)))
+        ]
+    )
+
+    all_hot_list = [
+        free_item_to_hot_item(item, index, generated_at)
+        for index, item in enumerate(aggregated_free[: max(display_all_limit * 2, 16)])
+    ]
+
+    business_candidates_free = filter_ai_relevant_hot_ranks(aggregated_free)
+    business_hot_list = [
+        hot_item_to_business_item(free_item_to_hot_item(item, index, generated_at), index)
+        for index, item in enumerate(business_candidates_free[: max(display_business_limit * 2, 16)])
+    ]
+    business_hot_list = diversify_business_items(all_hot_list, sort_business_items(business_hot_list), max(display_business_limit * 2, 12))
+
+    result = normalize_hot_rank_result(
+        {
+            "snapshot_title": "今日热榜中心",
+            "generated_at": generated_at,
+            "debug": {
+                "platform_count": len(platform_data),
+                "all_candidates": len(aggregated_free),
+                "business_candidates": len(business_candidates_free),
+            },
+            "all_hot_list": all_hot_list[: max(display_all_limit, 10)],
+            "business_hot_list": business_hot_list[: max(display_business_limit, 6)],
+        }
+    )
+
+    result["business_hot_list"] = sort_business_items(result.get("business_hot_list", []))
+
+    return {
+        "cacheVersion": HOT_RANK_CACHE_VERSION,
+        "fetchedAt": generated_at,
+        "fetchedAtTs": int(time.time()),
+        "workflow": {
+            "id": "free_scrapers",
+            "name": "免费热榜引擎",
+        },
+        "result": result,
+        "raw": {
+            "platform_data": platform_data,
+            "aggregated": aggregated_free,
+            "business_aggregated": business_candidates_free,
+        },
+    }
+
+
+def build_free_hot_rank_route_payload(
+    cache_payload: dict[str, Any],
+    *,
+    platform: str,
+    business_filter: bool,
+    all_limit: int,
+    business_limit: int,
+    stale: bool,
+    refreshing: bool,
+    warning: str = "",
+) -> dict[str, Any]:
+    raw = cache_payload.get("raw") if isinstance(cache_payload.get("raw"), dict) else {}
+    platform_data = raw.get("platform_data") if isinstance(raw.get("platform_data"), dict) else {}
+    aggregated = raw.get("aggregated") if isinstance(raw.get("aggregated"), list) else []
+    business_aggregated = raw.get("business_aggregated") if isinstance(raw.get("business_aggregated"), list) else []
+    result = normalize_hot_rank_result(cache_payload.get("result") if isinstance(cache_payload.get("result"), dict) else {})
+
+    payload = {
+        "platform": platform,
+        "generatedAt": clean_text(result.get("generated_at")) or clean_text(cache_payload.get("fetchedAt")),
+        "snapshotTitle": clean_text(result.get("snapshot_title")) or "今日热榜中心",
+        "debug": deep_copy_json(result.get("debug") if isinstance(result.get("debug"), dict) else {}),
+        "data": deep_copy_json(platform_data),
+        "aggregated": deep_copy_json(aggregated[: max(all_limit * 2, 16)]),
+        "businessAggregated": deep_copy_json(business_aggregated[: max(business_limit * 2, 12)]),
+        "allHotList": deep_copy_json(result.get("all_hot_list", [])[: max(1, all_limit)]),
+        "businessHotList": deep_copy_json(result.get("business_hot_list", [])[: max(1, business_limit)]),
+        "count": len(result.get("all_hot_list", [])),
+        "business_filtered": business_filter,
+        "content_enriched": True,
+        "source": "free_scrapers",
+        "cache": {
+            "fetchedAt": clean_text(cache_payload.get("fetchedAt")),
+            "ageSeconds": cache_age_seconds(cache_payload),
+            "stale": stale,
+            "refreshing": refreshing,
+            "fromCache": True,
+            "warning": warning,
+        },
+    }
+
+    if platform != "all":
+        current_items = platform_data.get(platform, []) if isinstance(platform_data, dict) else []
+        if business_filter:
+            current_items = filter_ai_relevant_hot_ranks(current_items)
+        payload.update(
+            {
+                "data": deep_copy_json(current_items[: max(1, all_limit)]),
+                "aggregated": deep_copy_json(current_items[: max(1, all_limit)]),
+                "count": len(current_items[: max(1, all_limit)]),
+            }
+        )
+
+    return payload
+
+
+def is_search_style_hot_url(url: str) -> bool:
+    normalized = clean_text(url).lower()
+    if not normalized:
+        return False
+    return any(
+        keyword in normalized
+        for keyword in (
+            "duckduckgo.com",
+            "bing.com/search",
+            "google.com/search",
+            "news.google.com",
+            "search.yahoo.com",
+        )
+    )
+
+
+def looks_like_reader_error(text: str) -> bool:
+    normalized = clean_text(text)
+    if not normalized:
+        return False
+    return normalized.startswith("{") or "SecurityCompromiseError" in normalized or '"code":' in normalized or '"message":' in normalized
+
+
+def hot_rank_detail_ready(content: str, title: str, summary: str) -> bool:
+    normalized = clean_text(content)
+    if not normalized:
+        return False
+    if normalized in {clean_text(title), clean_text(summary)}:
+        return False
+    fact_sentences = split_search_sentences(normalized, limit=10)
+    basic_sentences = [clean_text(part) for part in re.split(r"[。！？!?；;\n]", normalized) if len(clean_text(part)) >= 8]
+    sentence_count = max(len(fact_sentences), len(basic_sentences[:10]))
+    return len(normalized) >= 70 and sentence_count >= 2
+
+
+@app.post("/api/free/hot-rank/detail")
+async def free_hot_rank_detail(request: Request) -> JSONResponse:
+    if not FREE_SCRAPERS_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="免费热榜模块不可用，请检查 backend 依赖"
+        )
+
+    body = await read_request_json(request)
+    title = clean_text(body.get("title"))
+    summary = clean_text(body.get("summary"))
+    content = clean_reader_content(body.get("content"), max_length=3200)
+    source_url = clean_text(body.get("sourceUrl") or body.get("source_url") or body.get("articleUrl") or "")
+    article_source = clean_text(body.get("articleSource") or body.get("article_source") or "")
+    article_url = clean_text(body.get("articleUrl") or body.get("article_url") or source_url)
+
+    if not title and not summary and not content:
+        raise HTTPException(status_code=400, detail="请至少提供一个热榜标题或摘要")
+
+    content_ready = hot_rank_detail_ready(content, title, summary)
+
+    if not content_ready and source_url and not is_search_style_hot_url(source_url):
+        fetched_content = clean_reader_content(await asyncio.to_thread(fetch_reader_content, source_url, 8), max_length=3200)
+        if looks_like_reader_error(fetched_content):
+            fetched_content = ""
+        if fetched_content:
+            content = fetched_content
+            content_ready = hot_rank_detail_ready(content, title, summary)
+
+    if not content_ready and title:
+        context = await asyncio.to_thread(discover_topic_context, title)
+        if isinstance(context, dict):
+            content = clean_reader_content(context.get("content"), max_length=3200) or content
+            if looks_like_reader_error(content):
+                content = ""
+            summary = clean_text(context.get("summary")) or summary
+            article_source = clean_text(context.get("article_source")) or article_source
+            article_url = clean_text(context.get("article_url")) or article_url
+            content_ready = hot_rank_detail_ready(content, title, summary)
+
+    if not content_ready and article_url and not is_search_style_hot_url(article_url):
+        article_content = clean_reader_content(await asyncio.to_thread(fetch_reader_content, article_url, 8), max_length=3200)
+        if looks_like_reader_error(article_content):
+            article_content = ""
+        if article_content:
+            content = article_content
+            content_ready = hot_rank_detail_ready(content, title, summary)
+
+    if not content_ready and title:
+        search_results = await asyncio.to_thread(search_with_content, title, 3, True, SEARCH_CONTENT_MAX_LENGTH)
+        if isinstance(search_results, list):
+            ranked_results = sorted(
+                search_results,
+                key=lambda item: len(clean_text(item.get("content") or item.get("clean_content") or item.get("summary") or "")),
+                reverse=True,
+            )
+            for result in ranked_results:
+                candidate_content = clean_reader_content(result.get("content") or result.get("clean_content"), max_length=3200)
+                if looks_like_reader_error(candidate_content):
+                    candidate_content = ""
+                if not candidate_content:
+                    continue
+                content = candidate_content
+                summary = clean_text(result.get("summary")) or summarize_search_content(candidate_content, max_length=220) or summary
+                source_url = clean_text(result.get("url")) or source_url
+                article_url = clean_text(result.get("url")) or article_url
+                article_source = clean_text(result.get("sitename") or result.get("sourcePlatform") or result.get("source")) or article_source
+                content_ready = hot_rank_detail_ready(content, title, summary)
+                if content_ready:
+                    break
+
+    if content and (not summary or len(summary) > 280 or looks_like_reader_error(summary)):
+        summary = summarize_search_content(content, max_length=220) or trim_text(summary or title, 220)
+
+    if not content:
+        content = summary or title
+
+    clean_content = build_clean_content(content, summary, title, max_length=2200, sentence_limit=14)
+    if not summary:
+        summary = summarize_search_content(clean_content, max_length=220) or trim_text(title, 220)
+    merged_text = " ".join(filter(None, [title, summary, clean_content]))
+    directions = infer_bridge_directions(merged_text) if merged_text else []
+    _, signal_score = collect_business_keyword_hits(merged_text)
+    business_reason = infer_hot_boss_impact(merged_text, directions, signal_score) if merged_text else ""
+    display_title = build_display_title(title, summary, clean_content)
+    display_summary = build_display_summary(summary, clean_content, title)
+    quality_score, quality_status = assess_content_quality(clean_content, source_count=1)
+
+    return JSONResponse(
+        content={
+            "title": title,
+            "summary": summary or title,
+            "display_title": display_title,
+            "display_summary": display_summary,
+            "content": clean_content or content,
+            "clean_content": clean_content or content,
+            "business_reason": business_reason,
+            "quality_score": quality_score,
+            "quality_status": quality_status,
+            "source_url": source_url,
+            "article_source": article_source,
+            "article_url": article_url,
+        }
+    )
+
+
+@app.get("/api/free/hot-rank")
+async def free_hot_rank(
+    platform: str = "all",
+    limit: int = 20,
+    fetch_content: bool = Query(False, description="是否获取完整内容（使用 Jina Reader）"),
+    enrich_content: bool = Query(False, description="是否增强内容（仅对前10条）"),
+    business_filter: bool = Query(False, description="是否只返回业务相关内容"),
+    force_refresh: bool = Query(False, description="是否强制刷新缓存"),
+) -> JSONResponse:
+    """
+    免费热榜接口 - 支持微博、知乎、百度、抖音
+
+    参数:
+        platform: 平台名称 (weibo/zhihu/baidu/douyin/all)
+        limit: 返回数量限制
+        fetch_content: 是否获取完整内容（默认 False，避免超时）
+        enrich_content: 是否增强内容（默认 False，仅对前10条使用 Jina Reader）
+        business_filter: 是否只返回业务相关内容（默认 False）
+
+    完全免费，无需 API Key
+    """
+    if not FREE_SCRAPERS_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="免费爬虫模块未安装，请运行: pip install -r backend/requirements.txt"
+        )
+
+    start = time.perf_counter()
+    status = 200
+    error_message = ""
+
+    try:
+        if platform not in {"weibo", "zhihu", "baidu", "douyin", "all"}:
+            raise HTTPException(
+                status_code=400,
+                detail=f"不支持的平台: {platform}，支持的平台: weibo/zhihu/baidu/douyin/all"
+            )
+
+        cache = get_hot_rank_cache()
+        refreshing = HOT_RANK_REFRESH_TASK is not None and not HOT_RANK_REFRESH_TASK.done()
+        recent_refresh_error = get_hot_rank_refresh_error()
+        warning = stringify_error(recent_refresh_error.get("message")) if recent_refresh_error else ""
+
+        if force_refresh:
+            if not refreshing:
+                start_hot_rank_refresh(force=True)
+                refreshing = True
+            if cache:
+                payload = build_free_hot_rank_route_payload(
+                    cache,
+                    platform=platform,
+                    business_filter=business_filter,
+                    all_limit=limit,
+                    business_limit=HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+                    stale=not hot_rank_cache_is_fresh(cache),
+                    refreshing=True,
+                    warning=warning,
+                )
+                payload["durationMs"] = round((time.perf_counter() - start) * 1000, 2)
+                return JSONResponse(content=payload)
+
+        if cache and hot_rank_cache_is_fresh(cache):
+            payload = build_free_hot_rank_route_payload(
+                cache,
+                platform=platform,
+                business_filter=business_filter,
+                all_limit=limit,
+                business_limit=HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+                stale=False,
+                refreshing=refreshing,
+                warning=warning,
+            )
+            payload["durationMs"] = round((time.perf_counter() - start) * 1000, 2)
+            return JSONResponse(content=payload)
+
+        if cache and not hot_rank_cache_is_fresh(cache) and not refreshing:
+            start_hot_rank_refresh(force=True)
+            refreshing = True
+            payload = build_free_hot_rank_route_payload(
+                cache,
+                platform=platform,
+                business_filter=business_filter,
+                all_limit=limit,
+                business_limit=HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+                stale=True,
+                refreshing=True,
+                warning=warning,
+            )
+            payload["durationMs"] = round((time.perf_counter() - start) * 1000, 2)
+            return JSONResponse(content=payload)
+
+        if cache and refreshing:
+            payload = build_free_hot_rank_route_payload(
+                cache,
+                platform=platform,
+                business_filter=business_filter,
+                all_limit=limit,
+                business_limit=HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+                stale=not hot_rank_cache_is_fresh(cache),
+                refreshing=True,
+                warning=warning,
+            )
+            payload["durationMs"] = round((time.perf_counter() - start) * 1000, 2)
+            return JSONResponse(content=payload)
+
+        fresh_cache = await refresh_hot_rank_cache(force=True)
+        payload = build_free_hot_rank_route_payload(
+            fresh_cache,
+            platform=platform,
+            business_filter=business_filter,
+            all_limit=limit,
+            business_limit=HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+            stale=False,
+            refreshing=False,
+            warning="",
+        )
+        payload["durationMs"] = round((time.perf_counter() - start) * 1000, 2)
+        return JSONResponse(content=payload)
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        status = 500
+        error_message = str(exc)
+        raise HTTPException(status_code=500, detail=f"热榜获取失败: {error_message}")
+    finally:
+        append_log({
+            "time": now_text(),
+            "route": "/api/free/hot-rank",
+            "platform": platform,
+            "status": status,
+            "durationMs": round((time.perf_counter() - start) * 1000, 2),
+            "error": error_message
+        })
+
+
+@app.post("/api/free/search")
+async def free_search(request: Request) -> JSONResponse:
+    """
+    免费搜索接口 - 使用 DuckDuckGo
+
+    请求体:
+        {
+            "query": "搜索关键词",
+            "maxResults": 10,
+            "fetchContent": true,
+            "searchType": "web"  // web/news
+        }
+
+    完全免费，无需 API Key
+    """
+    if not FREE_SCRAPERS_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="免费搜索模块未安装，请运行: pip install -r backend/requirements.txt"
+        )
+
+    body = await read_request_json(request)
+    query = clean_text(body.get("query", ""))
+    max_results = min(50, max(1, to_int(body.get("maxResults"), 10)))
+    fetch_content = to_bool(body.get("fetchContent"), False)
+    search_type = body.get("searchType", "web")
+
+    if not query:
+        raise HTTPException(status_code=400, detail="请输入搜索关键词")
+
+    start = time.perf_counter()
+    status = 200
+    error_message = ""
+
+    try:
+        if search_type == "news":
+            results = search_news(query, max_results)
+        else:
+            if fetch_content:
+                results = search_with_content(query, max_results, fetch_content=True, content_limit=1000)
+            else:
+                results = search_duckduckgo(query, max_results)
+
+        return JSONResponse(content={
+            "query": query,
+            "searchType": search_type,
+            "generatedAt": now_text(),
+            "results": results,
+            "count": len(results),
+            "source": "duckduckgo",
+            "durationMs": round((time.perf_counter() - start) * 1000, 2)
+        })
+
+    except Exception as exc:
+        status = 500
+        error_message = str(exc)
+        raise HTTPException(status_code=500, detail=f"搜索失败: {error_message}")
+    finally:
+        append_log({
+            "time": now_text(),
+            "route": "/api/free/search",
+            "query": query,
+            "searchType": search_type,
+            "status": status,
+            "durationMs": round((time.perf_counter() - start) * 1000, 2),
+            "error": error_message
+        })
+
+
+@app.post("/api/free/manual-search")
+async def free_manual_search(request: Request) -> JSONResponse:
+    """
+    免费主题搜索接口 - 兼容历史工作流接口格式
+
+    请求体:
+        {
+            "topicQuery": "搜索主题"
+        }
+
+    返回格式与历史工作流入口一致，可直接复用旧前端调用
+    """
+    if not FREE_SCRAPERS_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="免费搜索模块未安装，请运行: pip install -r backend/requirements.txt"
+        )
+
+    body = await read_request_json(request)
+    topic_query = clean_text(body.get("topicQuery") or body.get("topic_query") or "")
+
+    if not topic_query:
+        raise HTTPException(status_code=400, detail="请输入要搜索的话题关键词")
+
+    start = time.perf_counter()
+    status = 200
+    error_message = ""
+
+    try:
+        raw_search_results = search_with_content(topic_query, max_results=8, fetch_content=True, content_limit=SEARCH_CONTENT_MAX_LENGTH)
+        search_results = [
+            item
+            for item in (
+                normalize_search_item(result, "全网搜索")
+                for result in raw_search_results
+                if isinstance(result, dict)
+            )
+            if item
+        ]
+        await enrich_search_items_with_content(search_results, max_items=5)
+        fact_pack = build_search_fact_pack(topic_query, search_results, [])
+
+        # 构建与历史工作流兼容的返回格式
+        return JSONResponse(content={
+            "topicQuery": topic_query,
+            "searchCode": 200,
+            "searchMessage": "success",
+            "searchData": [{key: value for key, value in item.items() if key != "qualityScore"} for item in search_results],
+            "toutiaoCode": 200,
+            "toutiaoMessage": "success",
+            "toutiaoData": [],  # 免费版不提供头条搜索
+            "factPack": fact_pack,
+            "workflow": {
+                "id": "free_search",
+                "name": "免费搜索"
+            },
+            "source": "bing_news+duckduckgo",
+            "durationMs": round((time.perf_counter() - start) * 1000, 2)
+        })
+
+    except Exception as exc:
+        status = 500
+        error_message = str(exc)
+        raise HTTPException(status_code=500, detail=f"搜索失败: {error_message}")
+    finally:
+        append_log({
+            "time": now_text(),
+            "route": "/api/free/manual-search",
+            "topicQuery": topic_query,
+            "status": status,
+            "durationMs": round((time.perf_counter() - start) * 1000, 2),
+            "error": error_message
+        })
+
+
+# ============================================================================
+# 静态文件服务 (必须在最后)
+# ============================================================================
+
+if (DIST_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+
+
+# SPA fallback 必须在所有 API 路由之后
+@app.get("/{full_path:path}", response_model=None, include_in_schema=False)
+async def spa_fallback(full_path: str):
+    requested = DIST_DIR / full_path
+    if full_path and requested.exists() and requested.is_file():
+        return FileResponse(str(requested))
+
+    index_file = DIST_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+
+    return JSONResponse(
+        content={"error": {"message": "未找到前端构建文件，请先运行 npm run build"}},
+        status_code=404,
+    )
+
+
+def main() -> None:
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=CONFIG["port"],
+        reload=False,
+    )
+
+
+if __name__ == "__main__":
+    main()

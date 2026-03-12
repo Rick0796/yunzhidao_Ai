@@ -1,0 +1,16 @@
+node_modules
+dist
+.DS_Store
+.claude
+.env
+.env.*
+server/config.local.json
+backend/config.local.json
+.vercel
+.env.vercel.local
+.npm-cache
+runtime
+__pycache__
+*.pyc
+*.log
+*.tsbuildinfo

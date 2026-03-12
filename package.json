@@ -1,0 +1,30 @@
+{
+  "name": "yunzhidao-ai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "validate:hooks": "node ./node_modules/esbuild/bin/esbuild scripts/validate-hooks.ts --bundle --platform=node --format=cjs --outfile=runtime/validate-hooks.cjs && node runtime/validate-hooks.cjs",
+    "validate:structure": "node ./node_modules/esbuild/bin/esbuild scripts/validate-structure.ts --bundle --platform=node --format=cjs --outfile=runtime/validate-structure.cjs && node runtime/validate-structure.cjs",
+    "preview": "vite preview",
+    "server": "python backend/main.py",
+    "server:node": "node server.js",
+    "server:py": "python backend/main.py"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.4.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}
