@@ -792,6 +792,7 @@ function App() {
     const content = ((item as HotRankItem).clean_content || item.content || "").trim();
     const qualityStatus = ((item as any).quality_status || "").trim();
     if (!content) return true;
+    if (/^(Warning:|This page contains shadow DOM|This is a cached snapshot|Target URL returned error|Forbidden\b)/i.test(content)) return true;
     if (qualityStatus !== "ready") return true;
     return content.length < 220;
   }
@@ -910,6 +911,21 @@ function App() {
         showNotice("warning", "这条热点正文还不够完整，已按线索回填，建议再用全网搜索补素材。");
       }
     } catch (error: any) {
+      const fallbackQuery = buildHotRankSearchFallbackQuery(item);
+      if (fallbackQuery) {
+        try {
+          const searchResult = await fetchManualSearch(settings.baseUrl || "/api", fallbackQuery);
+          const factPack = (searchResult as ManualSearchResponse).factPack;
+          const fallbackContent = (factPack?.cleanContent || factPack?.sourceText || "").trim();
+          if (fallbackContent.length >= 120) {
+            applyHotspotMaterial(fallbackContent, factPack?.businessReason || "", options.itemKey);
+            showNotice("warning", "热点详情提取失败，已自动改用全网搜索事实包回填。");
+            return;
+          }
+        } catch {
+          // Keep the existing摘要兜底 below.
+        }
+      }
       const fallbackMaterial = options.business ? buildMaterialFromBusinessHot(item as BusinessHotItem) : buildMaterialFromHotRank(item as HotRankItem);
       applyHotspotMaterial(fallbackMaterial.sourceText, fallbackMaterial.hotspotAngle, options.itemKey);
       showNotice("warning", `热点详情提取失败，先使用已有摘要：${error instanceof Error ? error.message : "未知错误"}`);
@@ -1288,7 +1304,7 @@ function App() {
     }
 
     return (
-      <div className="w-full max-w-full overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(0,212,255,0.14),transparent_34%),linear-gradient(180deg,rgba(10,17,32,0.96),rgba(10,17,32,0.80))] p-4 sm:p-5">
+      <div className="w-full max-w-full">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 lg:flex-1">
             <div className="section-eyebrow">今日热榜中心</div>
@@ -1324,7 +1340,7 @@ function App() {
         ) : (
           <>
             <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
-              <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+              <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-4 sm:px-5">
                 <div className="text-sm font-semibold text-white">手动搜索事件</div>
                 <div className="mt-2 text-xs leading-6 text-slate-400">输入一个事件或热点主题，系统会先抓原始搜索源，再自动清洗成可写稿事实包。</div>
                 <div className="mt-4 flex flex-col gap-3 md:flex-row">

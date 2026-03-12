@@ -311,6 +311,10 @@ READER_COMMENTARY_NOISE_PATTERN = re.compile(
     r"(评论区|网友|说实话|不稀奇|再近点|我要看看|有没人|看不清|革命尚未成功|同志仍需努力|腿毛|挖鼻孔|都是人才|心里清楚|焦虑啊|必须要看清楚)",
     re.IGNORECASE,
 )
+READER_WARNING_PATTERN = re.compile(
+    r"^(Warning:|This page contains shadow DOM|This is a cached snapshot|Target URL returned error|please make sure you are authorized|requiring CAPTCHA|Forbidden\b)",
+    re.IGNORECASE,
+)
 READER_RANK_BOARD_PATTERN = re.compile(
     r"(热搜榜|民生榜|财经榜|关注榜|热榜|榜单|(?:^|\s)\d{1,2}\s*(?:热|新)(?=\s|$)|(?:^|\s)\d{1,2}(?:\s+\d{1,2}){5,})",
     re.IGNORECASE,
@@ -1329,6 +1333,8 @@ def reader_line_is_noise(text: str) -> bool:
     normalized = clean_text(text)
     if not normalized:
         return True
+    if READER_WARNING_PATTERN.search(normalized):
+        return True
     if READER_META_LINE_PATTERN.match(normalized):
         return True
     if READER_NAV_NOISE_PATTERN.search(normalized):
@@ -1427,6 +1433,12 @@ def strip_reader_noise_fragments(text: str) -> str:
     normalized = clean_text(text)
     if not normalized:
         return ""
+    normalized = re.sub(
+        r"(Warning:.*$|This page contains shadow DOM.*$|This is a cached snapshot.*$|Target URL returned error.*$|please make sure you are authorized.*$|requiring CAPTCHA.*$|Forbidden\b.*$)",
+        "",
+        normalized,
+        flags=re.IGNORECASE,
+    )
     normalized = re.sub(r"\s*[-|｜]\s*滚动\s*[-|｜]\s*[^。！？!?]{0,40}", " ", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"\*\s*更多", " ", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"(?:\|\s*\|?\s*\d*\s*)?(?:联合国新闻|UN News)\b.*?(?=Language|Audio and Subscription|全球视野|常人故事|其它|©|$)", " ", normalized, flags=re.IGNORECASE)
@@ -1502,6 +1514,8 @@ def clean_reader_content(value: Any, *, max_length: int) -> str:
 
     joined = "\n".join(dedupe_text_lines(cleaned_lines)).strip()
     if not joined:
+        return ""
+    if READER_WARNING_PATTERN.search(joined):
         return ""
     return trim_text(joined, max_length)
 
@@ -2879,7 +2893,11 @@ def hot_rank_detail_ready(content: str, title: str, summary: str) -> bool:
     normalized = clean_text(content)
     if not normalized:
         return False
+    if READER_WARNING_PATTERN.search(normalized):
+        return False
     if normalized in {clean_text(title), clean_text(summary)}:
+        return False
+    if has_chinese(title or summary) and chinese_ratio(normalized) < 0.18:
         return False
     fact_sentences = split_search_sentences(normalized, limit=10)
     basic_sentences = [clean_text(part) for part in re.split(r"[。！？!?；;\n]", normalized) if len(clean_text(part)) >= 8]

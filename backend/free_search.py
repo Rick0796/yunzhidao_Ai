@@ -55,6 +55,10 @@ READER_COMMENTARY_NOISE_PATTERN = re.compile(
     r"(评论区|网友|说实话|不稀奇|再近点|我要看看|有没人|看不清|革命尚未成功|同志仍需努力|腿毛|挖鼻孔|都是人才|心里清楚|焦虑啊|必须要看清楚)",
     re.IGNORECASE,
 )
+READER_WARNING_PATTERN = re.compile(
+    r"^(Warning:|This page contains shadow DOM|This is a cached snapshot|Target URL returned error|please make sure you are authorized|requiring CAPTCHA|Forbidden\b)",
+    re.IGNORECASE,
+)
 READER_RANK_BOARD_PATTERN = re.compile(
     r"(热搜榜|民生榜|财经榜|关注榜|热榜|榜单|(?:^|\s)\d{1,2}\s*(?:热|新)(?=\s|$)|(?:^|\s)\d{1,2}(?:\s+\d{1,2}){5,})",
     re.IGNORECASE,
@@ -138,6 +142,8 @@ def text_dedupe_key(text: str) -> str:
 def reader_line_is_noise(text: str) -> bool:
     line = clean_text(text)
     if not line:
+        return True
+    if READER_WARNING_PATTERN.search(line):
         return True
     if READER_META_LINE_PATTERN.match(line):
         return True
@@ -237,6 +243,12 @@ def strip_reader_noise_fragments(text: str) -> str:
     normalized = clean_text(text)
     if not normalized:
         return ""
+    normalized = re.sub(
+        r"(Warning:.*$|This page contains shadow DOM.*$|This is a cached snapshot.*$|Target URL returned error.*$|please make sure you are authorized.*$|requiring CAPTCHA.*$|Forbidden\b.*$)",
+        "",
+        normalized,
+        flags=re.IGNORECASE,
+    )
     normalized = re.sub(r"\s*[-|｜]\s*滚动\s*[-|｜]\s*[^。！？!?]{0,40}", " ", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"\*\s*更多", " ", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"(?:\|\s*\|?\s*\d*\s*)?(?:联合国新闻|UN News)\b.*?(?=Language|Audio and Subscription|全球视野|常人故事|其它|©|$)", " ", normalized, flags=re.IGNORECASE)
@@ -292,6 +304,8 @@ def normalize_reader_content(text: str, max_length: int = 2000) -> str:
         lines.extend(split_sentences)
 
     cleaned = "\n".join(dedupe_text_lines(lines)).strip()
+    if READER_WARNING_PATTERN.search(cleaned):
+        return ""
     if len(cleaned) <= max_length:
         return cleaned
     return cleaned[: max_length - 1].rstrip(" ，。；;:：") + "…"
