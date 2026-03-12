@@ -2158,10 +2158,19 @@ function splitDraftSourceText(text: string) {
   return Array.from(new Set(sentences));
 }
 
+const HOTSPOT_META_ANGLE_PATTERN = /^(这条热点已经能往|这类(?:外部冲击|变化|内容|热点)|适合继续拆成|老板需要提前准备应对动作)/;
+
+function sanitizeHotspotAngleForDraft(value: string) {
+  const normalized = cleanDraftBeat(value || "");
+  if (!normalized || HOTSPOT_META_ANGLE_PATTERN.test(normalized)) return "";
+  return normalized;
+}
+
 function buildDraftSourcePool(task: TaskForm, hook: string) {
+  const hotspotAngle = task.entryType === "hotspot" ? sanitizeHotspotAngleForDraft(task.hotspotAngle || "") : task.hotspotAngle;
   const sourceText =
     task.entryType === "hotspot"
-      ? [task.sourceText, task.hotspotAngle].filter(Boolean).join("。")
+      ? [task.sourceText, hotspotAngle].filter(Boolean).join("。")
       : task.entryType === "topic"
         ? [task.topicGoal, task.sourceText].filter(Boolean).join("。")
         : task.entryType === "boss_story"
@@ -2176,6 +2185,7 @@ function buildDraftSourcePool(task: TaskForm, hook: string) {
     if (isMarriageTopic(task) && /不结婚真的会很惨吗/.test(normalized)) return false;
     if (/^(补充素材|这条视频想说什么|任务理解|核心观点|切入角度)/.test(normalized)) return false;
     if (/^从.+切入.*落到.+/.test(normalized)) return false;
+    if (HOTSPOT_META_ANGLE_PATTERN.test(normalized)) return false;
     if (/^(你等着看吧|先别划走|注意听好|别划走)$/.test(normalized)) return false;
     return true;
   });
@@ -2381,6 +2391,28 @@ function inferBridgeConcept(task: TaskForm) {
 function buildDraftConceptBridge(task: TaskForm) {
   const theme = inferHookTheme(task);
   const concept = inferBridgeConcept(task);
+  const strategy = analyzeTaskStrategy(task);
+  const hotspotAngle = sanitizeHotspotAngleForDraft(task.hotspotAngle || "");
+
+  if (task.entryType === "hotspot") {
+    if (hotspotAngle) {
+      return hotspotAngle;
+    }
+
+    if (strategy.hotspotType === "platform_change") {
+      return "真正该盯的，不是表面热闹，而是平台动作背后的入口和分发变化。";
+    }
+    if (strategy.hotspotType === "risk_regulation") {
+      return "真正该看的，不是情绪站队，而是这件事在提醒什么边界、代价和后续动作。";
+    }
+    if (strategy.hotspotType === "external_shock") {
+      return "真正会传导到老板身上的，不是新闻标题本身，而是后面的成本、预期和客户动作。";
+    }
+    if (strategy.hotspotType === "social_heat") {
+      return "真正值得拆的，不只是它为什么火，而是这波传播背后到底放大了什么信号。";
+    }
+    return "真正值得往下拆的，不是表面热度，而是这件事背后的变化和后续动作。";
+  }
 
   if (isMarriageTopic(task)) {
     return "真正能托住一个人后半生的，不只是关系本身，而是你有没有选择权。";
@@ -2588,6 +2620,7 @@ function buildStepFallbackLines(
   closeSummary: string
 ) {
   const normalized = normalizeSkeletonStep(step);
+  const hotspotAngle = task.entryType === "hotspot" ? sanitizeHotspotAngleForDraft(task.hotspotAngle || "") : "";
   const ownerPain = buildOwnerPainParagraph(task);
   const proofLine = buildProofParagraph(task);
   const stepName = normalized.name;
@@ -2611,7 +2644,7 @@ function buildStepFallbackLines(
     if (/财富阶段|阶段展开/.test(stepName)) {
       return [modifier, analysis, "每一次资源更替，本质上都是财富分配规则在换。"];
     }
-    return [modifier, analysis, closeSummary];
+    return [hotspotAngle || modifier, analysis, closeSummary];
   }
 
   if (normalized.role === "risk") {
@@ -2622,11 +2655,11 @@ function buildStepFallbackLines(
     if (/逻辑易位/.test(stepName)) {
       return [analysis, "以前拼的是旧入口，后面拼的是谁先占住新资源。", conceptBridge];
     }
-    return [analysis, conceptBridge, closeSummary];
+    return [analysis, hotspotAngle || conceptBridge, closeSummary];
   }
 
   if (normalized.role === "bridge") {
-    return [conceptBridge, analysis, ownerPain];
+    return [hotspotAngle || conceptBridge, analysis, ownerPain];
   }
 
   if (normalized.role === "identity") {
@@ -2650,7 +2683,7 @@ function buildStepFallbackLines(
   }
 
   if (normalized.role === "landing") {
-    return normalized.allowMeat && business ? [business, closeSummary, proofLine] : [closeSummary, proofLine, analysis];
+    return normalized.allowMeat && business ? [business, closeSummary, proofLine] : [closeSummary, proofLine, hotspotAngle || analysis];
   }
 
   return [modifier, analysis, conceptBridge, closeSummary];
@@ -2748,6 +2781,23 @@ function buildViralDraftParagraphs(task: TaskForm, skeleton: SkeletonItem, meatP
 
 function buildDraftAnalysis(task: TaskForm) {
   const theme = inferHookTheme(task);
+  const strategy = analyzeTaskStrategy(task);
+
+  if (task.entryType === "hotspot") {
+    if (strategy.hotspotType === "platform_change") {
+      return "平台每一次动作都不是随便试试，它改的往往是下一波流量入口和老板动作。";
+    }
+    if (strategy.hotspotType === "risk_regulation") {
+      return "这类热点真正值钱的，不是跟着情绪下判断，而是先把具体边界、对象和代价看清。";
+    }
+    if (strategy.hotspotType === "external_shock") {
+      return "外部变化一旦开打，真正会先传到老板身上的，通常都是成本、节奏和客户预期。";
+    }
+    if (strategy.hotspotType === "social_heat") {
+      return "真正该拆的，不只是这件事为什么火，而是它放大的传播机制和后续动作。";
+    }
+    return "真正要紧的，不是把热点讲成道理，而是把它背后的变化、代价和动作拆清楚。";
+  }
 
   if (isMarriageTopic(task)) {
     return "真正能托住晚年生活的，从来不只是婚姻，而是你的钱、身体和选择权。";

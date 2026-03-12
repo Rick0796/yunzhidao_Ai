@@ -321,6 +321,34 @@ UPSTREAM_ERROR_TEXT_PATTERN = re.compile(
 )
 MARKDOWN_LINK_LINE_PATTERN = re.compile(r"(?:^|\s)#+\s*\[[^\]]{4,120}\]|\[[^\]]{4,120}\]\([^)]{0,240}\)")
 QUOTE_TERM_PATTERN = re.compile(r"[“\"']([^”“\"'\n]{2,18})[”\"']")
+HOT_RANK_QUERY_STOP_WORDS = {
+    "最新",
+    "今日",
+    "回应",
+    "建议",
+    "代表",
+    "委员",
+    "话题",
+    "热榜",
+    "热搜",
+    "视频",
+    "新闻",
+    "内容",
+    "事件",
+    "消息",
+    "发布",
+    "提出",
+    "如何",
+    "解读",
+    "什么",
+    "为什么",
+    "怎么",
+    "今日看点",
+}
+HOT_RANK_META_REASON_PATTERN = re.compile(
+    r"^(这条热点已经能往|这类(?:外部冲击|变化|内容|热点)|适合继续拆成|老板需要提前准备应对动作)",
+    re.IGNORECASE,
+)
 CONTENT_FIELD_CANDIDATES = (
     "content",
     "clean_content",
@@ -1663,6 +1691,207 @@ def assess_content_quality(clean_content: str, *, source_count: int = 1) -> tupl
     return min(28, score), "blocked"
 
 
+def extract_hot_rank_query_terms(*texts: str, limit: int = 12) -> list[str]:
+    terms: list[str] = []
+
+    def push(term: str) -> None:
+        normalized = clean_text(term)
+        if (
+            not normalized
+            or normalized in HOT_RANK_QUERY_STOP_WORDS
+            or len(normalized) < 2
+            or normalized in terms
+        ):
+            return
+        terms.append(normalized)
+
+    for text in texts:
+        normalized = clean_text(text)
+        if not normalized:
+            continue
+
+        for token in re.findall(r"[\u4e00-\u9fff]{2,12}", normalized):
+            push(token)
+            if len(token) >= 4:
+                for size in (2, 3, 4):
+                    for index in range(0, len(token) - size + 1):
+                        push(token[index : index + size])
+
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,18}", normalized):
+            push(token.lower())
+
+        for quoted in QUOTE_TERM_PATTERN.findall(normalized):
+            push(quoted)
+
+    return terms[:limit]
+
+
+def build_hot_rank_detail_queries(title: str, summary: str) -> list[str]:
+    base_title = clean_text(title)
+    base_summary = clean_text(summary)
+    queries: list[str] = []
+
+    def push(query: str) -> None:
+        normalized = clean_text(query)
+        if not normalized or normalized in queries:
+            return
+        queries.append(normalized)
+
+    if base_title:
+        push(base_title)
+        push(f"\"{base_title}\"")
+
+    summary_sentences = collect_meaningful_sentences_from_values(base_summary, limit=2)
+    summary_anchor = " ".join(summary_sentences[:2]).strip()
+    if base_title and summary_anchor and summary_anchor != base_title:
+        push(trim_text(f"{base_title} {summary_anchor}", 44))
+
+    title_terms = extract_hot_rank_query_terms(base_title, limit=6)
+    summary_terms = [
+        term
+        for term in extract_hot_rank_query_terms(summary_anchor, limit=8)
+        if term not in title_terms
+    ]
+    if base_title and summary_terms:
+        push(trim_text(f"{base_title} {' '.join(summary_terms[:3])}", 40))
+    if base_title:
+        push(trim_text(f"{base_title} 最新进展", 24))
+
+    return queries[:3]
+
+
+def score_hot_rank_search_candidate(item: dict[str, Any], title: str, summary: str) -> int:
+    candidate_title = clean_text(item.get("title"))
+    candidate_summary = clean_text(item.get("summary") or item.get("snippet"))
+    candidate_content = clean_text(item.get("content") or item.get("clean_content"))
+    candidate_source = clean_text(item.get("sitename") or item.get("source"))
+    merged = " ".join(filter(None, [candidate_title, candidate_summary, candidate_content, candidate_source])).lower()
+
+    base_title = clean_text(title)
+    title_lower = base_title.lower()
+    score = 0
+
+    if candidate_title:
+        score += 8
+    if len(candidate_summary) >= 40:
+        score += 8
+    if len(candidate_content) >= 240:
+        score += 10
+    elif candidate_content:
+        score += 4
+    if candidate_source and any(keyword in candidate_source for keyword in OFFICIAL_SOURCE_KEYWORDS):
+        score += 10
+
+    if base_title:
+        if title_lower in candidate_title.lower():
+            score += 42
+        elif title_lower in candidate_summary.lower():
+            score += 26
+        elif title_lower in candidate_content.lower():
+            score += 16
+
+    title_terms = extract_hot_rank_query_terms(base_title, limit=8)
+    summary_terms = extract_hot_rank_query_terms(summary, limit=8)
+    title_overlap_title = sum(1 for term in title_terms if term.lower() in candidate_title.lower())
+    title_overlap_summary = sum(1 for term in title_terms if term.lower() in candidate_summary.lower())
+    title_overlap_content = sum(1 for term in title_terms if term.lower() in candidate_content.lower())
+    summary_overlap = sum(1 for term in summary_terms if term.lower() in merged)
+
+    score += title_overlap_title * 10
+    score += title_overlap_summary * 6
+    score += title_overlap_content * 3
+    score += summary_overlap * 2
+
+    if base_title and len(base_title) <= 10 and title_lower not in candidate_title.lower() and title_overlap_title == 0:
+        score -= 18
+    elif base_title and len(base_title) > 10 and title_overlap_title == 0 and title_overlap_summary == 0:
+        score -= 10
+
+    if title_terms and title_overlap_title == 0 and title_overlap_summary == 0 and summary_overlap < 2:
+        score -= 12
+
+    return score
+
+
+def hot_rank_detail_needs_enrichment(content: str, title: str, summary: str) -> bool:
+    normalized = clean_text(content)
+    if not hot_rank_detail_ready(normalized, title, summary):
+        return True
+    fact_sentences = split_search_sentences(normalized, limit=12)
+    return len(normalized) < 220 or len(fact_sentences) < 4
+
+
+def enrich_hot_rank_detail_from_search(title: str, summary: str, seed_content: str) -> dict[str, Any]:
+    queries = build_hot_rank_detail_queries(title, summary)
+    if not queries:
+        return {}
+
+    raw_candidates: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for query in queries:
+        try:
+            search_results = search_with_content(query, max_results=3, fetch_content=True, content_limit=SEARCH_CONTENT_MAX_LENGTH)
+        except Exception:
+            continue
+        for item in search_results:
+            if not isinstance(item, dict):
+                continue
+            key = clean_text(item.get("url")) or clean_text(item.get("title")).lower()
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            raw_candidates.append(item)
+
+    ranked_candidates: list[tuple[int, dict[str, Any]]] = []
+    for item in raw_candidates:
+        score = score_hot_rank_search_candidate(item, title, summary)
+        if score < 22:
+            continue
+        ranked_candidates.append((score, item))
+
+    ranked_candidates.sort(
+        key=lambda pair: (
+            -pair[0],
+            -len(clean_text(pair[1].get("content") or pair[1].get("clean_content") or "")),
+            -len(clean_text(pair[1].get("summary") or pair[1].get("snippet") or "")),
+        )
+    )
+
+    normalized_sources = [
+        item
+        for item in (
+            normalize_search_item(candidate, "热榜补全")
+            for _, candidate in ranked_candidates[:6]
+        )
+        if item
+    ]
+    if not normalized_sources:
+        return {}
+
+    fact_pack = build_search_fact_pack(title, normalized_sources, [])
+    packed_content = clean_text(fact_pack.get("cleanContent") or fact_pack.get("sourceText"))
+    merged_content = build_clean_content(seed_content, packed_content, summary, title, max_length=2200, sentence_limit=18)
+    final_content = merged_content or packed_content
+    if not final_content:
+        return {}
+
+    best_source = normalized_sources[0]
+    merged_summary = (
+        summarize_search_content("\n".join(filter(None, [summary, fact_pack.get("summary"), packed_content])), max_length=220)
+        or clean_text(fact_pack.get("summary"))
+        or summary
+        or trim_text(title, 220)
+    )
+
+    return {
+        "content": final_content,
+        "summary": merged_summary,
+        "source_count": max(1, len(normalized_sources)),
+        "article_source": clean_text(best_source.get("sitename")),
+        "article_url": clean_text(best_source.get("url")),
+    }
+
+
 def normalize_search_item(item: dict[str, Any], source_platform: str) -> dict[str, Any] | None:
     title = normalize_search_text(item.get("title"), max_length=120)
     summary = extract_item_field(item, SUMMARY_FIELD_CANDIDATES, max_length=220)
@@ -2655,7 +2884,7 @@ def hot_rank_detail_ready(content: str, title: str, summary: str) -> bool:
     fact_sentences = split_search_sentences(normalized, limit=10)
     basic_sentences = [clean_text(part) for part in re.split(r"[。！？!?；;\n]", normalized) if len(clean_text(part)) >= 8]
     sentence_count = max(len(fact_sentences), len(basic_sentences[:10]))
-    return len(normalized) >= 70 and sentence_count >= 2
+    return len(normalized) >= 140 and sentence_count >= 3
 
 
 @app.post("/api/free/hot_rank/detail")
@@ -2674,6 +2903,7 @@ async def free_hot_rank_detail(request: Request) -> JSONResponse:
     source_url = clean_text(body.get("sourceUrl") or body.get("source_url") or body.get("articleUrl") or "")
     article_source = clean_text(body.get("articleSource") or body.get("article_source") or "")
     article_url = clean_text(body.get("articleUrl") or body.get("article_url") or source_url)
+    source_count = 1 if content else 0
 
     if not title and not summary and not content:
         raise HTTPException(status_code=400, detail="请至少提供一个热榜标题或摘要")
@@ -2686,6 +2916,7 @@ async def free_hot_rank_detail(request: Request) -> JSONResponse:
             fetched_content = ""
         if fetched_content:
             content = fetched_content
+            source_count = max(source_count, 1)
             content_ready = hot_rank_detail_ready(content, title, summary)
 
     if not content_ready and title:
@@ -2697,6 +2928,7 @@ async def free_hot_rank_detail(request: Request) -> JSONResponse:
             summary = clean_text(context.get("summary")) or summary
             article_source = clean_text(context.get("article_source")) or article_source
             article_url = clean_text(context.get("article_url")) or article_url
+            source_count = max(source_count, 1 if content else 0)
             content_ready = hot_rank_detail_ready(content, title, summary)
 
     if not content_ready and article_url and not is_search_style_hot_url(article_url):
@@ -2705,30 +2937,20 @@ async def free_hot_rank_detail(request: Request) -> JSONResponse:
             article_content = ""
         if article_content:
             content = article_content
+            source_count = max(source_count, 1)
             content_ready = hot_rank_detail_ready(content, title, summary)
 
-    if not content_ready and title:
-        search_results = await asyncio.to_thread(search_with_content, title, 3, True, SEARCH_CONTENT_MAX_LENGTH)
-        if isinstance(search_results, list):
-            ranked_results = sorted(
-                search_results,
-                key=lambda item: len(clean_text(item.get("content") or item.get("clean_content") or item.get("summary") or "")),
-                reverse=True,
-            )
-            for result in ranked_results:
-                candidate_content = clean_reader_content(result.get("content") or result.get("clean_content"), max_length=3200)
-                if looks_like_reader_error(candidate_content):
-                    candidate_content = ""
-                if not candidate_content:
-                    continue
-                content = candidate_content
-                summary = clean_text(result.get("summary")) or summarize_search_content(candidate_content, max_length=220) or summary
-                source_url = clean_text(result.get("url")) or source_url
-                article_url = clean_text(result.get("url")) or article_url
-                article_source = clean_text(result.get("sitename") or result.get("sourcePlatform") or result.get("source")) or article_source
-                content_ready = hot_rank_detail_ready(content, title, summary)
-                if content_ready:
-                    break
+    if title and hot_rank_detail_needs_enrichment(content, title, summary):
+        enriched = await asyncio.to_thread(enrich_hot_rank_detail_from_search, title, summary, content)
+        enriched_content = clean_reader_content(enriched.get("content"), max_length=3200)
+        if enriched_content:
+            content = enriched_content
+            summary = clean_text(enriched.get("summary")) or summary
+            article_source = clean_text(enriched.get("article_source")) or article_source
+            article_url = clean_text(enriched.get("article_url")) or article_url
+            source_url = article_url or source_url
+            source_count = max(source_count, to_int(enriched.get("source_count"), 0))
+            content_ready = hot_rank_detail_ready(content, title, summary)
 
     if content and (not summary or len(summary) > 280 or looks_like_reader_error(summary)):
         summary = summarize_search_content(content, max_length=220) or trim_text(summary or title, 220)
@@ -2745,7 +2967,7 @@ async def free_hot_rank_detail(request: Request) -> JSONResponse:
     business_reason = infer_hot_boss_impact(merged_text, directions, signal_score) if merged_text else ""
     display_title = build_display_title(title, summary, clean_content)
     display_summary = build_display_summary(summary, clean_content, title)
-    quality_score, quality_status = assess_content_quality(clean_content, source_count=1)
+    quality_score, quality_status = assess_content_quality(clean_content, source_count=max(source_count, 1))
 
     return JSONResponse(
         content={

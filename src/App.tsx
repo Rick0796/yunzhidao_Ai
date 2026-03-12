@@ -775,6 +775,7 @@ function App() {
   }
 
   function hotRankItemNeedsDetail(item: Partial<HotRankItem & BusinessHotItem>) {
+    if (!(item as any).detail_loaded) return true;
     const content = ((item as HotRankItem).clean_content || item.content || "").trim();
     const title = (item.title || "").trim();
     const summary = (item.summary || "").trim();
@@ -785,6 +786,27 @@ function App() {
     if (title && content === title) return true;
     if (summary && content === summary) return true;
     return false;
+  }
+
+  function hotRankItemNeedsSearchFallback(item: Partial<HotRankItem & BusinessHotItem>) {
+    const content = ((item as HotRankItem).clean_content || item.content || "").trim();
+    const qualityStatus = ((item as any).quality_status || "").trim();
+    if (!content) return true;
+    if (qualityStatus !== "ready") return true;
+    return content.length < 220;
+  }
+
+  function buildHotRankSearchFallbackQuery(item: Partial<HotRankItem & BusinessHotItem>) {
+    const title = (item.title || "").trim();
+    const summary = (item.summary || "").trim();
+    if (!title) return "";
+    if (!summary || summary === title) return title;
+    const firstSummary = summary
+      .split(/[。！？!?；;]/)
+      .map((part) => part.trim())
+      .find(Boolean) || "";
+    if (!firstSummary || firstSummary === title) return title;
+    return `${title} ${firstSummary}`.slice(0, 42).trim();
   }
 
   function mergeHotRankDetailIntoState(
@@ -831,10 +853,31 @@ function App() {
           business_reason: (detail as any).business_reason || (item as any).business_reason || (item as any).boss_impact,
           quality_score: (detail as any).quality_score ?? (item as any).quality_score,
           quality_status: (detail as any).quality_status || (item as any).quality_status,
+          detail_loaded: true,
           source_url: detail.source_url || item.source_url,
           article_source: detail.article_source || item.article_source,
           article_url: detail.article_url || (item as HotRankItem).article_url
         };
+        if (hotRankItemNeedsSearchFallback(resolvedItem)) {
+          const fallbackQuery = buildHotRankSearchFallbackQuery(resolvedItem);
+          if (fallbackQuery) {
+            const searchResult = await fetchManualSearch(settings.baseUrl || "/api", fallbackQuery);
+            const factPack = (searchResult as ManualSearchResponse).factPack;
+            const fallbackContent = (factPack?.cleanContent || factPack?.sourceText || "").trim();
+            const currentContent = (((resolvedItem as any).clean_content || resolvedItem.content || "") as string).trim();
+            if (fallbackContent.length > currentContent.length + 40) {
+              resolvedItem = {
+                ...resolvedItem,
+                clean_content: fallbackContent,
+                content: fallbackContent,
+                business_reason: (resolvedItem as any).business_reason || factPack?.businessReason || "",
+                quality_score: Math.max(Number((resolvedItem as any).quality_score) || 0, Number(factPack?.qualityScore) || 0),
+                quality_status: factPack?.qualityStatus || (resolvedItem as any).quality_status,
+                detail_loaded: true
+              };
+            }
+          }
+        }
         mergeHotRankDetailIntoState(
           {
             title: resolvedItem.title,
@@ -846,6 +889,7 @@ function App() {
             business_reason: (resolvedItem as any).business_reason,
             quality_score: (resolvedItem as any).quality_score,
             quality_status: (resolvedItem as any).quality_status,
+            detail_loaded: true,
             source_url: resolvedItem.source_url,
             article_source: resolvedItem.article_source,
             article_url: (resolvedItem as HotRankItem).article_url

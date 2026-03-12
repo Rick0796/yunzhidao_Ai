@@ -48,6 +48,7 @@ const MATERIAL_INFOBAR_NOISE_PATTERN = /(Language|Audio and Subscription|Subscri
 const MATERIAL_COMMENT_NOISE_PATTERN = /(评论区|网友|说实话|不稀奇|再近点|我要看看|有没人|看不清|革命尚未成功|同志仍需努力|腿毛|挖鼻孔|都是人才|心里清楚|焦虑啊|必须要看清楚)/i;
 const MATERIAL_RANK_BOARD_PATTERN = /(热搜榜|民生榜|财经榜|关注榜|热榜|榜单|(?:^|\s)\d{1,2}\s*(?:热|新)(?=\s|$)|(?:^|\s)\d{1,2}(?:\s+\d{1,2}){5,})/i;
 const MATERIAL_MARKDOWN_LINK_PATTERN = /(?:^|\s)#+\s*\[[^\]]{4,120}\]|\[[^\]]{4,120}\]\([^)]{0,240}\)/;
+const HOTSPOT_META_ANGLE_PATTERN = /^(这条热点已经能往|这类(?:外部冲击|变化|内容|热点)|适合继续拆成|老板需要提前准备应对动作)/i;
 
 function normalizeMaterialText(value?: string) {
   return normalizeSummary(value)
@@ -213,6 +214,12 @@ function buildDisplayTitle(title?: string, fallback?: string, maxLength = DISPLA
   return trimText(candidate, maxLength);
 }
 
+function sanitizeHotspotAngle(value?: string) {
+  const cleaned = cleanDisplayText(value);
+  if (!cleaned || HOTSPOT_META_ANGLE_PATTERN.test(cleaned)) return "";
+  return trimText(cleaned, 120);
+}
+
 function buildHiddenContent(primary?: string, fallback?: string, maxLength = 3200) {
   const content = buildMaterialBody(primary || fallback || "", 18, maxLength);
   if (content) return content;
@@ -275,6 +282,7 @@ export interface HotRankItem {
   business_reason?: string;
   quality_score?: number;
   quality_status?: string;
+  detail_loaded?: boolean;
 }
 
 export interface BusinessHotItem {
@@ -299,6 +307,7 @@ export interface BusinessHotItem {
   business_reason?: string;
   quality_score?: number;
   quality_status?: string;
+  detail_loaded?: boolean;
 }
 
 export interface HotRankResponse {
@@ -594,7 +603,7 @@ export function buildMaterialFromHotRank(item: HotRankItem) {
   const summary = normalizeMaterialText(item.summary);
   const whyHot = normalizeMaterialText(item.why_hot);
   const keyPoints = (item.key_points || []).map(normalizeMaterialText).filter(Boolean);
-  const bossImpact = normalizeMaterialText(item.business_reason || item.boss_impact);
+  const bossImpact = sanitizeHotspotAngle(item.business_reason || item.boss_impact);
   const contentValue = item.clean_content || item.content || "";
   const canUseBody = contentValue.trim().length >= 60 && item.quality_status !== "blocked";
   const leadLines = dedupeMaterialLines([
@@ -630,7 +639,7 @@ export function buildMaterialFromBusinessHot(item: BusinessHotItem) {
     : "";
   const fallbackBody = !fullBody && canUseBody ? trimText(cleanDisplayText(contentValue), item.quality_status === "ready" ? 2600 : 900) : "";
   const bodyLines = (fullBody || fallbackBody) ? (fullBody || fallbackBody).split("\n") : [];
-  const hotspotAngle = dedupeMaterialLines([cleanText(item.recommended_angle), cleanText(reason)]).join(" ");
+  const hotspotAngle = dedupeMaterialLines([sanitizeHotspotAngle(item.recommended_angle), sanitizeHotspotAngle(reason)]).join(" ");
 
   return {
     sourceText: joinNaturalSentences(dedupeMaterialLines([...leadLines, ...bodyLines])).trim(),

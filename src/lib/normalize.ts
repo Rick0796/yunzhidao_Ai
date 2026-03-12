@@ -41,6 +41,7 @@ const DRAFT_FILLER_PATTERNS = [
   /(?:\u8bb0\u5f97|\u5148\u522b|\u8d76\u7d27)/,
   /(?:\u8be6\u7ec6\u5206\u6790|\u5f7b\u5e95\u7ed9\u4f60)/
 ];
+const HOTSPOT_META_ANGLE_PATTERN = /^(这条热点已经能往|这类(?:外部冲击|变化|内容|热点)|适合继续拆成|老板需要提前准备应对动作)/;
 
 const FACT_PACKAGE_LABEL_PATTERNS = [
   /^[^????\n]{1,18}[:?]\s*/,
@@ -344,6 +345,7 @@ function buildHotspotFactPool(task: TaskForm, hook: HookItem) {
       splitIntoSentences(stripAiNoise(stripStructureTags(task.sourceText || "")))
         .map((item) => cleanGeneratedSentence(item))
         .filter((item) => item && !looksLikeSearchNoiseSentence(item) && !looksLikeQuestionPromptSentence(item))
+        .filter((item) => !HOTSPOT_META_ANGLE_PATTERN.test(item))
         .filter((item) => {
           const key = normalizeSentenceKey(item);
           if (!key) return false;
@@ -360,6 +362,9 @@ function buildHotspotRepairDraft(task: TaskForm, hook: HookItem, meat: MeatItem 
   const eventFact = facts[0] || cleanGeneratedSentence(task.sourceText || "");
   const secondFact = facts[1] || "";
   const thirdFact = facts[2] || "";
+  const hotspotAngle = cleanGeneratedSentence(task.hotspotAngle || "");
+  const safeBridge = strategy.safeInferences[0] || strategy.summary || "";
+  const safeRisk = strategy.writingRules[0] || strategy.safeInferences[1] || "";
 
   const eventParagraph = [eventFact, secondFact]
     .map((item) => toSentence(item))
@@ -367,26 +372,11 @@ function buildHotspotRepairDraft(task: TaskForm, hook: HookItem, meat: MeatItem 
     .slice(0, 2)
     .join("");
 
-  const bridgeParagraph =
-    strategy.hotspotType === "risk_regulation"
-      ? "这说明，AI已经不是能不能碰的问题，而是该怎么用、边界在哪的问题。"
-      : strategy.hotspotType === "platform_change"
-        ? "这说明，真正变化的不是热度，而是平台入口、分发规则和获客动作。"
-        : strategy.hotspotType === "external_shock"
-          ? "这说明，真正该警惕的不是热闹，而是外部变量已经开始直接改写经营成本和客户决策。"
-          : "这说明，真正的变化已经从热闹，走到了具体经营动作。";
+  const bridgeParagraph = toSentence(hotspotAngle || safeBridge);
 
-  const riskParagraph =
-    strategy.hotspotType === "risk_regulation"
-      ? "很多老板现在一提AI，先想到的是省人、提效、降成本。但这次释放的信号很明确：算法不能没有边界，效率也不能牺牲公平。只盯效率、不看规则，后面踩的就不是小坑，而是经营红线。"
-      : strategy.hotspotType === "platform_change"
-        ? "很多老板还在沿着老入口做动作，问题不是不努力，而是入口一换，原来的获客链路会先失效。你如果不跟着规则和分发逻辑一起改，后面流量再多也接不住。"
-        : strategy.hotspotType === "external_shock"
-          ? "很多老板看到这种新闻只会觉得离自己很远，但外部变量一旦开打，先传导到的就是成本、预期、订单和现金流。真正危险的，是你还在拿旧办法硬扛新波动。"
-          : "很多老板看到热点只会跟着感叹，但真正拉开差距的，是谁能把事件背后的变化拆成自己的经营动作。";
+  const riskParagraph = toSentence(safeRisk);
 
-  const mappingCore = cleanGeneratedSentence(task.hotspotAngle || "");
-  const mappingParagraph = [mappingCore, meat?.serviceText || meat?.bridgeText || meat?.text || thirdFact]
+  const mappingParagraph = [thirdFact, meat?.serviceText || meat?.bridgeText || meat?.text || ""]
     .map((item) => toSentence(item))
     .filter(Boolean)
     .slice(0, 2)
@@ -812,24 +802,6 @@ export function normalizeDraftResults(
     const nextScript = normalized.script;
 
     if (isWeakDraft(nextScript, bodyParagraphs, task)) {
-      if (task.entryType === "hotspot") {
-        const repairedScript = buildHotspotRepairDraft(task, hook, meat, cta);
-        return {
-          ...fallbackItem,
-          ...item,
-          id: item.id || fallbackItem.id,
-          versionName: item.versionName || fallbackItem.versionName,
-          title: stripAiNoise(item.title || "") || fallbackItem.title,
-          coverLine: hook.text,
-          script: repairedScript,
-          subtitleScript: toDigitalHumanScript(repairedScript),
-          selectedHookId: hook.id,
-          selectedSkeletonId: skeleton.id,
-          selectedMeatId: meat?.id ?? null,
-          selectedCtaId: cta.id,
-          platformFit: item.platformFit || fallbackItem.platformFit
-        };
-      }
       return fallbackItem;
     }
 
