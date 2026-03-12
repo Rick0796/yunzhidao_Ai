@@ -2014,6 +2014,7 @@ async def chat_completions(request: Request) -> JSONResponse:
         )
 
 
+@app.post("/api/workflows/hot_rank")
 @app.post("/api/workflows/hot-rank")
 async def workflow_hot_rank(request: Request) -> JSONResponse:
     global HOT_RANK_REFRESH_ERROR
@@ -2213,6 +2214,7 @@ async def workflow_hot_rank(request: Request) -> JSONResponse:
         )
 
 
+@app.post("/api/workflows/manual_search")
 @app.post("/api/workflows/manual-search")
 async def workflow_manual_search(request: Request) -> JSONResponse:
     body = await read_request_json(request)
@@ -2656,6 +2658,7 @@ def hot_rank_detail_ready(content: str, title: str, summary: str) -> bool:
     return len(normalized) >= 70 and sentence_count >= 2
 
 
+@app.post("/api/free/hot_rank/detail")
 @app.post("/api/free/hot-rank/detail")
 async def free_hot_rank_detail(request: Request) -> JSONResponse:
     if not FREE_SCRAPERS_AVAILABLE:
@@ -2762,6 +2765,7 @@ async def free_hot_rank_detail(request: Request) -> JSONResponse:
     )
 
 
+@app.get("/api/free/hot_rank")
 @app.get("/api/free/hot-rank")
 async def free_hot_rank(
     platform: str = "all",
@@ -2999,6 +3003,7 @@ async def free_search(request: Request) -> JSONResponse:
         })
 
 
+@app.post("/api/free/manual_search")
 @app.post("/api/free/manual-search")
 async def free_manual_search(request: Request) -> JSONResponse:
     """
