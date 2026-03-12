@@ -102,6 +102,7 @@ type HotspotExpandState = { all: boolean; business: boolean; douyin: boolean; we
 type OriginalEntryType = Exclude<EntryType, "viral">;
 
 const DEFAULT_ORIGINAL_ENTRY_TYPE: OriginalEntryType = "hotspot";
+const COMPACT_HOTSPOT_COLLAPSED_COUNT = 10;
 
 function isOriginalEntryType(value: EntryType): value is OriginalEntryType {
   return value !== "viral";
@@ -388,7 +389,7 @@ function getHotspotPreviewSummary(item: Partial<HotRankItem & BusinessHotItem>, 
 }
 
 function getHotspotPreviewTitle(item: Partial<HotRankItem & BusinessHotItem>, fallbackTitle: string) {
-  return trimCardPreviewText((item as HotRankItem).display_title || item.title || fallbackTitle, 24);
+  return trimCardPreviewText((item as HotRankItem).display_title || item.title || fallbackTitle, 40);
 }
 
 function App() {
@@ -432,6 +433,7 @@ function App() {
   const [isLoadingManualSearch, setIsLoadingManualSearch] = useState(false);
   const [loadingHotspotKey, setLoadingHotspotKey] = useState<string | null>(null);
   const [isRewriteStructureCollapsed, setIsRewriteStructureCollapsed] = useState(false);
+  const [isWorkbenchIntroCollapsed, setIsWorkbenchIntroCollapsed] = useState(() => inferWorkbenchMode(task.entryType) === "original");
   const [hotspotListExpanded, setHotspotListExpanded] = useState<HotspotExpandState>({
     all: false,
     business: false,
@@ -446,10 +448,16 @@ function App() {
   );
   const currentWorkbenchMode = workbenchMode ?? inferWorkbenchMode(task.entryType);
   const normalizedTask = useMemo(() => normalizeTaskState(task), [task]);
+  const canCollapseWorkbenchIntro = currentWorkbenchMode === "original";
+  const isWorkbenchIntroHidden = canCollapseWorkbenchIntro && isWorkbenchIntroCollapsed;
   const lastOriginalEntryRef = useRef<{ entryType: OriginalEntryType; chosen: boolean }>({
     entryType: isOriginalEntryType(defaultTask.entryType) ? defaultTask.entryType : DEFAULT_ORIGINAL_ENTRY_TYPE,
     chosen: false
   });
+
+  useEffect(() => {
+    setIsWorkbenchIntroCollapsed(currentWorkbenchMode === "original");
+  }, [currentWorkbenchMode]);
   const taskChoiceMissing = useMemo(() => {
     const missing: string[] = [];
     if (currentWorkbenchMode !== "rewrite" && !normalizedTask.entryTypeChosen) {
@@ -1105,56 +1113,57 @@ function App() {
         keyPrefix: string;
       }
     ) => {
-      const visibleItems = hotspotListExpanded[options.expandKey] ? items : items.slice(0, 1);
+      const expanded = hotspotListExpanded[options.expandKey];
+      const hasMoreRows = items.length > COMPACT_HOTSPOT_COLLAPSED_COUNT;
+      const visibleItems = expanded ? items : items.slice(0, COMPACT_HOTSPOT_COLLAPSED_COUNT);
       if (items.length === 0) {
         return <EmptyBlock text={options.emptyText} />;
       }
 
       return (
         <div className="grid gap-3">
+          {hasMoreRows ? (
+            <div className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-slate-400">
+                {expanded ? `已展开 ${items.length} 条热点` : `当前显示前 ${visibleItems.length} 条，共 ${items.length} 条`}
+              </div>
+              <button
+                type="button"
+                className="self-start rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
+                onClick={() => setHotspotListExpanded((prev) => ({ ...prev, [options.expandKey]: !prev[options.expandKey] }))}
+              >
+                {expanded ? "收起列表" : `展开全部 ${items.length} 条`}
+              </button>
+            </div>
+          ) : null}
+
+          <div className="grid gap-2">
           {visibleItems.map((item, index) => {
             const rankIndex = items.findIndex((candidate) => candidate.hot_id === item.hot_id && candidate.title === item.title);
             const itemKey = item.hot_id || `${options.keyPrefix}-${rankIndex >= 0 ? rankIndex : index}`;
             return (
-              <ResponsiveHotspotRankRow
+              <CompactHotspotListRow
                 key={itemKey}
                 rank={(rankIndex >= 0 ? rankIndex : index) + 1}
                 active={selectedHotspotKey === itemKey}
                 loading={loadingHotspotKey === itemKey}
-                tone={options.tone}
                 title={getHotspotPreviewTitle(item as HotRankItem & BusinessHotItem, options.fallbackTitle)}
-                summary={getHotspotPreviewSummary(item as HotRankItem & BusinessHotItem, options.business)}
-                meta={
-                  options.business
-                    ? [
-                        (item as any).publish_time,
-                        (item as any).topic_type,
-                        (item as any).recommended_content_type,
-                        (item as any).quality_status === "ready" ? "" : "仅线索"
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")
-                    : [
-                        (item as any).publish_time,
-                        (item as any).media_name || (item as any).source_platform,
-                        (item as any).topic_type,
-                        (item as any).quality_status === "ready" ? "" : "仅线索"
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")
-                }
+                leadOnly={Boolean((item as any).quality_status && (item as any).quality_status !== "ready")}
                 onUse={() => void handleUseHotRankItem(item as HotRankItem | BusinessHotItem, { business: options.business, itemKey })}
               />
             );
           })}
-          {items.length > 1 ? (
-            <button
-              type="button"
-              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
-              onClick={() => setHotspotListExpanded((prev) => ({ ...prev, [options.expandKey]: !prev[options.expandKey] }))}
-            >
-              {hotspotListExpanded[options.expandKey] ? "收起到第 1 条" : `展开全部 ${items.length} 条`}
-            </button>
+          </div>
+          {hasMoreRows && expanded ? (
+            <div className="flex justify-center sm:justify-end">
+              <button
+                type="button"
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
+                onClick={() => setHotspotListExpanded((prev) => ({ ...prev, [options.expandKey]: false }))}
+              >
+                收起列表
+              </button>
+            </div>
           ) : null}
         </div>
       );
@@ -1890,37 +1899,78 @@ function App() {
         ) : (
           <div className="mx-auto max-w-7xl space-y-6">
             <GlassCard>
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <div className="section-eyebrow">{workbenchCopy.eyebrow}</div>
-                  <h1 className="mt-3 text-3xl font-bold text-white md:text-4xl">{workbenchCopy.title}</h1>
-                  <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">{workbenchCopy.description}</p>
-                </div>
+              {isWorkbenchIntroHidden ? (
+                <button
+                  type="button"
+                  className="w-full text-left"
+                  onClick={() => setIsWorkbenchIntroCollapsed(false)}
+                >
+                  <div className="flex flex-col gap-4 rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4 transition hover:border-cyan-400/20 hover:bg-white/[0.05] sm:px-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="section-eyebrow">{workbenchCopy.eyebrow}</div>
+                        <h1 className="mt-3 text-2xl font-bold text-white md:text-3xl">{workbenchCopy.title}</h1>
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                          工作台默认收起。点击展开后查看完整四步流程、当前阶段和操作面板。
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+                          已完成 <span className="font-semibold text-white">{progress}</span> / 4 步
+                        </div>
+                        <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100">
+                          展开工作台
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="section-eyebrow">{workbenchCopy.eyebrow}</div>
+                      <h1 className="mt-3 text-3xl font-bold text-white md:text-4xl">{workbenchCopy.title}</h1>
+                      <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">{workbenchCopy.description}</p>
+                    </div>
 
-                <div className="rounded-3xl border border-white/10 bg-white/5 px-5 py-4 text-sm text-slate-300">
-                  已完成 <span className="font-semibold text-white">{progress}</span> / 4 步
-                </div>
-              </div>
+                    <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                      <div className="rounded-3xl border border-white/10 bg-white/5 px-5 py-4 text-sm text-slate-300">
+                        已完成 <span className="font-semibold text-white">{progress}</span> / 4 步
+                      </div>
+                      {canCollapseWorkbenchIntro ? (
+                        <button
+                          type="button"
+                          className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
+                          onClick={() => setIsWorkbenchIntroCollapsed(true)}
+                        >
+                          收起工作台
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
 
-              <div className="mt-6 grid gap-3 md:grid-cols-4">
-                {stepConfig.map((item) => {
-                  const available =
-                    item.step === 1 ? true : item.step === 2 ? canGoStep2 : item.step === 3 ? canGoStep3 : canGoStep4 || drafts.length > 0;
-                  const done = item.step < wizardStep || (item.step === 4 && drafts.length > 0);
-                  return (
-                    <StepPill
-                      key={item.step}
-                      active={wizardStep === item.step}
-                      done={done}
-                      disabled={!available}
-                      step={item.step}
-                      title={item.title}
-                      hint={item.hint}
-                      onClick={() => goStep(item.step)}
-                    />
-                  );
-                })}
-              </div>
+                  <div className="mt-6 grid gap-3 md:grid-cols-4">
+                    {stepConfig.map((item) => {
+                      const available =
+                        item.step === 1 ? true : item.step === 2 ? canGoStep2 : item.step === 3 ? canGoStep3 : canGoStep4 || drafts.length > 0;
+                      const done = item.step < wizardStep || (item.step === 4 && drafts.length > 0);
+                      return (
+                        <StepPill
+                          key={item.step}
+                          active={wizardStep === item.step}
+                          done={done}
+                          disabled={!available}
+                          step={item.step}
+                          title={item.title}
+                          hint={item.hint}
+                          onClick={() => goStep(item.step)}
+                        />
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </GlassCard>
 
             <SelectionSummaryBar
@@ -2320,6 +2370,58 @@ function ResultTabChip(props: { active: boolean; label: string; count: number; o
       onClick={onClick}
     >
       {label} · {count}
+    </button>
+  );
+}
+
+function CompactHotspotListRow(props: {
+  rank: number;
+  active: boolean;
+  loading?: boolean;
+  title: string;
+  onUse: () => void;
+  leadOnly?: boolean;
+}) {
+  const { rank, active, loading = false, title, onUse, leadOnly = false } = props;
+  const rankStyle =
+    rank === 1
+      ? "from-[#ff7a59]/30 to-[#ff4d6d]/15 text-[#ffb199]"
+      : rank === 2
+        ? "from-[#ffb347]/25 to-[#ffcc33]/10 text-[#ffd27d]"
+        : rank === 3
+          ? "from-[#8b5cf6]/25 to-[#00d4ff]/10 text-[#b7c7ff]"
+          : "from-white/10 to-white/5 text-slate-300";
+
+  return (
+    <button
+      className={classNames(
+        "group flex items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-all sm:px-4 sm:py-3",
+        active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/10 bg-white/5 hover:border-cyan-400/20 hover:bg-white/8",
+        loading && "cursor-wait opacity-80"
+      )}
+      onClick={onUse}
+      disabled={loading}
+      title={title}
+    >
+      <div className={classNames("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-sm font-bold", rankStyle)}>{rank}</div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-white sm:text-[15px]">{title}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {leadOnly ? (
+          <span className="hidden rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200 sm:inline-flex">
+            线索
+          </span>
+        ) : null}
+        <span
+          className={classNames(
+            "whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] transition-all",
+            active ? "border-cyan-300 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-white/5 text-slate-300 group-hover:border-cyan-400/25 group-hover:text-white"
+          )}
+        >
+          {loading ? "提取中" : active ? "已选" : "选用"}
+        </span>
+      </div>
     </button>
   );
 }
