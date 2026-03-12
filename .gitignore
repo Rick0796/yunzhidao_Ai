@@ -9,8 +9,11 @@ backend/config.local.json
 .vercel
 .env.vercel.local
 .npm-cache
+.vercel-home
 runtime
 __pycache__
 *.pyc
 *.log
 *.tsbuildinfo
+
+.vercel
