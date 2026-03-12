@@ -10,6 +10,26 @@
   },
   "rewrites": [
     {
+      "source": "/api/workflows/hot-rank",
+      "destination": "/api/workflows/hot_rank"
+    },
+    {
+      "source": "/api/workflows/manual-search",
+      "destination": "/api/workflows/manual_search"
+    },
+    {
+      "source": "/api/free/hot-rank",
+      "destination": "/api/free/hot_rank"
+    },
+    {
+      "source": "/api/free/hot-rank/detail",
+      "destination": "/api/free/hot_rank/detail"
+    },
+    {
+      "source": "/api/free/manual-search",
+      "destination": "/api/free/manual_search"
+    },
+    {
       "source": "/:path((?!api/).*)",
       "destination": "/index.html"
     }
