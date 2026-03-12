@@ -573,6 +573,20 @@ def hot_rank_cache_is_fresh(cache: dict[str, Any] | None) -> bool:
     return cache_age_seconds(cache) < HOT_RANK_CACHE_MAX_AGE_SECONDS
 
 
+def hot_rank_supports_background_refresh() -> bool:
+    return not IS_VERCEL
+
+
+def hot_rank_should_refresh_inline(cache: dict[str, Any] | None, *, force_refresh: bool) -> bool:
+    if not IS_VERCEL:
+        return False
+    if force_refresh:
+        return True
+    if not cache:
+        return True
+    return not hot_rank_cache_is_fresh(cache)
+
+
 def get_hot_rank_refresh_error() -> dict[str, Any] | None:
     global HOT_RANK_REFRESH_ERROR
     if not isinstance(HOT_RANK_REFRESH_ERROR, dict):
@@ -1208,6 +1222,8 @@ async def refresh_hot_rank_cache(*, force: bool) -> dict[str, Any]:
 
 def start_hot_rank_refresh(*, force: bool) -> None:
     global HOT_RANK_REFRESH_TASK, HOT_RANK_REFRESH_ERROR
+    if not hot_rank_supports_background_refresh():
+        return
     if HOT_RANK_REFRESH_TASK and not HOT_RANK_REFRESH_TASK.done():
         return
 
@@ -2018,6 +2034,35 @@ async def workflow_hot_rank(request: Request) -> JSONResponse:
     recent_refresh_warning = stringify_error(recent_refresh_error.get("message")) if recent_refresh_error else ""
 
     try:
+        if hot_rank_should_refresh_inline(cache, force_refresh=force_refresh):
+            try:
+                fresh_cache = await refresh_hot_rank_cache(force=force_refresh or not hot_rank_cache_is_fresh(cache))
+                return JSONResponse(
+                    content=build_hot_rank_response_content(
+                        fresh_cache,
+                        all_limit,
+                        business_limit,
+                        from_cache=bool(cache),
+                        stale=False,
+                        refreshing=False,
+                    )
+                )
+            except Exception as exc:
+                inline_error = stringify_error(getattr(exc, "detail", str(exc)))
+                if cache:
+                    return JSONResponse(
+                        content=build_hot_rank_response_content(
+                            cache,
+                            all_limit,
+                            business_limit,
+                            from_cache=True,
+                            stale=True,
+                            refreshing=False,
+                            warning=inline_error,
+                        )
+                    )
+                raise
+
         if force_refresh:
             if recent_refresh_error:
                 recent_refresh_error = None
@@ -2144,7 +2189,7 @@ async def workflow_hot_rank(request: Request) -> JSONResponse:
                     warning=error_message,
                 )
             )
-        if not refreshing:
+        if not refreshing and hot_rank_supports_background_refresh():
             start_hot_rank_refresh(force=True)
             refreshing = True
         return JSONResponse(
@@ -2759,6 +2804,38 @@ async def free_hot_rank(
         refreshing = HOT_RANK_REFRESH_TASK is not None and not HOT_RANK_REFRESH_TASK.done()
         recent_refresh_error = get_hot_rank_refresh_error()
         warning = stringify_error(recent_refresh_error.get("message")) if recent_refresh_error else ""
+
+        if hot_rank_should_refresh_inline(cache, force_refresh=force_refresh):
+            try:
+                fresh_cache = await refresh_hot_rank_cache(force=force_refresh or not hot_rank_cache_is_fresh(cache))
+                payload = build_free_hot_rank_route_payload(
+                    fresh_cache,
+                    platform=platform,
+                    business_filter=business_filter,
+                    all_limit=limit,
+                    business_limit=HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+                    stale=False,
+                    refreshing=False,
+                    warning="",
+                )
+                payload["durationMs"] = round((time.perf_counter() - start) * 1000, 2)
+                return JSONResponse(content=payload)
+            except Exception as exc:
+                inline_error = stringify_error(getattr(exc, "detail", str(exc)))
+                if cache:
+                    payload = build_free_hot_rank_route_payload(
+                        cache,
+                        platform=platform,
+                        business_filter=business_filter,
+                        all_limit=limit,
+                        business_limit=HOT_RANK_DEFAULT_BUSINESS_LIMIT,
+                        stale=True,
+                        refreshing=False,
+                        warning=inline_error,
+                    )
+                    payload["durationMs"] = round((time.perf_counter() - start) * 1000, 2)
+                    return JSONResponse(content=payload)
+                raise
 
         if force_refresh:
             if not refreshing:
