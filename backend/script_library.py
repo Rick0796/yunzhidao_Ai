@@ -11,6 +11,7 @@ from typing import Any
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+SCRIPT_LIBRARY_DATA_DIR = ROOT_DIR / "data" / "script_library"
 SECTION_KEY_PATTERN = re.compile(r"^([A-Z]+)(\d+)?$")
 SECTION_LABELS = {
     "A": "爆皮",
@@ -63,9 +64,7 @@ def parse_material_index(section_type: str, raw_key: str, fallback: int | None) 
     if fallback is not None:
         return int(fallback)
     match = SECTION_KEY_PATTERN.match(str(raw_key or "").strip())
-    if not match:
-        return None
-    if match.group(1) != section_type:
+    if not match or match.group(1) != section_type:
         return None
     return int(match.group(2)) if match.group(2) else 1
 
@@ -93,86 +92,6 @@ def allocate_material_index(connection: sqlite3.Connection, section_type: str) -
         (section_type, next_index + 1),
     )
     return next_index
-
-
-def init_script_library(db_path: Path | None = None) -> Path:
-    target = db_path or resolve_script_library_db_path()
-    with connect_script_library(target) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS script_documents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                original_id TEXT NOT NULL UNIQUE,
-                theme TEXT NOT NULL DEFAULT '',
-                primary_direction TEXT NOT NULL DEFAULT '',
-                secondary_direction TEXT NOT NULL DEFAULT '',
-                audience TEXT NOT NULL DEFAULT '',
-                source_text TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS script_sections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                document_id INTEGER NOT NULL,
-                order_index INTEGER NOT NULL,
-                section_key TEXT NOT NULL,
-                section_type TEXT NOT NULL,
-                section_index INTEGER,
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(document_id) REFERENCES script_documents(id) ON DELETE CASCADE,
-                UNIQUE(document_id, section_key)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_script_sections_document_order
-            ON script_sections(document_id, order_index, id);
-
-            CREATE TABLE IF NOT EXISTS script_material_counters (
-                section_type TEXT PRIMARY KEY,
-                next_index INTEGER NOT NULL
-            );
-            """
-        )
-        ensure_column(connection, "script_sections", "source_key", "TEXT NOT NULL DEFAULT ''")
-        ensure_column(connection, "script_sections", "material_id", "TEXT")
-        ensure_column(connection, "script_sections", "global_index", "INTEGER")
-        connection.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_script_sections_material_id
-            ON script_sections(material_id)
-            """
-        )
-        connection.execute(
-            """
-            UPDATE script_sections
-            SET source_key = section_key
-            WHERE source_key = ''
-            """
-        )
-        rows = connection.execute(
-            """
-            SELECT id, section_key, source_key, section_type, section_index, material_id, global_index
-            FROM script_sections
-            WHERE material_id IS NULL OR material_id = '' OR global_index IS NULL
-            """
-        ).fetchall()
-        for row in rows:
-            source_key = str(row["source_key"] or row["section_key"] or "").strip()
-            global_index = parse_material_index(str(row["section_type"]), source_key, row["global_index"])
-            if global_index is None:
-                global_index = allocate_material_index(connection, str(row["section_type"]))
-            material_id = f"{row['section_type']}{global_index}"
-            connection.execute(
-                """
-                UPDATE script_sections
-                SET source_key = ?, material_id = ?, global_index = ?
-                WHERE id = ?
-                """,
-                (source_key, material_id, global_index, row["id"]),
-            )
-        connection.commit()
-    return target
 
 
 def normalize_section_key(section_key: str) -> tuple[str, int | None]:
@@ -237,6 +156,217 @@ def normalize_script_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "sourceText": str(payload.get("sourceText") or "").strip(),
         "sections": normalize_sections(payload.get("sections")),
     }
+
+
+def _upsert_normalized_document(
+    connection: sqlite3.Connection,
+    normalized: dict[str, Any],
+    *,
+    timestamp: str,
+) -> None:
+    existing = connection.execute(
+        "SELECT id FROM script_documents WHERE original_id = ?",
+        (normalized["originalId"],),
+    ).fetchone()
+
+    existing_sections: dict[str, tuple[str, int]] = {}
+    if existing is not None:
+        rows = connection.execute(
+            """
+            SELECT source_key, section_key, material_id, global_index
+            FROM script_sections
+            WHERE document_id = ?
+            """,
+            (existing["id"],),
+        ).fetchall()
+        existing_sections = {
+            str(row["source_key"] or row["section_key"]): (
+                str(row["material_id"] or row["section_key"]),
+                int(
+                    row["global_index"]
+                    or parse_material_index(
+                        str(row["material_id"] or row["section_key"])[0],
+                        str(row["material_id"] or row["section_key"]),
+                        None,
+                    )
+                    or 1
+                ),
+            )
+            for row in rows
+        }
+
+    if existing is None:
+        cursor = connection.execute(
+            """
+            INSERT INTO script_documents (
+                original_id, theme, primary_direction, secondary_direction, audience,
+                source_text, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalized["originalId"],
+                normalized["theme"],
+                normalized["primaryDirection"],
+                normalized["secondaryDirection"],
+                normalized["audience"],
+                normalized["sourceText"],
+                timestamp,
+                timestamp,
+            ),
+        )
+        document_id = int(cursor.lastrowid)
+    else:
+        document_id = int(existing["id"])
+        connection.execute(
+            """
+            UPDATE script_documents
+            SET theme = ?, primary_direction = ?, secondary_direction = ?, audience = ?,
+                source_text = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                normalized["theme"],
+                normalized["primaryDirection"],
+                normalized["secondaryDirection"],
+                normalized["audience"],
+                normalized["sourceText"],
+                timestamp,
+                document_id,
+            ),
+        )
+        connection.execute("DELETE FROM script_sections WHERE document_id = ?", (document_id,))
+
+    prepared_sections: list[tuple[Any, ...]] = []
+    for section in normalized["sections"]:
+        if section["key"] in existing_sections:
+            material_id, global_index = existing_sections[section["key"]]
+        else:
+            global_index = allocate_material_index(connection, section["type"])
+            material_id = f"{section['type']}{global_index}"
+
+        prepared_sections.append(
+            (
+                document_id,
+                section["orderIndex"],
+                section["key"],
+                section["key"],
+                material_id,
+                section["type"],
+                section["index"],
+                global_index,
+                section["content"],
+                timestamp,
+            )
+        )
+
+    connection.executemany(
+        """
+        INSERT INTO script_sections (
+            document_id, order_index, section_key, source_key, material_id,
+            section_type, section_index, global_index, content, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        prepared_sections,
+    )
+
+
+def _seed_script_library_from_data_files(connection: sqlite3.Connection) -> None:
+    if not SCRIPT_LIBRARY_DATA_DIR.exists():
+        return
+
+    for json_path in sorted(SCRIPT_LIBRARY_DATA_DIR.glob("*.json")):
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        normalized = normalize_script_payload(payload)
+        _upsert_normalized_document(connection, normalized, timestamp=now_text())
+
+
+def init_script_library(db_path: Path | None = None) -> Path:
+    target = db_path or resolve_script_library_db_path()
+    with connect_script_library(target) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS script_documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                original_id TEXT NOT NULL UNIQUE,
+                theme TEXT NOT NULL DEFAULT '',
+                primary_direction TEXT NOT NULL DEFAULT '',
+                secondary_direction TEXT NOT NULL DEFAULT '',
+                audience TEXT NOT NULL DEFAULT '',
+                source_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS script_sections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL,
+                order_index INTEGER NOT NULL,
+                section_key TEXT NOT NULL,
+                section_type TEXT NOT NULL,
+                section_index INTEGER,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(document_id) REFERENCES script_documents(id) ON DELETE CASCADE,
+                UNIQUE(document_id, section_key)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_script_sections_document_order
+            ON script_sections(document_id, order_index, id);
+
+            CREATE TABLE IF NOT EXISTS script_material_counters (
+                section_type TEXT PRIMARY KEY,
+                next_index INTEGER NOT NULL
+            );
+            """
+        )
+        ensure_column(connection, "script_sections", "source_key", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "script_sections", "material_id", "TEXT")
+        ensure_column(connection, "script_sections", "global_index", "INTEGER")
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_script_sections_material_id
+            ON script_sections(material_id)
+            """
+        )
+        connection.execute(
+            """
+            UPDATE script_sections
+            SET source_key = section_key
+            WHERE source_key = ''
+            """
+        )
+
+        count_row = connection.execute(
+            "SELECT COUNT(*) AS count FROM script_documents"
+        ).fetchone()
+        if int(count_row["count"] or 0) == 0:
+            _seed_script_library_from_data_files(connection)
+
+        rows = connection.execute(
+            """
+            SELECT id, section_key, source_key, section_type, section_index, material_id, global_index
+            FROM script_sections
+            WHERE material_id IS NULL OR material_id = '' OR global_index IS NULL
+            """
+        ).fetchall()
+        for row in rows:
+            source_key = str(row["source_key"] or row["section_key"] or "").strip()
+            global_index = parse_material_index(str(row["section_type"]), source_key, row["global_index"])
+            if global_index is None:
+                global_index = allocate_material_index(connection, str(row["section_type"]))
+            material_id = f"{row['section_type']}{global_index}"
+            connection.execute(
+                """
+                UPDATE script_sections
+                SET source_key = ?, material_id = ?, global_index = ?
+                WHERE id = ?
+                """,
+                (source_key, material_id, global_index, row["id"]),
+            )
+
+        connection.commit()
+
+    return target
 
 
 def fetch_script_document(original_id: str, db_path: Path | None = None) -> dict[str, Any] | None:
@@ -407,104 +537,9 @@ def count_script_documents(db_path: Path | None = None) -> int:
 def upsert_script_document(payload: dict[str, Any], db_path: Path | None = None) -> dict[str, Any]:
     normalized = normalize_script_payload(payload)
     target = init_script_library(db_path)
-    now = now_text()
 
     with connect_script_library(target) as connection:
-        existing = connection.execute(
-            "SELECT id, created_at FROM script_documents WHERE original_id = ?",
-            (normalized["originalId"],),
-        ).fetchone()
-        existing_sections: dict[str, tuple[str, int]] = {}
-        if existing is not None:
-            rows = connection.execute(
-                """
-                SELECT source_key, section_key, material_id, global_index
-                FROM script_sections
-                WHERE document_id = ?
-                """,
-                (existing["id"],),
-            ).fetchall()
-            existing_sections = {
-                str(row["source_key"] or row["section_key"]): (
-                    str(row["material_id"] or row["section_key"]),
-                    int(row["global_index"] or parse_material_index(str(row["material_id"] or row["section_key"])[0], str(row["material_id"] or row["section_key"]), None) or 1),
-                )
-                for row in rows
-            }
-
-        if existing is None:
-            cursor = connection.execute(
-                """
-                INSERT INTO script_documents (
-                    original_id, theme, primary_direction, secondary_direction, audience,
-                    source_text, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    normalized["originalId"],
-                    normalized["theme"],
-                    normalized["primaryDirection"],
-                    normalized["secondaryDirection"],
-                    normalized["audience"],
-                    normalized["sourceText"],
-                    now,
-                    now,
-                ),
-            )
-            document_id = int(cursor.lastrowid)
-        else:
-            document_id = int(existing["id"])
-            connection.execute(
-                """
-                UPDATE script_documents
-                SET theme = ?, primary_direction = ?, secondary_direction = ?, audience = ?,
-                    source_text = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    normalized["theme"],
-                    normalized["primaryDirection"],
-                    normalized["secondaryDirection"],
-                    normalized["audience"],
-                    normalized["sourceText"],
-                    now,
-                    document_id,
-                ),
-            )
-            connection.execute("DELETE FROM script_sections WHERE document_id = ?", (document_id,))
-
-        prepared_sections: list[tuple[Any, ...]] = []
-        for section in normalized["sections"]:
-            if section["key"] in existing_sections:
-                material_id, global_index = existing_sections[section["key"]]
-            else:
-                global_index = allocate_material_index(connection, section["type"])
-                material_id = f"{section['type']}{global_index}"
-
-            prepared_sections.append(
-                (
-                    document_id,
-                    section["orderIndex"],
-                    section["key"],
-                    section["key"],
-                    material_id,
-                    section["type"],
-                    section["index"],
-                    global_index,
-                    section["content"],
-                    now,
-                )
-            )
-
-        connection.executemany(
-            """
-            INSERT INTO script_sections (
-                document_id, order_index, section_key, source_key, material_id,
-                section_type, section_index, global_index, content, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            prepared_sections,
-        )
+        _upsert_normalized_document(connection, normalized, timestamp=now_text())
         connection.commit()
 
     stored = fetch_script_document(normalized["originalId"], target)

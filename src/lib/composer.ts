@@ -61,6 +61,35 @@ const DIRECTION_KEYWORDS: Array<{ value: string; keywords: string[] }> = [
   }
 ];
 
+const MIDDLE_SLOT_KEYS: ComposeSlotKey[] = ["F", "G", "H", "I", "J"];
+const ROLE_MARKERS: Record<ComposeSectionType, string[]> = {
+  A: ["别", "赶紧", "一定", "千万", "告诉你", "记住"],
+  B: ["接下来", "认真听", "往下听", "听清楚", "听懂", "后面"],
+  C: ["点赞", "收藏", "转发", "分享", "评论", "发消息", "关注"],
+  D: ["为什么", "其实", "现在", "现实", "正在", "意味着"],
+  F: ["未来", "趋势", "时代", "将", "正在", "意味着", "核心变量", "重构"],
+  G: ["过去", "以前", "曾经", "回想", "错过", "当年"],
+  H: ["比如", "案例", "数据显示", "公司", "特斯拉", "华为", "马斯克", "已经"],
+  I: ["如果", "危险", "被淘汰", "来不及", "焦虑", "边缘化", "扛不住", "后悔"],
+  J: ["你要", "学会", "应该", "路径", "方法", "升级", "成为", "最快的方式"],
+  K: ["直播", "训练营", "公开课", "入口", "系统", "带你", "第一天", "第二天"],
+  L: ["点开头像", "关注", "发消息", "直播入口", "点击", "现在就", "我等你"]
+};
+const TRANSITION_MARKERS: Partial<Record<ComposeSlotKey, string[]>> = {
+  B1: ["接下来", "认真听", "往下听", "听清楚"],
+  C1: ["点赞", "收藏", "分享", "转发"],
+  D: ["为什么", "其实", "因为", "现在"],
+  B2: ["后面", "接下来", "听懂", "更重要"],
+  C2: ["如果你", "评论", "转发", "点亮"],
+  F: ["未来", "趋势", "时代", "核心变量"],
+  G: ["过去", "以前", "曾经", "当年"],
+  H: ["比如", "案例", "已经", "数据显示"],
+  I: ["如果", "危险", "焦虑", "淘汰", "边缘化"],
+  J: ["你要", "学会", "应该", "方法", "路径"],
+  K: ["我给你", "带你", "训练营", "直播", "公开"],
+  L: ["点开", "关注", "发消息", "入口"]
+};
+
 function normalizeText(value: string) {
   return (value || "").toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -111,11 +140,60 @@ function overlapScore(left: string, right: string) {
   return score;
 }
 
-function blockSuitability(slotKey: ComposeSlotKey, item: ScriptSectionItem, themeKeywords: string[], previousContent: string) {
-  let score = keywordScore(themeKeywords, item.content) + richnessScore(item.content);
-  if (previousContent) {
-    score += overlapScore(previousContent, item.content) * 0.9;
+function markerScore(markers: string[], content: string) {
+  const normalized = normalizeText(content);
+  if (!normalized) return 0;
+  let score = 0;
+  for (const marker of markers) {
+    if (normalized.includes(normalizeText(marker))) {
+      score += marker.length >= 4 ? 5 : 3;
+    }
   }
+  return score;
+}
+
+function roleSignalScore(sectionType: ComposeSectionType, content: string) {
+  return markerScore(ROLE_MARKERS[sectionType] ?? [], content);
+}
+
+function transitionSignalScore(slotKey: ComposeSlotKey, previousContent: string, content: string) {
+  let score = 0;
+  if (previousContent) {
+    score += overlapScore(previousContent, content) * 0.7;
+  }
+  score += markerScore(TRANSITION_MARKERS[slotKey] ?? [], content);
+  return score;
+}
+
+function repetitionPenalty(slotKey: ComposeSlotKey, content: string, blocks: ComposeBlock[]) {
+  const relevantBlocks = blocks.filter((item) => {
+    if (slotKey === "B1" || slotKey === "B2") return item.sectionType === "B";
+    if (slotKey === "C1" || slotKey === "C2") return item.sectionType === "C";
+    if (MIDDLE_SLOT_KEYS.includes(slotKey)) return MIDDLE_SLOT_KEYS.includes(item.slotKey as ComposeSlotKey);
+    return false;
+  });
+
+  let penalty = 0;
+  for (const block of relevantBlocks) {
+    const overlap = overlapScore(block.content, content);
+    if (overlap >= 18) penalty += 36;
+    else if (overlap >= 12) penalty += 20;
+    else if (overlap >= 8) penalty += 10;
+  }
+  return penalty;
+}
+
+function blockSuitability(
+  slotKey: ComposeSlotKey,
+  item: ScriptSectionItem,
+  themeKeywords: string[],
+  previousContent: string,
+  blocks: ComposeBlock[]
+) {
+  let score = keywordScore(themeKeywords, item.content) + richnessScore(item.content);
+  score += roleSignalScore(item.type as ComposeSectionType, item.content);
+  score += transitionSignalScore(slotKey, previousContent, item.content);
+  score -= repetitionPenalty(slotKey, item.content, blocks);
 
   if (slotKey === "A" && sentenceCount(item.content) < 2) score -= 18;
   if ((slotKey === "B1" || slotKey === "B2" || slotKey === "C1" || slotKey === "C2") && item.content.length < 18) score -= 18;
@@ -198,7 +276,7 @@ export function composeDraftFromSections(options: {
     const ranked = pool
       .map((item) => ({
         item,
-        score: blockSuitability(blueprint.slotKey, item, themeKeywords, previousContent)
+        score: blockSuitability(blueprint.slotKey, item, themeKeywords, previousContent, blocks)
       }))
       .sort((left, right) => right.score - left.score);
 
@@ -326,7 +404,7 @@ export function rematchComposeBlock(options: {
   const ranked = pool
     .map((item) => ({
       item,
-      score: blockSuitability(target.slotKey as ComposeSlotKey, item, themeKeywords, previousContent)
+      score: blockSuitability(target.slotKey as ComposeSlotKey, item, themeKeywords, previousContent, options.blocks.filter((block) => block.id !== target.id))
     }))
     .sort((left, right) => right.score - left.score);
 
@@ -378,6 +456,28 @@ export function updateComposeBlock(blocks: ComposeBlock[], id: string, content: 
 
 export function removeComposeBlock(blocks: ComposeBlock[], id: string) {
   return blocks.filter((item) => item.id !== id);
+}
+
+export function rematchComposeGroup(options: {
+  blocks: ComposeBlock[];
+  slotKeys: ComposeSlotKey[];
+  sections: ScriptSectionItem[];
+  theme: string;
+  primaryDirection: string;
+}) {
+  let nextBlocks = [...options.blocks];
+  for (const slotKey of options.slotKeys) {
+    const target = nextBlocks.find((item) => item.slotKey === slotKey);
+    if (!target) continue;
+    nextBlocks = rematchComposeBlock({
+      blocks: nextBlocks,
+      targetId: target.id,
+      sections: options.sections,
+      theme: options.theme,
+      primaryDirection: options.primaryDirection
+    });
+  }
+  return nextBlocks;
 }
 
 export function composeFullText(blocks: ComposeBlock[]) {
