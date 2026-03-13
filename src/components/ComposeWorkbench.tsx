@@ -4,12 +4,14 @@ import type { ScriptSectionItem } from "../lib/scriptLibrary";
 import { fetchScriptSections } from "../lib/scriptLibrary";
 import {
   buildComposeDiagnostics,
+  buildComposeReview,
   composeDraftFromSections,
   composeFullText,
   finalizeComposeBlocks,
   dedupeComposeBlocks,
   inferPrimaryDirection,
   insertManualComposeBlock,
+  applyComposeSuggestion,
   rematchComposeBlock,
   removeComposeBlock,
   updateComposeBlock,
@@ -73,6 +75,18 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   const resolvedTheme = (theme.trim() || customHook.trim()).trim();
   const directionSuggestion = useMemo(() => inferPrimaryDirection(resolvedTheme), [resolvedTheme]);
   const fullText = useMemo(() => composeFullText(blocks), [blocks]);
+  const review = useMemo(
+    () =>
+      blocks.length
+        ? buildComposeReview({
+            theme: resolvedTheme,
+            blocks,
+            sections,
+            primaryDirection
+          })
+        : null,
+    [blocks, sections, resolvedTheme, primaryDirection]
+  );
 
   function applyBlocks(nextBlocks: ComposeBlock[], nextTheme = resolvedTheme) {
     const finalizedBlocks = finalizeComposeBlocks(nextTheme, nextBlocks);
@@ -267,6 +281,21 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
     }
   }
 
+  function handleApplySuggestion(suggestionId: string) {
+    if (!review) return;
+    const suggestion = review.suggestions.find((item) => item.id === suggestionId);
+    if (!suggestion) return;
+    const nextBlocks = applyComposeSuggestion(blocks, suggestion);
+    applyBlocks(nextBlocks);
+    setMessage({ tone: "success", text: `${suggestion.title} 已采用，建议再看一遍逻辑体检。` });
+  }
+
+  function metricColor(level: "good" | "watch" | "risk") {
+    if (level === "good") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-100";
+    if (level === "watch") return "border-amber-400/25 bg-amber-400/10 text-amber-100";
+    return "border-rose-400/25 bg-rose-400/10 text-rose-100";
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="glass-panel rounded-[28px] p-5 sm:p-6 md:p-7">
@@ -346,7 +375,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <div className="section-eyebrow">逻辑检查</div>
-                <h2 className="mt-3 text-xl font-semibold text-white">自动诊断</h2>
+                <h2 className="mt-3 text-xl font-semibold text-white">自动诊断与替换建议</h2>
               </div>
               <div className="flex flex-wrap gap-2">
                 {LARGE_GROUPS.map((group) => (
@@ -367,6 +396,79 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                 </button>
               </div>
             </div>
+
+            {review ? (
+              <div className="mt-5 space-y-4">
+                <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-white">整稿逻辑评分</div>
+                      <div className="mt-1 text-xs text-slate-400">系统会分别看开场链、中段推进、承接收口和素材分散度。</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-3xl font-bold text-cyan-100">{review.overallScore}</div>
+                      <div className="text-xs text-slate-400">/ 100</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-400 to-blue-500" style={{ width: `${review.overallScore}%` }} />
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  {review.metrics.map((metric) => (
+                    <div key={metric.key} className={classNames("rounded-2xl border px-4 py-4", metricColor(metric.level))}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-white">{metric.title}</div>
+                        <div className="text-lg font-bold text-white">{metric.score}</div>
+                      </div>
+                      <div className="mt-2 text-sm leading-6">{metric.summary}</div>
+                      <div className="mt-2 text-xs leading-5 text-slate-200">{metric.detail}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-white">自动建议替换块</div>
+                      <div className="mt-1 text-xs text-slate-400">系统会优先找当前最薄、最跳或最像复读的板块，给你一版更顺的候选。</div>
+                    </div>
+                    <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100">
+                      {review.suggestions.length} 条建议
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3">
+                    {review.suggestions.length ? (
+                      review.suggestions.map((suggestion) => (
+                        <div key={suggestion.id} className="rounded-2xl border border-white/10 bg-slate-950/30 px-4 py-4">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-semibold text-white">{suggestion.title}</div>
+                              <div className="mt-2 text-sm leading-6 text-slate-300">{suggestion.reason}</div>
+                              <div className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-3 text-sm leading-6 text-cyan-100">
+                                <span className="font-semibold text-cyan-50">建议候选：</span> {suggestion.preview}
+                              </div>
+                              <div className="mt-2 text-xs text-slate-500">
+                                {suggestion.candidateMaterialId || "手动候选"} {suggestion.candidateOriginalId ? `· 来源 ${suggestion.candidateOriginalId}` : ""}
+                              </div>
+                            </div>
+                            <button type="button" className="brand-btn" onClick={() => handleApplySuggestion(suggestion.id)}>
+                              采用这条建议
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-slate-300">
+                        当前这一版暂时没有明显更优的自动替换建议，说明这套结构已经比较稳了。你可以直接进入逐块去重。
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-5 grid gap-3">
               {diagnostics.length ? (

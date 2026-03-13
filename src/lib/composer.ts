@@ -31,6 +31,36 @@ export interface ComposeDraft {
   diagnostics: ComposeDiagnostic[];
 }
 
+export interface ComposeReviewMetric {
+  key: string;
+  title: string;
+  score: number;
+  level: "good" | "watch" | "risk";
+  summary: string;
+  detail: string;
+  relatedSlots: string[];
+}
+
+export interface ComposeSuggestion {
+  id: string;
+  blockId: string;
+  slotKey: string;
+  title: string;
+  reason: string;
+  preview: string;
+  candidateMaterialId: string | null;
+  candidateOriginalId: string | null;
+  candidateSourceKey: string | null;
+  candidateLabel: string;
+  candidateContent: string;
+}
+
+export interface ComposeReview {
+  overallScore: number;
+  metrics: ComposeReviewMetric[];
+  suggestions: ComposeSuggestion[];
+}
+
 const SLOT_BLUEPRINT: Array<{ slotKey: ComposeSlotKey; sectionType: ComposeSectionType; title: string }> = [
   { slotKey: "A", sectionType: "A", title: "A 爆皮" },
   { slotKey: "B1", sectionType: "B", title: "B1 钩子" },
@@ -168,6 +198,16 @@ function richnessScore(content: string) {
   const length = content.trim().length;
   const sentences = sentenceCount(content);
   return Math.min(length / 20, 28) + Math.min(sentences * 4, 20);
+}
+
+function clampScore(value: number, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function metricLevel(score: number): "good" | "watch" | "risk" {
+  if (score >= 78) return "good";
+  if (score >= 55) return "watch";
+  return "risk";
 }
 
 function canonicalDirection(value: string) {
@@ -526,6 +566,286 @@ export function buildComposeDiagnostics(theme: string, blocks: ComposeBlock[]) {
   }
 
   return diagnostics;
+}
+
+function buildSlotIssueReason(slotKey: string, block: ComposeBlock | undefined, currentScore: number) {
+  if (!block?.content.trim()) {
+    return `${slotKey} 当前缺位，先补上会比继续硬写顺很多。`;
+  }
+  if (sentenceCount(block.content) < 3 && MID_SLOT_KEYS.includes(slotKey as ComposeSlotKey)) {
+    return `${slotKey} 现在太薄，单独拿出来更像提纲，不像完整口播。`;
+  }
+  if (slotKey === "H") {
+    return "这条现实锚点不够落地，换一条更有案例感的 H，会更容易让人信。";
+  }
+  if (slotKey === "I") {
+    return "这条危机感还不够往用户自己身上压，换一条更痛的 I，承接会更稳。";
+  }
+  if (slotKey === "J") {
+    return "这条解法像结论摘要，换一条更像路径的 J，会更能带动作。";
+  }
+  if (slotKey === "D") {
+    return "这条铺垫太像结论或太薄，换一条更能把题立住的 D 会更顺。";
+  }
+  if (slotKey === "K" || slotKey === "L") {
+    return "这段承接偏弱，换一条更顺的 K/L 能减少后段的硬卖感。";
+  }
+  if (slotKey === "B2" || slotKey === "C2") {
+    return `${slotKey} 和第一轮太像，换一条更有第二次憋单感的内容更稳。`;
+  }
+  if (currentScore < 26) {
+    return `${slotKey} 当前适配度偏低，建议先换一条再看整稿。`;
+  }
+  return `${slotKey} 还能更顺，换一条高分候选会更稳。`;
+}
+
+function summarizePreview(content: string) {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  return normalized.length > 64 ? `${normalized.slice(0, 64)}...` : normalized;
+}
+
+function createSuggestionId(blockId: string, materialId: string | null) {
+  return `${blockId}-${materialId || "manual"}`;
+}
+
+function buildComposeSuggestions(options: {
+  theme: string;
+  blocks: ComposeBlock[];
+  sections: ScriptSectionItem[];
+  primaryDirection: string;
+}) {
+  const targetDirection = canonicalDirection(options.primaryDirection);
+  const library = options.sections.filter((item) => canonicalDirection(item.primaryDirection) === targetDirection);
+  const themeKeywords = getThemeKeywords(options.theme, options.primaryDirection);
+  const suggestions: ComposeSuggestion[] = [];
+
+  const byId = new Map(options.blocks.map((block, index) => [block.id, { block, index }]));
+  const slotBlocks = new Map(options.blocks.map((block) => [String(block.slotKey), block]));
+
+  const suggestionTargets: Array<{ slotKey: ComposeSlotKey; minScore: number }> = [
+    { slotKey: "D", minScore: 26 },
+    { slotKey: "B2", minScore: 24 },
+    { slotKey: "C2", minScore: 24 },
+    { slotKey: "F", minScore: 34 },
+    { slotKey: "G", minScore: 30 },
+    { slotKey: "H", minScore: 32 },
+    { slotKey: "I", minScore: 32 },
+    { slotKey: "J", minScore: 32 },
+    { slotKey: "K", minScore: 28 },
+    { slotKey: "L", minScore: 28 }
+  ];
+
+  for (const target of suggestionTargets) {
+    const current = slotBlocks.get(target.slotKey);
+    if (!current) continue;
+
+    const currentMeta = byId.get(current.id);
+    const previousBlock = currentMeta && currentMeta.index > 0 ? options.blocks[currentMeta.index - 1] : null;
+    const previousContent = previousBlock?.content || options.theme;
+    const otherBlocks = options.blocks.filter((block) => block.id !== current.id);
+    const usedMaterialIds = new Set(otherBlocks.filter((block) => block.materialId).map((block) => String(block.materialId)));
+
+    const ranked = rankCandidates(
+      target.slotKey,
+      current.sectionType,
+      library,
+      themeKeywords,
+      previousContent,
+      previousBlock,
+      otherBlocks,
+      options.primaryDirection
+    );
+
+    const currentScore = current.materialId
+      ? blockSuitability(
+          target.slotKey,
+          {
+            originalId: current.originalId || "",
+            theme: options.theme,
+            primaryDirection: options.primaryDirection,
+            secondaryDirection: "",
+            audience: "",
+            materialId: current.materialId,
+            sourceKey: current.sourceKey || "",
+            type: current.sectionType,
+            index: null,
+            sourceIndex: null,
+            label: current.label,
+            orderIndex: 0,
+            content: current.content
+          },
+          themeKeywords,
+          previousContent,
+          previousBlock,
+          otherBlocks,
+          options.primaryDirection
+        )
+      : 0;
+
+    const selected = pickBestCandidate(target.slotKey, ranked, otherBlocks, usedMaterialIds, current.materialId);
+    if (!selected) continue;
+
+    const selectedScore = ranked.find(({ item }) => item.materialId === selected.materialId)?.score ?? 0;
+    const b1 = slotBlocks.get("B1");
+    const c1 = slotBlocks.get("C1");
+    const repeatedSecondRound =
+      (target.slotKey === "B2" && b1 && overlapScore(b1.content, current.content) >= 12) ||
+      (target.slotKey === "C2" && c1 && overlapScore(c1.content, current.content) >= 12);
+
+    const shouldSuggest =
+      !current.content.trim() ||
+      repeatedSecondRound ||
+      currentScore < target.minScore ||
+      selectedScore - currentScore >= 10;
+
+    if (!shouldSuggest) continue;
+
+    suggestions.push({
+      id: createSuggestionId(current.id, selected.materialId),
+      blockId: current.id,
+      slotKey: target.slotKey,
+      title: `${current.title} 自动建议`,
+      reason: buildSlotIssueReason(target.slotKey, current, currentScore),
+      preview: summarizePreview(selected.content),
+      candidateMaterialId: selected.materialId,
+      candidateOriginalId: selected.originalId,
+      candidateSourceKey: selected.sourceKey,
+      candidateLabel: selected.label,
+      candidateContent: selected.content
+    });
+  }
+
+  return suggestions.slice(0, 6);
+}
+
+export function buildComposeReview(options: {
+  theme: string;
+  blocks: ComposeBlock[];
+  sections: ScriptSectionItem[];
+  primaryDirection: string;
+}) {
+  const slots = new Map(options.blocks.map((block) => [String(block.slotKey), block]));
+  const openingSlots = ["A", "B1", "C1", "D", "B2", "C2"];
+  const middleSlots = ["F", "G", "H", "I", "J"];
+  const closingSlots = ["K", "L"];
+
+  const openingBlocks = openingSlots.map((slot) => slots.get(slot)).filter(Boolean) as ComposeBlock[];
+  const middleBlocks = middleSlots.map((slot) => slots.get(slot)).filter(Boolean) as ComposeBlock[];
+  const closingBlocks = closingSlots.map((slot) => slots.get(slot)).filter(Boolean) as ComposeBlock[];
+
+  const openingPresence = openingBlocks.filter((block) => block.content.trim()).length;
+  const openingStrength =
+    openingPresence * 10 +
+    openingBlocks.reduce((sum, block) => sum + Math.min(sentenceCount(block.content), 4) * 3, 0) -
+    (slots.get("B1") && slots.get("B2") && overlapScore(slots.get("B1")!.content, slots.get("B2")!.content) >= 12 ? 12 : 0) -
+    (slots.get("C1") && slots.get("C2") && overlapScore(slots.get("C1")!.content, slots.get("C2")!.content) >= 12 ? 12 : 0);
+
+  const middlePresence = middleBlocks.filter((block) => block.content.trim()).length;
+  let cohesion = 0;
+  for (let index = 1; index < middleBlocks.length; index += 1) {
+    cohesion += overlapScore(middleBlocks[index - 1].content, middleBlocks[index].content);
+    if (middleBlocks[index].bridgeText) cohesion += 4;
+  }
+  const middleStrength =
+    middlePresence * 10 +
+    middleBlocks.reduce((sum, block) => sum + Math.min(sentenceCount(block.content), 5) * 3, 0) +
+    cohesion -
+    (!slots.get("H")?.content.trim() ? 14 : 0) -
+    (!slots.get("I")?.content.trim() ? 12 : 0) -
+    (!slots.get("J")?.content.trim() ? 12 : 0);
+
+  const closingStrength =
+    closingBlocks.filter((block) => block.content.trim()).length * 16 +
+    Math.min(sentenceCount(slots.get("K")?.content || ""), 5) * 3 +
+    Math.min(sentenceCount(slots.get("L")?.content || ""), 5) * 3 -
+    (!slots.get("K")?.content.trim() ? 18 : 0) -
+    (!slots.get("L")?.content.trim() ? 22 : 0);
+
+  const sourceUsage = new Map<string, number>();
+  for (const block of options.blocks) {
+    if (!block.originalId) continue;
+    sourceUsage.set(block.originalId, (sourceUsage.get(block.originalId) ?? 0) + 1);
+  }
+  const maxSourceUsage = Math.max(0, ...Array.from(sourceUsage.values()));
+  const sourceDiversityScore = 100 - Math.max(0, (maxSourceUsage - 1) * 18);
+
+  const metrics: ComposeReviewMetric[] = [
+    {
+      key: "opening",
+      title: "开场链评分",
+      score: clampScore(openingStrength),
+      level: metricLevel(clampScore(openingStrength)),
+      summary: clampScore(openingStrength) >= 78 ? "开场抓停和立题都比较稳。" : "开场还有提升空间。",
+      detail:
+        clampScore(openingStrength) >= 78
+          ? "A 到 D 的节奏基本顺，前两轮憋单也没有明显打架。"
+          : "优先检查 B1/B2、C1/C2 是否太像，以及 D 有没有把题真正立住。",
+      relatedSlots: openingSlots
+    },
+    {
+      key: "middle",
+      title: "中段推进评分",
+      score: clampScore(middleStrength),
+      level: metricLevel(clampScore(middleStrength)),
+      summary: clampScore(middleStrength) >= 78 ? "中段推进感和说服链都比较完整。" : "中段还有资料堆风险。",
+      detail:
+        clampScore(middleStrength) >= 78
+          ? "F/G/H/I/J 的承接已经比较自然，用户能顺着听下去。"
+          : "中段要么桥不够，要么 H/I/J 偏薄，建议先看自动替换建议。",
+      relatedSlots: middleSlots
+    },
+    {
+      key: "closing",
+      title: "承接收口评分",
+      score: clampScore(closingStrength),
+      level: metricLevel(clampScore(closingStrength)),
+      summary: clampScore(closingStrength) >= 78 ? "后段承接和动作都比较完整。" : "后段可能会显得硬或收不住。",
+      detail:
+        clampScore(closingStrength) >= 78
+          ? "K/L 已经具备承接逻辑，比较适合直接去重精修。"
+          : "优先补强 K/L，避免前面刚说完就突然卖课或动作不清。",
+      relatedSlots: closingSlots
+    },
+    {
+      key: "diversity",
+      title: "素材分散度评分",
+      score: clampScore(sourceDiversityScore),
+      level: metricLevel(clampScore(sourceDiversityScore)),
+      summary: clampScore(sourceDiversityScore) >= 78 ? "当前来源分散度比较好。" : "当前来源过于集中。",
+      detail:
+        clampScore(sourceDiversityScore) >= 78
+          ? "不会太像同一篇原文拆开重排。"
+          : "同一篇原文复用太多，中段容易有重复感，建议优先换中段块。",
+      relatedSlots: options.blocks.filter((block) => block.originalId).map((block) => String(block.slotKey))
+    }
+  ];
+
+  const suggestions = buildComposeSuggestions(options);
+  const overallScore = clampScore(
+    metrics[0].score * 0.24 + metrics[1].score * 0.42 + metrics[2].score * 0.22 + metrics[3].score * 0.12
+  );
+
+  return {
+    overallScore,
+    metrics,
+    suggestions
+  } satisfies ComposeReview;
+}
+
+export function applyComposeSuggestion(blocks: ComposeBlock[], suggestion: ComposeSuggestion) {
+  return blocks.map((block) =>
+    block.id === suggestion.blockId
+      ? {
+          ...block,
+          content: suggestion.candidateContent,
+          originalId: suggestion.candidateOriginalId,
+          materialId: suggestion.candidateMaterialId,
+          sourceKey: suggestion.candidateSourceKey,
+          label: suggestion.candidateLabel,
+          isManual: false
+        }
+      : block
+  );
 }
 
 export function rematchComposeBlock(options: {
