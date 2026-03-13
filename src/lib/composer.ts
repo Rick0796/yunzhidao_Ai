@@ -10,6 +10,7 @@ export interface ComposeBlock {
   sectionType: ComposeSectionType;
   title: string;
   content: string;
+  bridgeText?: string;
   originalId: string | null;
   materialId: string | null;
   sourceKey: string | null;
@@ -142,6 +143,27 @@ function markerScore(markers: string[], content: string) {
   return score;
 }
 
+function containsAny(content: string, markers: string[]) {
+  const normalized = normalizeText(content);
+  return markers.some((marker) => normalized.includes(normalizeText(marker)));
+}
+
+function slotSpecificAdjustment(slotKey: ComposeSlotKey, content: string) {
+  let score = 0;
+
+  if (slotKey === "D") {
+    if (containsAny(content, ["最赚钱", "最暴利", "第四次工业革命", "硬通货", "翻身最快", "浪尖上冲浪"])) score -= 18;
+    if (!containsAny(content, ["为什么", "因为", "其实", "现实", "现在", "意味着", "正在"])) score -= 8;
+  }
+
+  if (slotKey === "G" && !containsAny(content, ["过去", "以前", "当年", "曾经", "错过", "回头看"])) score -= 16;
+  if (slotKey === "H" && !containsAny(content, ["比如", "案例", "采访", "现实", "公司", "数据", "新闻", "已经"])) score -= 14;
+  if (slotKey === "I" && !containsAny(content, ["危险", "焦虑", "淘汰", "冲击", "断崖", "边缘化", "来不及", "风险"])) score -= 14;
+  if (slotKey === "J" && !containsAny(content, ["你要", "应该", "学会", "方式", "路径", "方法", "成为", "升级", "突破口"])) score -= 14;
+
+  return score;
+}
+
 function richnessScore(content: string) {
   const length = content.trim().length;
   const sentences = sentenceCount(content);
@@ -258,6 +280,7 @@ function blockSuitability(
   score += markerScore(TYPE_MARKERS[item.type as ComposeSectionType] ?? [], item.content);
   score += markerScore(TRANSITION_MARKERS[slotKey] ?? [], item.content);
   score += richnessScore(item.content);
+  score += slotSpecificAdjustment(slotKey, item.content);
   score += overlapScore(previousContent, item.content) * 0.65;
 
   if (previousBlock?.originalId && previousBlock.originalId === item.originalId) {
@@ -398,11 +421,12 @@ export function composeDraftFromSections(options: {
     previousBlock = block;
   }
 
-  diagnostics.push(...buildComposeDiagnostics(theme, blocks));
+  const finalizedBlocks = finalizeComposeBlocks(theme, blocks);
+  diagnostics.push(...buildComposeDiagnostics(theme, finalizedBlocks));
   return {
     theme,
     primaryDirection: options.primaryDirection,
-    blocks,
+    blocks: finalizedBlocks,
     diagnostics
   } satisfies ComposeDraft;
 }
@@ -587,9 +611,36 @@ export function removeComposeBlock(blocks: ComposeBlock[], id: string) {
   return blocks.filter((item) => item.id !== id);
 }
 
+function hasNaturalBridgeLead(content: string) {
+  return containsAny(content, ["所以", "但", "问题是", "回头看", "也正因为这样", "接下来", "说白了"]);
+}
+
+function chooseMiddleBridge(previousBlock: ComposeBlock | null, currentBlock: ComposeBlock, theme: string) {
+  if (!previousBlock) return "";
+  if (currentBlock.content.trim() && hasNaturalBridgeLead(currentBlock.content)) return "";
+  if (currentBlock.slotKey === "F") return "说白了，围绕“" + (theme || "这个主题") + "”真正值得你盯住的，是后面这层更大的趋势。";
+  if (currentBlock.slotKey === "G") return "回头看，所有大趋势真正爆发之前，其实都早有前兆。";
+  if (currentBlock.slotKey === "H") return "如果你觉得这还只是判断，那就看看现实里已经发生了什么。";
+  if (currentBlock.slotKey === "I") return "问题是，这些变化一旦落到普通人自己身上，代价会非常直接。";
+  if (currentBlock.slotKey === "J") return "也正因为这样，接下来最重要的不是继续害怕，而是立刻换打法。";
+  return "";
+}
+
+export function finalizeComposeBlocks(theme: string, blocks: ComposeBlock[]) {
+  let previousMiddleBlock: ComposeBlock | null = null;
+  return blocks.map((block) => {
+    let bridgeText = "";
+    if (MID_SLOT_KEYS.includes(block.slotKey as ComposeSlotKey)) {
+      bridgeText = chooseMiddleBridge(previousMiddleBlock, block, theme);
+      previousMiddleBlock = block;
+    }
+    return { ...block, bridgeText };
+  });
+}
+
 export function composeFullText(blocks: ComposeBlock[]) {
   return blocks
-    .map((item) => item.content.trim())
+    .map((item) => [item.bridgeText?.trim(), item.content.trim()].filter(Boolean).join("\n"))
     .filter(Boolean)
     .join("\n\n");
 }

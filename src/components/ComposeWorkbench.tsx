@@ -6,6 +6,7 @@ import {
   buildComposeDiagnostics,
   composeDraftFromSections,
   composeFullText,
+  finalizeComposeBlocks,
   dedupeComposeBlocks,
   inferPrimaryDirection,
   insertManualComposeBlock,
@@ -74,8 +75,9 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   const fullText = useMemo(() => composeFullText(blocks), [blocks]);
 
   function applyBlocks(nextBlocks: ComposeBlock[], nextTheme = resolvedTheme) {
-    setBlocks(nextBlocks);
-    setDiagnostics(buildComposeDiagnostics(nextTheme, nextBlocks));
+    const finalizedBlocks = finalizeComposeBlocks(nextTheme, nextBlocks);
+    setBlocks(finalizedBlocks);
+    setDiagnostics(buildComposeDiagnostics(nextTheme, finalizedBlocks));
   }
 
   async function loadSections(direction = primaryDirection) {
@@ -440,6 +442,12 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                       </button>
                     </div>
                   </div>
+
+                  {block.bridgeText ? (
+                    <div className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 px-4 py-3 text-sm leading-6 text-cyan-100">
+                      <span className="font-semibold text-cyan-50">自动补桥：</span> {block.bridgeText}
+                    </div>
+                  ) : null}
 
                   <textarea
                     className="field-textarea mt-4 min-h-[150px]"
