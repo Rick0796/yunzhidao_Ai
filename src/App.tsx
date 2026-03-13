@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import ParticleBackground from "./components/ParticleBackground";
+import ComposeWorkbench from "./components/ComposeWorkbench";
 import {
   buildMockSourceStructure,
   defaultApiSettings,
@@ -94,7 +95,7 @@ const CTA_OPTIONS: Array<{ value: CtaMode; label: string; hint: string }> = [
   { value: "none", label: "不加收口", hint: "纯内容表达，不做导流。" }
 ];
 
-type WorkbenchMode = "rewrite" | "original";
+type WorkbenchMode = "rewrite" | "original" | "compose";
 type WizardStep = 1 | 2 | 3 | 4;
 type NoticeTone = "success" | "warning" | "info";
 type HotspotPanelTab = "all" | "business" | "douyin" | "weibo" | "zhihu" | "baidu" | "search";
@@ -116,6 +117,14 @@ const HOTSPOT_PLATFORM_META: Record<Exclude<HotspotPanelTab, "all" | "business" 
 };
 
 function getStepConfig(mode: WorkbenchMode) {
+  if (mode === "compose") {
+    return [
+      { step: 1 as const, title: "主题与爆点", hint: "先定主题或先抽 A，再开始自动匹配。" },
+      { step: 2 as const, title: "自动组装", hint: "系统按 A B1 C1 D B2 C2 F G H I J K L 先组一版。" },
+      { step: 3 as const, title: "逐块调整", hint: "每个小板块都能重配、删除或手动插入。" },
+      { step: 4 as const, title: "去重输出", hint: "按小板块或大板块去重后输出最终稿。" }
+    ];
+  }
   return mode === "rewrite"
     ? [
         { step: 1 as const, title: "上传原文", hint: "先上传爆款原文和改写要求。" },
@@ -132,6 +141,21 @@ function getStepConfig(mode: WorkbenchMode) {
 }
 
 function getWorkbenchCopy(mode: WorkbenchMode) {
+  if (mode === "compose") {
+    return {
+      eyebrow: "文案组合",
+      title: "文案组合工作台",
+      description: "按 A B1 C1 D B2 C2 F G H I J K L 结构自动组装，再逐块替换、插入和去重。",
+      step1Title: "步骤 1 / 主题与爆点",
+      step1Subtitle: "先给主题或先给一个爆点，系统再开始整篇匹配。",
+      step2Title: "步骤 2 / 自动组装",
+      step2Subtitle: "先出一版完整结构稿，再看哪里需要补强。",
+      step3Title: "步骤 3 / 逐块调整",
+      step3Subtitle: "每个小板块都能重配、删除或手动插入。",
+      step4Title: "步骤 4 / 去重输出",
+      step4Subtitle: "按小板块或大板块去重后输出最终稿。"
+    };
+  }
   return mode === "rewrite"
     ? {
         eyebrow: "爆款仿写",
@@ -303,6 +327,9 @@ function createTaskForMode(
     lastOriginalEntryChosen?: boolean;
   }
 ): TaskForm {
+  if (mode === "compose") {
+    return options?.previousTask ?? defaultTask;
+  }
   const previousTask = options?.previousTask ?? defaultTask;
   const businessMode = previousTask.businessMode;
   const businessModeChosen = previousTask.businessModeChosen;
@@ -347,6 +374,12 @@ function createTaskForMode(
     ctaMode,
     ctaModeChosen
   };
+}
+
+function getWorkbenchLabel(mode: WorkbenchMode) {
+  if (mode === "rewrite") return "爆款仿写";
+  if (mode === "original") return "热点 / 主题创作";
+  return "文案组合";
 }
 
 function formatTime(iso: string) {
@@ -434,6 +467,7 @@ function App() {
   const [loadingHotspotKey, setLoadingHotspotKey] = useState<string | null>(null);
   const [isRewriteStructureCollapsed, setIsRewriteStructureCollapsed] = useState(false);
   const [isWorkbenchIntroCollapsed, setIsWorkbenchIntroCollapsed] = useState(true);
+  const [composeWorkbenchNonce, setComposeWorkbenchNonce] = useState(0);
   const [hotspotListExpanded, setHotspotListExpanded] = useState<HotspotExpandState>({
     all: false,
     business: false,
@@ -459,8 +493,11 @@ function App() {
     setIsWorkbenchIntroCollapsed(true);
   }, [currentWorkbenchMode]);
   const taskChoiceMissing = useMemo(() => {
+    if (currentWorkbenchMode === "compose") {
+      return [];
+    }
     const missing: string[] = [];
-    if (currentWorkbenchMode !== "rewrite" && !normalizedTask.entryTypeChosen) {
+    if (currentWorkbenchMode === "original" && !normalizedTask.entryTypeChosen) {
       missing.push("创作入口");
     }
     if (!normalizedTask.businessModeChosen) {
@@ -694,6 +731,9 @@ function App() {
 
   function openWorkbench(mode: WorkbenchMode) {
     setWorkbenchMode(mode);
+    if (mode === "compose") {
+      setComposeWorkbenchNonce((prev) => prev + 1);
+    }
     setTask(
       createTaskForMode(mode, {
         previousTask: normalizedTask,
@@ -716,7 +756,7 @@ function App() {
 
   function startNewTask(mode: WorkbenchMode = currentWorkbenchMode) {
     openWorkbench(mode);
-    showNotice("success", `已新建${mode === "rewrite" ? "爆款仿写" : "热点 / 主题创作"}任务。`);
+    showNotice("success", `已新建${getWorkbenchLabel(mode)}任务。`);
   }
 
   function saveCurrentHistory(nextDrafts: DraftItem[], nextSelectedDraftId: string | null, hook: HookItem | null, skeleton: SkeletonItem | null, meat: MeatItem | null, cta: CtaItem | null) {
@@ -1956,6 +1996,10 @@ function App() {
       <main className="relative z-10 px-4 pb-20 pt-20 md:px-6 md:pt-24">
         {!enteredWorkbench ? (
           <Landing onSelectMode={openWorkbench} />
+        ) : currentWorkbenchMode === "compose" ? (
+          <div className="mx-auto max-w-7xl">
+            <ComposeWorkbench key={composeWorkbenchNonce} settings={settings} />
+          </div>
         ) : (
           <div className="mx-auto max-w-7xl space-y-6">
             <GlassCard>
@@ -2050,6 +2094,86 @@ function App() {
 }
 
 function Landing({ onSelectMode }: { onSelectMode: (mode: WorkbenchMode) => void }) {
+  return (
+    <div className="mx-auto flex min-h-[calc(100vh-120px)] max-w-7xl flex-col justify-center px-2">
+      <div className="text-center">
+        <h1 className="mx-auto max-w-5xl text-5xl font-bold leading-tight text-white md:text-6xl">
+          爆款文案
+          <br />
+          <span className="bg-gradient-to-r from-[#00D4FF] to-[#8B5CF6] bg-clip-text text-transparent">工作生成台</span>
+        </h1>
+        <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-300">云智道团队专用短视频内容生成器</p>
+      </div>
+
+      <div className="mx-auto mt-14 flex w-full max-w-4xl flex-col gap-5">
+        <LandingModeCard
+          title="文案组合"
+          subtitle="自动匹配 · 逐块替换 · 分块去重"
+          onClick={() => onSelectMode("compose")}
+          icon={
+            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h10" />
+            </svg>
+          }
+        />
+        <div className="grid w-full gap-5 md:grid-cols-2">
+          <LandingModeCard
+            title="爆款仿写"
+            subtitle="拆文案 · 改开头 · 出成稿"
+            onClick={() => onSelectMode("rewrite")}
+            icon={
+              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            }
+          />
+          <LandingModeCard
+            title="热点 / 主题原创"
+            subtitle="抓热点 · 组结构 · 生成稿"
+            onClick={() => onSelectMode("original")}
+            icon={
+              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            }
+          />
+        </div>
+      </div>
+
+      <div className="mx-auto mt-16 grid w-full max-w-7xl grid-cols-1 gap-6 md:grid-cols-3">
+        <LandingFeatureCard
+          icon={
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          }
+          title="全网热点雷达"
+          description="自动汇总今日热榜、AI行业热榜和手动搜索结果，把碎片信息压成可直接写稿的事实包。"
+        />
+        <LandingFeatureCard
+          icon={
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          }
+          title="推进职责引擎"
+          description="不是简单套模板，而是把皮、骨、肉、收口拆成一条可控的脚本装配链，确保每一步都能追踪。"
+        />
+        <LandingFeatureCard
+          icon={
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          }
+          title="数字人交付层"
+          description="完整文案、字幕稿一步到位，直接进入数字人口播、人工审核、剪辑发布和后续复盘链路。"
+        />
+      </div>
+    </div>
+  );
+}
+
+function LegacyLanding({ onSelectMode }: { onSelectMode: (mode: WorkbenchMode) => void }) {
   return (
     <div className="mx-auto flex min-h-[calc(100vh-120px)] max-w-7xl flex-col justify-center px-2">
       <div className="text-center">

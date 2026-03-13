@@ -22,6 +22,16 @@ try:
     from fastapi.responses import FileResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
     import uvicorn
+    from backend.script_library import (
+        count_script_documents,
+        fetch_script_document,
+        init_script_library,
+        list_script_documents,
+        list_script_sections,
+        render_script_document_text,
+        resolve_script_library_db_path,
+        upsert_script_document,
+    )
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("缺少 FastAPI 依赖，请先运行：pip install -r backend/requirements.txt") from exc
 
@@ -41,6 +51,7 @@ RUNTIME_DIR = resolve_runtime_dir()
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = RUNTIME_DIR / "api_requests.jsonl"
 HOT_RANK_CACHE_PATH = RUNTIME_DIR / "hot_rank_cache.json"
+SCRIPT_LIBRARY_DB_PATH = resolve_script_library_db_path()
 
 LOCAL_CONFIG_PATH = Path(__file__).resolve().parent / "config.local.json"
 BACKEND_EXAMPLE_CONFIG_PATH = Path(__file__).resolve().parent / "config.example.json"
@@ -2159,6 +2170,7 @@ def build_search_fact_pack(topic_query: str, search_items: list[dict[str, Any]],
 
 @app.on_event("startup")
 async def startup_event() -> None:
+    init_script_library(SCRIPT_LIBRARY_DB_PATH)
     cache = get_hot_rank_cache()
     if FREE_SCRAPERS_AVAILABLE and not hot_rank_cache_is_fresh(cache):
         start_hot_rank_refresh(force=True)
@@ -2186,6 +2198,17 @@ async def health() -> dict[str, Any]:
             "hotRankCacheReady": isinstance(cache, dict),
             "hotRankCacheFresh": hot_rank_cache_is_fresh(cache),
         },
+        "scriptLibrary": {
+            "enabled": True,
+            "dbPath": str(SCRIPT_LIBRARY_DB_PATH),
+            "documentCount": count_script_documents(SCRIPT_LIBRARY_DB_PATH),
+            "routes": {
+                "list": "/api/library/scripts",
+                "upsert": "/api/library/scripts",
+                "detail": "/api/library/scripts/{originalId}",
+                "text": "/api/library/scripts/{originalId}/text",
+            },
+        },
     }
 
 
@@ -2197,6 +2220,72 @@ async def recent_logs() -> dict[str, Any]:
     lines = LOG_FILE.read_text(encoding="utf-8").splitlines()[-30:]
     items = [json.loads(line) for line in reversed(lines) if line.strip()]
     return {"items": items}
+
+
+@app.get("/api/library/scripts")
+async def list_library_scripts() -> dict[str, Any]:
+    items = list_script_documents(SCRIPT_LIBRARY_DB_PATH)
+    return {
+        "items": items,
+        "count": len(items),
+        "dbPath": str(SCRIPT_LIBRARY_DB_PATH),
+    }
+
+
+@app.get("/api/library/sections")
+async def list_library_sections(
+    primary_direction: str = Query("", alias="primaryDirection"),
+    secondary_direction: str = Query("", alias="secondaryDirection"),
+    section_type: str = Query("", alias="sectionType"),
+    limit: int = Query(300, ge=1, le=1000),
+) -> dict[str, Any]:
+    items = list_script_sections(
+        SCRIPT_LIBRARY_DB_PATH,
+        primary_direction=primary_direction,
+        secondary_direction=secondary_direction,
+        section_type=section_type,
+        limit=limit,
+    )
+    return {
+        "items": items,
+        "count": len(items),
+        "filters": {
+            "primaryDirection": primary_direction,
+            "secondaryDirection": secondary_direction,
+            "sectionType": section_type,
+            "limit": limit,
+        },
+    }
+
+
+@app.get("/api/library/scripts/{original_id}")
+async def get_library_script(original_id: str) -> dict[str, Any]:
+    document = fetch_script_document(original_id, SCRIPT_LIBRARY_DB_PATH)
+    if document is None:
+        raise HTTPException(status_code=404, detail="script document not found")
+    return document
+
+
+@app.get("/api/library/scripts/{original_id}/text")
+async def get_library_script_text(original_id: str) -> dict[str, Any]:
+    document = fetch_script_document(original_id, SCRIPT_LIBRARY_DB_PATH)
+    if document is None:
+        raise HTTPException(status_code=404, detail="script document not found")
+    return {"originalId": original_id, "text": render_script_document_text(document)}
+
+
+@app.post("/api/library/scripts")
+async def upsert_library_script(request: Request) -> dict[str, Any]:
+    payload = await read_request_json(request)
+    try:
+        document = upsert_script_document(payload, SCRIPT_LIBRARY_DB_PATH)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "document": document,
+        "text": render_script_document_text(document),
+    }
 
 
 @app.post("/api/chat/completions")
