@@ -44,12 +44,13 @@ export async function fetchScriptSections(
   if (options?.sectionType) params.set("sectionType", options.sectionType);
   if (options?.limit) params.set("limit", String(options.limit));
 
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/library/sections?${params.toString()}`);
-  const payload = (await response.json().catch(() => null)) as ScriptSectionResponse | null;
+  const query = params.toString();
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/library/sections${query ? `?${query}` : ""}`);
+  const payload = (await response.json().catch(() => null)) as ScriptSectionResponse | { detail?: string } | null;
 
-  if (!response.ok || !payload) {
-    const detail = (payload as any)?.detail || response.statusText || "素材库读取失败";
-    throw new Error(typeof detail === "string" ? detail : "素材库读取失败");
+  if (!response.ok || !payload || !("items" in payload)) {
+    const detail = payload && "detail" in payload ? payload.detail : null;
+    throw new Error(typeof detail === "string" && detail.trim() ? detail : "素材库读取失败");
   }
 
   return payload;

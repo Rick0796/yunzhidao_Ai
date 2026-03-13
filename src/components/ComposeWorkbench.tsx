@@ -19,23 +19,39 @@ import {
 const DIRECTION_OPTIONS = ["AI趋势", "财富", "认知"] as const;
 const INSERT_SECTION_OPTIONS: ComposeSectionType[] = ["A", "B", "C", "D", "F", "G", "H", "I", "J", "K", "L"];
 const LARGE_GROUPS = [
-  { key: "opening", label: "开场组", slots: ["A", "B1", "C1", "D", "B2", "C2"] },
-  { key: "middle", label: "中段组", slots: ["F", "G", "H", "I", "J"] },
-  { key: "close", label: "收口组", slots: ["K", "L"] }
+  { key: "opening", label: "开场大板块", slots: ["A", "B1", "C1", "D", "B2", "C2"] },
+  { key: "middle", label: "中段大板块", slots: ["F", "G", "H", "I", "J"] },
+  { key: "closing", label: "承接收口大板块", slots: ["K", "L"] }
 ] as const;
+
+type MessageTone = "error" | "success" | "info" | "warning";
+type BusyAction = "assemble" | "random-a" | "rematch" | "dedupe" | null;
+
+interface NoticeState {
+  tone: MessageTone;
+  text: string;
+}
 
 function classNames(...items: Array<string | false | null | undefined>) {
   return items.filter(Boolean).join(" ");
 }
 
-function getMessageToneClass(tone: "error" | "success" | "info") {
-  if (tone === "error") {
-    return "border-rose-400/25 bg-rose-400/10 text-rose-100";
-  }
-  if (tone === "success") {
-    return "border-emerald-400/25 bg-emerald-400/10 text-emerald-100";
-  }
+function getMessageToneClass(tone: MessageTone) {
+  if (tone === "error") return "border-rose-400/25 bg-rose-400/10 text-rose-100";
+  if (tone === "success") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-100";
+  if (tone === "warning") return "border-amber-400/25 bg-amber-400/10 text-amber-100";
   return "border-cyan-400/25 bg-cyan-400/10 text-cyan-100";
+}
+
+function hasMeaningfulChange(before: ComposeBlock[], after: ComposeBlock[], targetId?: string) {
+  if (before.length !== after.length) return true;
+  if (!targetId) {
+    return before.some((block, index) => block.content !== after[index]?.content || block.materialId !== after[index]?.materialId);
+  }
+  const left = before.find((block) => block.id === targetId);
+  const right = after.find((block) => block.id === targetId);
+  if (!left || !right) return before !== after;
+  return left.content !== right.content || left.materialId !== right.materialId || left.originalId !== right.originalId;
 }
 
 export default function ComposeWorkbench({ settings }: { settings: ApiSettings }) {
@@ -45,12 +61,13 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   const [sections, setSections] = useState<ScriptSectionItem[]>([]);
   const [blocks, setBlocks] = useState<ComposeBlock[]>([]);
   const [diagnostics, setDiagnostics] = useState<Array<{ level: "info" | "warning"; title: string; detail: string }>>([]);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ tone: "error" | "success" | "info"; text: string } | null>(null);
+  const [message, setMessage] = useState<NoticeState | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([]);
   const [insertAfterId, setInsertAfterId] = useState<string | null>(null);
   const [insertType, setInsertType] = useState<ComposeSectionType>("H");
   const [insertContent, setInsertContent] = useState("");
+  const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [busyBlockId, setBusyBlockId] = useState<string | null>(null);
 
   const resolvedTheme = (theme.trim() || customHook.trim()).trim();
   const directionSuggestion = useMemo(() => inferPrimaryDirection(resolvedTheme), [resolvedTheme]);
@@ -64,7 +81,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   async function loadSections(direction = primaryDirection) {
     const response = await fetchScriptSections(settings.baseUrl || "/api", {
       primaryDirection: direction,
-      limit: 500
+      limit: 800
     });
     setSections(response.items);
     return response.items;
@@ -77,8 +94,10 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
       return;
     }
 
-    setLoading(true);
-    setMessage({ tone: "info", text: "正在匹配板块并检查中段承接..." });
+    setBusyAction("assemble");
+    setBusyBlockId(null);
+    setMessage({ tone: "info", text: "正在自动匹配 A B1 C1 D B2 C2 F G H I J K L..." });
+
     try {
       const library = await loadSections(primaryDirection);
       const draft = composeDraftFromSections({
@@ -87,45 +106,60 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
         customHook,
         sections: library
       });
+
       setSelectedBlockIds([]);
       applyBlocks(draft.blocks, draft.theme);
-      setMessage({ tone: "success", text: "文案组合初稿已生成，可以逐块替换、插入或去重。" });
+      setMessage({
+        tone: "success",
+        text: "初版已经组出来了。接下来你可以逐块重配、插入、删除，最后再按块去重。"
+      });
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "文案组合生成失败" });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "自动组装失败" });
     } finally {
-      setLoading(false);
+      setBusyAction(null);
+      setBusyBlockId(null);
     }
   }
 
   async function handleRandomA() {
-    setLoading(true);
-    setMessage({ tone: "info", text: "正在抽取可用的 A 爆皮..." });
+    setBusyAction("random-a");
+    setBusyBlockId(null);
+    setMessage({ tone: "info", text: "正在随机抽取 A 爆皮..." });
+
     try {
-      const library = sections.length > 0 ? sections : await loadSections(primaryDirection);
+      const library = sections.length ? sections : await loadSections(primaryDirection);
       const aPool = library.filter((item) => item.type === "A" && item.content.trim());
       if (!aPool.length) {
-        setMessage({ tone: "error", text: "当前方向还没有可用的 A 爆皮素材。" });
+        setMessage({ tone: "warning", text: "当前方向还没有可用的 A 爆皮素材。" });
         return;
       }
+
       const pick = aPool[Math.floor(Math.random() * aPool.length)];
       setCustomHook(pick.content.trim());
       if (!theme.trim()) {
         setTheme(pick.theme || pick.content.trim().slice(0, 24));
       }
-      setMessage({ tone: "success", text: "已随机抽取一条 A 爆皮，你可以直接继续自动组装。" });
+      setMessage({ tone: "success", text: "已随机抽到一个 A 爆皮，你可以直接继续自动组装。" });
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "随机抽取 A 失败" });
     } finally {
-      setLoading(false);
+      setBusyAction(null);
+      setBusyBlockId(null);
     }
   }
 
   async function handleRematch(blockId: string) {
-    if (!resolvedTheme) return;
-    setLoading(true);
+    if (!resolvedTheme) {
+      setMessage({ tone: "error", text: "先给主题或爆点，再重配当前板块。" });
+      return;
+    }
+
+    setBusyAction("rematch");
+    setBusyBlockId(blockId);
     setMessage({ tone: "info", text: "正在重新匹配当前板块..." });
+
     try {
-      const library = sections.length > 0 ? sections : await loadSections(primaryDirection);
+      const library = sections.length ? sections : await loadSections(primaryDirection);
       const nextBlocks = rematchComposeBlock({
         blocks,
         targetId: blockId,
@@ -133,12 +167,19 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
         theme: resolvedTheme,
         primaryDirection
       });
+
+      if (!hasMeaningfulChange(blocks, nextBlocks, blockId)) {
+        setMessage({ tone: "warning", text: "当前没有更合适的可替换素材，可以手动插入或先改主题范围。" });
+        return;
+      }
+
       applyBlocks(nextBlocks);
-      setMessage({ tone: "success", text: "当前板块已重新匹配。" });
+      setMessage({ tone: "success", text: "当前板块已完成重配。" });
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "重新匹配失败" });
     } finally {
-      setLoading(false);
+      setBusyAction(null);
+      setBusyBlockId(null);
     }
   }
 
@@ -154,15 +195,19 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
       setInsertAfterId(null);
       setInsertContent("");
     }
+    setMessage({ tone: "info", text: "当前板块已删除。" });
   }
 
   function handleInsertManualBlock() {
-    if (!insertAfterId || !insertContent.trim()) return;
+    if (!insertAfterId || !insertContent.trim()) {
+      setMessage({ tone: "warning", text: "先选插入位置，再填要插入的内容。" });
+      return;
+    }
     const nextBlocks = insertManualComposeBlock(blocks, insertAfterId, insertType, insertContent);
     applyBlocks(nextBlocks);
     setInsertAfterId(null);
     setInsertContent("");
-    setMessage({ tone: "success", text: `已在当前位置后插入 ${insertType} 板块。` });
+    setMessage({ tone: "success", text: `已在当前位置后插入一个 ${insertType} 板块。` });
   }
 
   function toggleBlockSelection(blockId: string) {
@@ -172,18 +217,21 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   function selectLargeGroup(groupKey: (typeof LARGE_GROUPS)[number]["key"]) {
     const group = LARGE_GROUPS.find((item) => item.key === groupKey);
     if (!group) return;
-    const groupSlots = group.slots as readonly string[];
-    const ids = blocks.filter((block) => groupSlots.includes(String(block.slotKey))).map((block) => block.id);
-    setSelectedBlockIds((prev) => Array.from(new Set([...prev, ...ids])));
+    const slots = group.slots as readonly string[];
+    const ids = blocks.filter((block) => slots.includes(String(block.slotKey))).map((block) => block.id);
+    setSelectedBlockIds(ids);
   }
 
   async function handleDedupeSelected() {
     if (!selectedBlockIds.length) {
-      setMessage({ tone: "error", text: "先选中需要去重的小板块或大板块。" });
+      setMessage({ tone: "warning", text: "先选中要去重的小板块或大板块。" });
       return;
     }
-    setLoading(true);
-    setMessage({ tone: "info", text: "正在按所选板块调用 Gemini 进行去重..." });
+
+    setBusyAction("dedupe");
+    setBusyBlockId(null);
+    setMessage({ tone: "info", text: "正在去重中，请稍等..." });
+
     try {
       const nextBlocks = await dedupeComposeBlocks({
         settings,
@@ -191,12 +239,19 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
         blocks,
         blockIds: selectedBlockIds
       });
+
+      if (!hasMeaningfulChange(blocks, nextBlocks)) {
+        setMessage({ tone: "warning", text: "当前选中板块暂时没有发生改写，可以先重配后再去重。" });
+        return;
+      }
+
       applyBlocks(nextBlocks);
       setMessage({ tone: "success", text: "选中板块已完成去重，建议再看一遍逻辑诊断。" });
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "板块去重失败" });
     } finally {
-      setLoading(false);
+      setBusyAction(null);
+      setBusyBlockId(null);
     }
   }
 
@@ -216,9 +271,9 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="section-eyebrow">文案组合</div>
-            <h1 className="mt-3 text-3xl font-bold text-white md:text-4xl">A-B-C-D 结构化组合工作台</h1>
+            <h1 className="mt-3 text-3xl font-bold text-white md:text-4xl">A / B1 / C1 / D / B2 / C2 结构化组装</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-              这里不走原来的爆款仿写和热点原创逻辑。我们直接按素材库做小板块组合，先自动匹配，再逐块替换、插入、诊断和去重，重点把中段说服链拼顺。
+              这里不改你原来的爆款仿写和热点原创，只新增一个“文案组合”工作台。系统会先按固定结构组出一版，再让你逐块重配、插入、删除和去重。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -241,10 +296,10 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
           </div>
 
           <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
-            <label className="field-label">自定义爆点 / A 爆皮</label>
+            <label className="field-label">自定义 A 爆皮</label>
             <textarea
               className="field-textarea min-h-[110px]"
-              placeholder="如果你已经有一句很爆的开头，可以直接填在这里。系统会优先用你的开头，再往后补壳。"
+              placeholder="如果你已经有一个很炸的开头，可以直接填在这里。系统会优先使用你的爆皮，再补足后面的支撑句。"
               value={customHook}
               onChange={(event) => setCustomHook(event.target.value)}
             />
@@ -269,15 +324,17 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <button type="button" className="ghost-btn" onClick={handleRandomA} disabled={loading}>
-              随机抽 A 爆皮
+            <button type="button" className="ghost-btn" onClick={handleRandomA} disabled={busyAction !== null}>
+              {busyAction === "random-a" ? "正在抽取中..." : "随机抽 A"}
             </button>
-            <button type="button" className="brand-btn" onClick={handleAssemble} disabled={loading}>
-              {loading ? "正在组装..." : "自动组装文案"}
+            <button type="button" className="brand-btn" onClick={handleAssemble} disabled={busyAction !== null}>
+              {busyAction === "assemble" ? "正在组装中..." : "自动组装文案"}
             </button>
           </div>
 
-          {message ? <div className={classNames("rounded-2xl border px-4 py-3 text-sm", getMessageToneClass(message.tone))}>{message.text}</div> : null}
+          {message ? (
+            <div className={classNames("rounded-2xl border px-4 py-3 text-sm", getMessageToneClass(message.tone))}>{message.text}</div>
+          ) : null}
         </div>
       </div>
 
@@ -298,8 +355,13 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                 <button type="button" className="ghost-btn" onClick={() => setSelectedBlockIds([])}>
                   清空去重选择
                 </button>
-                <button type="button" className="brand-btn" onClick={handleDedupeSelected} disabled={loading || selectedBlockIds.length === 0}>
-                  去重选中板块
+                <button
+                  type="button"
+                  className="brand-btn"
+                  onClick={handleDedupeSelected}
+                  disabled={busyAction !== null || selectedBlockIds.length === 0}
+                >
+                  {busyAction === "dedupe" ? "正在去重中..." : "去重选中板块"}
                 </button>
               </div>
             </div>
@@ -340,13 +402,13 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                     <div>
                       <div className="section-eyebrow">{block.title}</div>
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                          {block.materialId || "手动块"}
-                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">{block.materialId || "手动块"}</span>
                         {block.originalId ? (
                           <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">来源 {block.originalId}</span>
                         ) : null}
-                        {block.isManual ? <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-amber-100">手动插入</span> : null}
+                        {block.isManual ? (
+                          <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-amber-100">手动插入</span>
+                        ) : null}
                       </div>
                     </div>
 
@@ -354,8 +416,13 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                       <button type="button" className="ghost-btn" onClick={() => toggleBlockSelection(block.id)}>
                         {selectedBlockIds.includes(block.id) ? "取消去重" : "选中去重"}
                       </button>
-                      <button type="button" className="ghost-btn" onClick={() => handleRematch(block.id)} disabled={loading}>
-                        重新匹配
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        onClick={() => handleRematch(block.id)}
+                        disabled={busyAction !== null}
+                      >
+                        {busyAction === "rematch" && busyBlockId === block.id ? "正在重配中..." : "重新匹配"}
                       </button>
                       <button
                         type="button"
@@ -378,7 +445,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                     className="field-textarea mt-4 min-h-[150px]"
                     value={block.content}
                     onChange={(event) => handleBlockContentChange(block.id, event.target.value)}
-                    placeholder={`这里是 ${block.title} 的内容，你可以直接改。`}
+                    placeholder={`这里是 ${block.title} 的内容，你可以直接修改。`}
                   />
 
                   {insertAfterId === block.id ? (
@@ -424,7 +491,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
               ))
             ) : (
               <div className="glass-panel rounded-[28px] px-5 py-10 text-sm leading-7 text-slate-300">
-                先输入主题或自定义爆点，再点击“自动组装文案”。系统会先按 A B1 C1 D B2 C2 F G H I J K L 这条链组一版，再让你逐块调整。
+                先输入主题或爆点，再点“自动组装文案”。系统会先按固定结构组一版，再交给你逐块微调。
               </div>
             )}
           </div>
@@ -451,10 +518,10 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
             <div className="section-eyebrow">当前策略</div>
             <div className="mt-4 grid gap-3">
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-slate-300">
-                这版先优先保证结构可控和中段诊断可见，不让 F/G/H/I/J 随便堆成资料串。真正的中段优化、按大板块改写和更强的逻辑补桥，我们下一步可以继续精修。
+                这版优先保证你能“看到 H / K / L、能重配、能去重、能手动插入”，先把组合工作台跑稳定。中段如果还像资料堆，系统会直接在左侧给出诊断提示。
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-slate-300">
-                当前规则：同一篇组合稿不会整条从同一原文抽完；B1/B2、C1/C2 都是独立小板块；你可以逐块替换和插入，不需要重开整篇。
+                当前规则：同一篇组合稿不会整条从同一篇原文抽完；B1/B2、C1/C2 会尽量拉开；如果某块暂时没更好的候选，按钮会明确提示你“没有更合适的可替换素材”。
               </div>
             </div>
           </div>
