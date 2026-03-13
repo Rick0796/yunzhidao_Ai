@@ -21,6 +21,19 @@ import {
 
 const DIRECTION_OPTIONS = ["AI趋势", "财富", "认知"] as const;
 const INSERT_SECTION_OPTIONS: ComposeSectionType[] = ["A", "B", "C", "D", "F", "G", "H", "I", "J", "K", "L"];
+const INSERT_SECTION_LABELS: Record<ComposeSectionType, string> = {
+  A: "开头爆点",
+  B: "钩子",
+  C: "筛选/指令",
+  D: "铺垫",
+  F: "趋势判断",
+  G: "旧逻辑/过去对比",
+  H: "现实案例/权威佐证",
+  I: "放大焦虑",
+  J: "解法/新身份",
+  K: "产品承接",
+  L: "收口CTA"
+};
 const LARGE_GROUPS = [
   { key: "opening", label: "开场大板块", slots: ["A", "B1", "C1", "D", "B2", "C2"] },
   { key: "middle", label: "中段大板块", slots: ["F", "G", "H", "I", "J"] },
@@ -71,6 +84,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   const [insertContent, setInsertContent] = useState("");
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [busyBlockId, setBusyBlockId] = useState<string | null>(null);
+  const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
 
   const resolvedTheme = (theme.trim() || customHook.trim()).trim();
   const directionSuggestion = useMemo(() => inferPrimaryDirection(resolvedTheme), [resolvedTheme]);
@@ -106,13 +120,13 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   async function handleAssemble() {
     const nextTheme = resolvedTheme;
     if (!nextTheme) {
-      setMessage({ tone: "error", text: "先输入主题，或者先给一个自定义爆点。" });
+      setMessage({ tone: "error", text: "先输入主题，或者先给一个自定义开头。" });
       return;
     }
 
     setBusyAction("assemble");
     setBusyBlockId(null);
-    setMessage({ tone: "info", text: "正在自动匹配 A B1 C1 D B2 C2 F G H I J K L..." });
+    setMessage({ tone: "info", text: "正在自动匹配开头、钩子、筛选、铺垫、中段推进和收口..." });
 
     try {
       const library = await loadSections(primaryDirection);
@@ -125,6 +139,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
 
       setSelectedBlockIds([]);
       applyBlocks(draft.blocks, draft.theme);
+      setIsReviewPanelOpen(true);
       setMessage({
         tone: "success",
         text: "初版已经组出来了。接下来你可以逐块重配、插入、删除，最后再按块去重。"
@@ -140,13 +155,13 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   async function handleRandomA() {
     setBusyAction("random-a");
     setBusyBlockId(null);
-    setMessage({ tone: "info", text: "正在随机抽取 A 爆皮..." });
+    setMessage({ tone: "info", text: "正在随机抽取开头..." });
 
     try {
       const library = sections.length ? sections : await loadSections(primaryDirection);
       const aPool = library.filter((item) => item.type === "A" && item.content.trim());
       if (!aPool.length) {
-        setMessage({ tone: "warning", text: "当前方向还没有可用的 A 爆皮素材。" });
+        setMessage({ tone: "warning", text: "当前方向还没有可用的开头素材。" });
         return;
       }
 
@@ -155,7 +170,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
       if (!theme.trim()) {
         setTheme(pick.theme || pick.content.trim().slice(0, 24));
       }
-      setMessage({ tone: "success", text: "已随机抽到一个 A 爆皮，你可以直接继续自动组装。" });
+      setMessage({ tone: "success", text: "已随机抽到一个开头，你可以直接继续自动组装。" });
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "随机抽取 A 失败" });
     } finally {
@@ -302,7 +317,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="section-eyebrow">文案组合</div>
-            <h1 className="mt-3 text-3xl font-bold text-white md:text-4xl">A / B1 / C1 / D / B2 / C2 结构化组装</h1>
+            <h1 className="mt-3 text-3xl font-bold text-white md:text-4xl">文案组合工作台</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
               这里不改你原来的爆款仿写和热点原创，只新增一个“文案组合”工作台。系统会先按固定结构组出一版，再让你逐块重配、插入、删除和去重。
             </p>
@@ -327,10 +342,10 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
           </div>
 
           <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
-            <label className="field-label">自定义 A 爆皮</label>
+            <label className="field-label">自定义开头</label>
             <textarea
               className="field-textarea min-h-[110px]"
-              placeholder="如果你已经有一个很炸的开头，可以直接填在这里。系统会优先使用你的爆皮，再补足后面的支撑句。"
+              placeholder="如果你已经有一个很炸的开头，可以直接填在这里。系统会优先使用你的开头，再补足后面的支撑句。"
               value={customHook}
               onChange={(event) => setCustomHook(event.target.value)}
             />
@@ -356,7 +371,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
 
           <div className="flex flex-wrap items-center gap-3">
             <button type="button" className="ghost-btn" onClick={handleRandomA} disabled={busyAction !== null}>
-              {busyAction === "random-a" ? "正在抽取中..." : "随机抽 A"}
+              {busyAction === "random-a" ? "正在抽取中..." : "随机抽开头"}
             </button>
             <button type="button" className="brand-btn" onClick={handleAssemble} disabled={busyAction !== null}>
               {busyAction === "assemble" ? "正在组装中..." : "自动组装文案"}
@@ -378,6 +393,9 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                 <h2 className="mt-3 text-xl font-semibold text-white">自动诊断与替换建议</h2>
               </div>
               <div className="flex flex-wrap gap-2">
+                <button type="button" className="ghost-btn" onClick={() => setIsReviewPanelOpen((prev) => !prev)}>
+                  {isReviewPanelOpen ? "收起诊断面板" : "展开诊断面板"}
+                </button>
                 {LARGE_GROUPS.map((group) => (
                   <button key={group.key} type="button" className="ghost-btn" onClick={() => selectLargeGroup(group.key)}>
                     选中{group.label}
@@ -397,7 +415,29 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
               </div>
             </div>
 
-            {review ? (
+            {!isReviewPanelOpen && review ? (
+              <div className="mt-5 rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-white">当前诊断摘要</div>
+                    <div className="mt-1 text-xs text-slate-400">展开后可查看详细评分、替换建议和逐项逻辑提醒。</div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100">
+                      总分 {review.overallScore}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
+                      建议 {review.suggestions.length} 条
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
+                      诊断 {diagnostics.length} 条
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {isReviewPanelOpen && review ? (
               <div className="mt-5 space-y-4">
                 <div className="rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-4">
                   <div className="flex items-center justify-between gap-3">
@@ -470,7 +510,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
               </div>
             ) : null}
 
-            <div className="mt-5 grid gap-3">
+            {isReviewPanelOpen ? <div className="mt-5 grid gap-3">
               {diagnostics.length ? (
                 diagnostics.map((item, index) => (
                   <div
@@ -489,7 +529,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                   先生成一版组合稿，系统才会给出逻辑诊断。
                 </div>
               )}
-            </div>
+            </div> : null}
           </div>
 
           <div className="space-y-4">
@@ -555,7 +595,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                     className="field-textarea mt-4 min-h-[150px]"
                     value={block.content}
                     onChange={(event) => handleBlockContentChange(block.id, event.target.value)}
-                    placeholder={`这里是 ${block.title} 的内容，你可以直接修改。`}
+                    placeholder={`这里是${block.title}的内容，你可以直接修改。`}
                   />
 
                   {insertAfterId === block.id ? (
@@ -569,7 +609,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                         >
                           {INSERT_SECTION_OPTIONS.map((item) => (
                             <option key={item} value={item}>
-                              {item}
+                              {INSERT_SECTION_LABELS[item]}
                             </option>
                           ))}
                         </select>
@@ -601,7 +641,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
               ))
             ) : (
               <div className="glass-panel rounded-[28px] px-5 py-10 text-sm leading-7 text-slate-300">
-                先输入主题或爆点，再点“自动组装文案”。系统会先按固定结构组一版，再交给你逐块微调。
+                先输入主题或开头，再点“自动组装文案”。系统会先按固定结构组一版，再交给你逐块微调。
               </div>
             )}
           </div>

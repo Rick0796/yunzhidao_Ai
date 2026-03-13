@@ -62,19 +62,19 @@ export interface ComposeReview {
 }
 
 const SLOT_BLUEPRINT: Array<{ slotKey: ComposeSlotKey; sectionType: ComposeSectionType; title: string }> = [
-  { slotKey: "A", sectionType: "A", title: "A 爆皮" },
-  { slotKey: "B1", sectionType: "B", title: "B1 钩子" },
-  { slotKey: "C1", sectionType: "C", title: "C1 筛选/指令" },
-  { slotKey: "D", sectionType: "D", title: "D 铺垫" },
-  { slotKey: "B2", sectionType: "B", title: "B2 钩子" },
-  { slotKey: "C2", sectionType: "C", title: "C2 筛选/指令" },
-  { slotKey: "F", sectionType: "F", title: "F 趋势判断" },
-  { slotKey: "G", sectionType: "G", title: "G 旧逻辑/过去对比" },
-  { slotKey: "H", sectionType: "H", title: "H 现实案例/权威佐证" },
-  { slotKey: "I", sectionType: "I", title: "I 放大焦虑" },
-  { slotKey: "J", sectionType: "J", title: "J 解法/新身份" },
-  { slotKey: "K", sectionType: "K", title: "K 产品承接" },
-  { slotKey: "L", sectionType: "L", title: "L 收口CTA" }
+  { slotKey: "A", sectionType: "A", title: "开头爆点" },
+  { slotKey: "B1", sectionType: "B", title: "第一次钩子" },
+  { slotKey: "C1", sectionType: "C", title: "第一次筛选/指令" },
+  { slotKey: "D", sectionType: "D", title: "铺垫" },
+  { slotKey: "B2", sectionType: "B", title: "第二次钩子" },
+  { slotKey: "C2", sectionType: "C", title: "第二次筛选/指令" },
+  { slotKey: "F", sectionType: "F", title: "趋势判断" },
+  { slotKey: "G", sectionType: "G", title: "旧逻辑/过去对比" },
+  { slotKey: "H", sectionType: "H", title: "现实案例/权威佐证" },
+  { slotKey: "I", sectionType: "I", title: "放大焦虑" },
+  { slotKey: "J", sectionType: "J", title: "解法/新身份" },
+  { slotKey: "K", sectionType: "K", title: "产品承接" },
+  { slotKey: "L", sectionType: "L", title: "收口CTA" }
 ];
 
 const MID_SLOT_KEYS: ComposeSlotKey[] = ["F", "G", "H", "I", "J"];
