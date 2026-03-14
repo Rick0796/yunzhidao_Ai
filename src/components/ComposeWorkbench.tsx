@@ -73,6 +73,26 @@ function blockBelongsToLargeGroup(slotKey: string, slots: ComposeSlotKey[]) {
   return slots.includes(slotKey as ComposeSlotKey);
 }
 
+const SLOT_LABEL_MAP: Record<string, string> = {
+  A: "开头爆点",
+  B1: "第一次钩子",
+  C1: "第一次动作",
+  D: "铺垫承接",
+  B2: "第二次钩子",
+  C2: "第二次动作",
+  F: "趋势判断",
+  G: "旧逻辑对比",
+  H: "现实案例",
+  I: "风险代价",
+  J: "解法路径",
+  K: "课程承接",
+  L: "最终动作",
+};
+
+function displaySlotLabel(slotKey: string, fallback = "") {
+  return SLOT_LABEL_MAP[slotKey] || fallback || "手动片段";
+}
+
 export default function ComposeWorkbench({ settings }: { settings: ApiSettings }) {
   const [theme, setTheme] = useState("");
   const [customOpening, setCustomOpening] = useState("");
@@ -392,8 +412,26 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                 {message.text}
               </div>
             ) : null}
-        </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="compose-stat-card">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">当前主题锚点</div>
+                <div className="mt-3 text-sm font-medium leading-6 text-white">{resolvedTheme || "还没输入主题，先把命题钉住。"}</div>
+              </div>
+              <div className="compose-stat-card">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">开场策略</div>
+                <div className="mt-3 text-sm font-medium leading-6 text-white">{customOpening.trim() ? "已给自定义开头，组合时会优先贴着这个开场往下走。" : "还没给开头，系统会先从素材库抽开头再往下组合。"}</div>
+              </div>
+              <div className="compose-stat-card">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">组合路径</div>
+                <div className="mt-3 text-sm font-medium leading-6 text-white">开场抓停 → 中段推进 → 承接收口</div>
+              </div>
+              <div className="compose-stat-card">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">去重底线</div>
+                <div className="mt-3 text-sm font-medium leading-6 text-white">只降重复度，不改爆点，不偷字，字数和句式都尽量贴原文。</div>
+              </div>
+            </div>
           </div>
+        </div>
         <div className="order-1 space-y-5 xl:sticky xl:top-6 xl:order-2 xl:self-start">
           <div className="compose-panel p-5 sm:p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -419,7 +457,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                     onClick={() => jumpToBlock(block.id)}
                     className="compose-chip compose-chip-slate shrink-0"
                   >
-                    {index + 1}. {block.slotKey}
+                    {index + 1}. {displaySlotLabel(String(block.slotKey), block.title)}
                   </button>
                 ))
               ) : (
@@ -526,7 +564,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                               <div className="space-y-2">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <div className="text-sm font-medium text-white">{item.title}</div>
-                                  <span className="compose-chip compose-chip-slate">{item.slotKey}</span>
+                                  <span className="compose-chip compose-chip-slate">{displaySlotLabel(item.slotKey, item.title)}</span>
                                 </div>
                                 <div className="text-xs leading-6 text-slate-400">{item.reason}</div>
                                 <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-xs leading-6 text-slate-300">
@@ -587,7 +625,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                     <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="text-sm font-medium text-white">{item.title}</div>
-                        <span className="compose-chip compose-chip-slate">{item.slotKey}</span>
+                        <span className="compose-chip compose-chip-slate">{displaySlotLabel(item.slotKey, item.title)}</span>
                         <span className={classNames("compose-chip", item.verdict === "stable" ? "compose-chip-emerald" : "compose-chip-amber")}>
                           {item.verdict === "stable" ? "保真稳定" : "建议复核"}
                         </span>
@@ -663,7 +701,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="compose-chip compose-chip-slate">片段 {String(index + 1).padStart(2, "0")}</span>
-                        <span className="compose-chip compose-chip-cyan">{block.slotKey}</span>
+                        <span className="compose-chip compose-chip-cyan">{displaySlotLabel(String(block.slotKey), block.title)}</span>
                         <span className="compose-chip compose-chip-slate">{block.title}</span>
                         {block.isManual ? <span className="compose-chip compose-chip-amber">手动插入</span> : null}
                       </div>
