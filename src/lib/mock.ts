@@ -1477,6 +1477,30 @@ function inferMockHookType(text: string) {
   return "强结论型";
 }
 
+function buildViralSourceHookCandidates(task: TaskForm) {
+  if (task.entryType !== "viral") return [];
+
+  const firstSentence = extractFirstSentence(task.sourceText || task.userNote || "").replace(/\s+/g, "").trim();
+  if (!firstSentence) return [];
+
+  const candidates = [firstSentence];
+  const firstClause = firstSentence.split(/[，,]/).map((item) => item.trim()).find(Boolean) || "";
+  if (firstClause && firstClause !== firstSentence && firstClause.length >= 8) {
+    candidates.push(`${firstClause}。`);
+  }
+
+  const softened = firstSentence
+    .replace(/^对了??/, "")
+    .replace(/^当然??/, "")
+    .replace(/^如果你选择离开??/, "")
+    .trim();
+  if (softened && softened !== firstSentence) {
+    candidates.push(softened);
+  }
+
+  return Array.from(new Set(candidates));
+}
+
 export function buildMockHooks(task: TaskForm): HookItem[] {
   const hookTask = task.entryType === "hotspot" ? { ...task, hotspotAngle: "" } : task;
   const strategy = analyzeTaskStrategy(hookTask);
@@ -1574,6 +1598,7 @@ export function buildMockHooks(task: TaskForm): HookItem[] {
   ];
 
   const rawCandidates = [
+    ...buildViralSourceHookCandidates(hookTask),
     ...regulationCandidates,
     ...hotspotDirectCandidates,
     ...themeCandidates,

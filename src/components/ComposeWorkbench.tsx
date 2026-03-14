@@ -93,6 +93,14 @@ function displaySlotLabel(slotKey: string, fallback = "") {
   return SLOT_LABEL_MAP[slotKey] || fallback || "手动片段";
 }
 
+function displayGroupLabel(slotKey: string, isManual = false) {
+  if (isManual) return "手动插入";
+  if (["A", "B1", "C1", "D", "B2", "C2"].includes(slotKey)) return "开场段";
+  if (["F", "G", "H", "I", "J"].includes(slotKey)) return "中段推进";
+  return "承接收口";
+}
+
+
 export default function ComposeWorkbench({ settings }: { settings: ApiSettings }) {
   const [theme, setTheme] = useState("");
   const [customOpening, setCustomOpening] = useState("");
@@ -347,8 +355,9 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
-        <div className="order-2 compose-panel p-5 sm:p-6 xl:order-1">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] xl:items-start">
+        <div className="space-y-5">
+          <div className="compose-panel p-5 sm:p-6">
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-200">主题</label>
@@ -432,47 +441,6 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
             </div>
           </div>
         </div>
-        <div className="order-1 space-y-5 xl:sticky xl:top-6 xl:order-2 xl:self-start">
-          <div className="compose-panel p-5 sm:p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="text-lg font-semibold text-white">整稿预览台</div>
-                <div className="mt-2 text-sm leading-6 text-slate-400">整稿固定放在右侧上方，随时查看、复制，也能直接跳到对应片段。</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleCopy(fullText, "组合整稿已复制。")}
-                disabled={!fullText}
-                className="compose-copy-btn whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                复制整稿
-              </button>
-            </div>
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1 mobile-scroll-row">
-              {blocks.length ? (
-                blocks.map((block, index) => (
-                  <button
-                    key={block.id}
-                    type="button"
-                    onClick={() => jumpToBlock(block.id)}
-                    className="compose-chip compose-chip-slate shrink-0"
-                  >
-                    {index + 1}. {displaySlotLabel(String(block.slotKey), block.title)}
-                  </button>
-                ))
-              ) : (
-                <span className="compose-chip compose-chip-slate">还没有生成片段</span>
-              )}
-            </div>
-            {fullText ? (
-              <div className="compose-preview-window mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-100">{fullText}</div>
-            ) : (
-              <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] px-4 py-10 text-sm leading-7 text-slate-400">
-                先生成第一版组合稿，这里会把整稿预览固定在上方。
-              </div>
-            )}
-          </div>
-
           <div className="compose-panel p-5 sm:p-6">
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -564,7 +532,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                               <div className="space-y-2">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <div className="text-sm font-medium text-white">{item.title}</div>
-                                  <span className="compose-chip compose-chip-slate">{displaySlotLabel(item.slotKey, item.title)}</span>
+                                  <span className="compose-chip compose-chip-slate">{displayGroupLabel(item.slotKey)}</span>
                                 </div>
                                 <div className="text-xs leading-6 text-slate-400">{item.reason}</div>
                                 <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-xs leading-6 text-slate-300">
@@ -606,6 +574,48 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
               </div>
             )}
           </div>
+        </div>
+
+        <div className="space-y-5 xl:sticky xl:top-6 xl:self-start">
+          <div className="compose-panel p-5 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="text-lg font-semibold text-white">整稿预览台</div>
+                <div className="mt-2 text-sm leading-6 text-slate-400">整稿固定放在右侧上方，随时查看、复制，也能直接跳到对应片段。</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleCopy(fullText, "组合整稿已复制。")}
+                disabled={!fullText}
+                className="compose-copy-btn whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                复制整稿
+              </button>
+            </div>
+            <div className="mt-4 flex gap-2 overflow-x-auto pb-1 mobile-scroll-row">
+              {blocks.length ? (
+                blocks.map((block, index) => (
+                  <button
+                    key={block.id}
+                    type="button"
+                    onClick={() => jumpToBlock(block.id)}
+                    className="compose-chip compose-chip-slate shrink-0"
+                  >
+                    {index + 1}. {displaySlotLabel(String(block.slotKey), block.title)}
+                  </button>
+                ))
+              ) : (
+                <span className="compose-chip compose-chip-slate">还没有生成片段</span>
+              )}
+            </div>
+            {fullText ? (
+              <div className="compose-preview-window mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-100">{fullText}</div>
+            ) : (
+              <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] px-4 py-10 text-sm leading-7 text-slate-400">
+                先生成第一版组合稿，这里会把整稿预览固定在上方。
+              </div>
+            )}
+          </div>
 
           {comparisons.length ? (
             <div className="compose-panel p-5 sm:p-6">
@@ -625,7 +635,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                     <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="text-sm font-medium text-white">{item.title}</div>
-                        <span className="compose-chip compose-chip-slate">{displaySlotLabel(item.slotKey, item.title)}</span>
+                        <span className="compose-chip compose-chip-slate">{displayGroupLabel(item.slotKey)}</span>
                         <span className={classNames("compose-chip", item.verdict === "stable" ? "compose-chip-emerald" : "compose-chip-amber")}>
                           {item.verdict === "stable" ? "保真稳定" : "建议复核"}
                         </span>
