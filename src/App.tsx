@@ -119,8 +119,8 @@ const HOTSPOT_PLATFORM_META: Record<Exclude<HotspotPanelTab, "all" | "business" 
 function getStepConfig(mode: WorkbenchMode) {
   if (mode === "compose") {
     return [
-      { step: 1 as const, title: "主题与爆点", hint: "先定主题或先抽 A，再开始自动匹配。" },
-      { step: 2 as const, title: "自动组装", hint: "系统按 A B1 C1 D B2 C2 F G H I J K L 先组一版。" },
+      { step: 1 as const, title: "主题与爆点", hint: "先定主题或先抽一个开头，再开始自动匹配。" },
+      { step: 2 as const, title: "自动组装", hint: "系统会先按固定结构组一版。" },
       { step: 3 as const, title: "逐块调整", hint: "每个小板块都能重配、删除或手动插入。" },
       { step: 4 as const, title: "去重输出", hint: "按小板块或大板块去重后输出最终稿。" }
     ];
@@ -145,7 +145,7 @@ function getWorkbenchCopy(mode: WorkbenchMode) {
     return {
       eyebrow: "文案组合",
       title: "文案组合工作台",
-      description: "按 A B1 C1 D B2 C2 F G H I J K L 结构自动组装，再逐块替换、插入和去重。",
+      description: "按固定结构自动组装，再逐块替换、插入和去重。",
       step1Title: "步骤 1 / 主题与爆点",
       step1Subtitle: "先给主题或先给一个爆点，系统再开始整篇匹配。",
       step2Title: "步骤 2 / 自动组装",

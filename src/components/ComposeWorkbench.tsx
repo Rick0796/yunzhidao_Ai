@@ -85,6 +85,9 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [busyBlockId, setBusyBlockId] = useState<string | null>(null);
   const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
+  const [historyBlocks, setHistoryBlocks] = useState<
+    Array<Pick<ComposeBlock, "materialId" | "originalId" | "topicFamily" | "entityTag" | "slotKey">>
+  >([]);
 
   const resolvedTheme = (theme.trim() || customHook.trim()).trim();
   const directionSuggestion = useMemo(() => inferPrimaryDirection(resolvedTheme), [resolvedTheme]);
@@ -134,11 +137,27 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
         theme: nextTheme,
         primaryDirection,
         customHook,
-        sections: library
+        sections: library,
+        historyBlocks
       });
 
       setSelectedBlockIds([]);
       applyBlocks(draft.blocks, draft.theme);
+      setHistoryBlocks((prev) => {
+        const next = [
+          ...draft.blocks
+            .filter((block) => block.materialId || block.originalId || block.topicFamily || block.entityTag)
+            .map((block) => ({
+              materialId: block.materialId,
+              originalId: block.originalId,
+              topicFamily: block.topicFamily,
+              entityTag: block.entityTag,
+              slotKey: block.slotKey
+            })),
+          ...prev
+        ];
+        return next.slice(0, 120);
+      });
       setIsReviewPanelOpen(true);
       setMessage({
         tone: "success",
@@ -172,7 +191,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
       }
       setMessage({ tone: "success", text: "已随机抽到一个开头，你可以直接继续自动组装。" });
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "随机抽取 A 失败" });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "随机抽开头失败" });
     } finally {
       setBusyAction(null);
       setBusyBlockId(null);
@@ -490,9 +509,6 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                               <div className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-3 text-sm leading-6 text-cyan-100">
                                 <span className="font-semibold text-cyan-50">建议候选：</span> {suggestion.preview}
                               </div>
-                              <div className="mt-2 text-xs text-slate-500">
-                                {suggestion.candidateMaterialId || "手动候选"} {suggestion.candidateOriginalId ? `· 来源 ${suggestion.candidateOriginalId}` : ""}
-                              </div>
                             </div>
                             <button type="button" className="brand-btn" onClick={() => handleApplySuggestion(suggestion.id)}>
                               采用这条建议
@@ -546,10 +562,6 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
                     <div>
                       <div className="section-eyebrow">{block.title}</div>
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">{block.materialId || "手动块"}</span>
-                        {block.originalId ? (
-                          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">来源 {block.originalId}</span>
-                        ) : null}
                         {block.isManual ? (
                           <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-amber-100">手动插入</span>
                         ) : null}
@@ -668,10 +680,10 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
             <div className="section-eyebrow">当前策略</div>
             <div className="mt-4 grid gap-3">
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-slate-300">
-                这版优先保证你能“看到 H / K / L、能重配、能去重、能手动插入”，先把组合工作台跑稳定。中段如果还像资料堆，系统会直接在左侧给出诊断提示。
+                这版优先保证你能看到现实锚点、产品承接和最终收口，也能重配、去重、手动插入，先把组合工作台跑稳定。中段如果还像资料堆，系统会直接在左侧给出诊断提示。
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm leading-6 text-slate-300">
-                当前规则：同一篇组合稿不会整条从同一篇原文抽完；B1/B2、C1/C2 会尽量拉开；如果某块暂时没更好的候选，按钮会明确提示你“没有更合适的可替换素材”。
+                当前规则：同一篇组合稿不会整条从同一篇原文抽完；两轮钩子、两轮筛选/动作会尽量拉开；如果某块暂时没更好的候选，按钮会明确提示你“没有更合适的可替换素材”。
               </div>
             </div>
           </div>
