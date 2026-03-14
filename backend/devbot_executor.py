@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import subprocess
 from pathlib import Path
@@ -47,8 +47,8 @@ def run_command(
 def format_git_status() -> str:
     code, output = run_command(["git", "status", "--short"], timeout=60)
     if code != 0:
-        return "git status failed"
-    return output or "working tree clean"
+        return "git status 执行失败"
+    return output or "工作区干净"
 
 
 def execute_named_task(
@@ -60,20 +60,20 @@ def execute_named_task(
 
     if task_kind == "build":
         if progress_callback:
-            progress_callback("build_frontend", "Running frontend build")
+            progress_callback("build_frontend", "正在运行前端构建")
         build_code, build_output = run_command(["npm.cmd", "run", "build"], timeout=1800)
 
         if progress_callback:
-            progress_callback("compile_backend", "Running backend compile checks")
+            progress_callback("compile_backend", "正在运行后端编译检查")
         py_code, py_output = run_command(["python", "-m", "py_compile", *BACKEND_COMPILE_TARGETS], timeout=300)
 
         exit_code = 0 if build_code == 0 and py_code == 0 else 1
-        summary = "build passed" if exit_code == 0 else "build failed"
+        summary = "构建通过" if exit_code == 0 else "构建失败"
         output = "\n\n".join(
             part
             for part in [
-                f"[npm build]\\n{build_output or '(no output)'}",
-                f"[py_compile]\\n{py_output or '(no output)'}",
+                f"[npm build]\n{build_output or '(无输出)'}",
+                f"[py_compile]\n{py_output or '(无输出)'}",
             ]
             if part.strip()
         )
@@ -81,20 +81,20 @@ def execute_named_task(
 
     if task_kind == "test":
         if progress_callback:
-            progress_callback("compile_backend", "Running backend compile checks")
+            progress_callback("compile_backend", "正在运行后端编译检查")
         py_code, py_output = run_command(["python", "-m", "py_compile", *BACKEND_COMPILE_TARGETS], timeout=300)
 
         if progress_callback:
-            progress_callback("git_status", "Checking working tree state")
-        git_code, git_output = run_command(["git", "status", "--short"], timeout=60)
+            progress_callback("pytest", "正在运行 pytest")
+        test_code, test_output = run_command(["python", "-m", "pytest", "-q"], timeout=1800)
 
-        exit_code = 0 if py_code == 0 and git_code == 0 else 1
-        summary = "tests passed" if exit_code == 0 else "tests failed"
+        exit_code = 0 if py_code == 0 and test_code == 0 else 1
+        summary = "测试通过" if exit_code == 0 else "测试失败"
         output = "\n\n".join(
             part
             for part in [
-                f"[py_compile]\\n{py_output or '(no output)'}",
-                f"[git status]\\n{git_output or '(no output)'}",
+                f"[py_compile]\n{py_output or '(无输出)'}",
+                f"[pytest]\n{test_output or '(无输出)'}",
             ]
             if part.strip()
         )
@@ -102,19 +102,19 @@ def execute_named_task(
 
     if task_kind == "deploy":
         if progress_callback:
-            progress_callback("git_status", "Checking working tree before deploy")
+            progress_callback("git_status", "正在检查部署前的工作区状态")
         status = format_git_status()
-        if status != "working tree clean":
-            return 1, "deploy precheck failed", "Working tree is not clean. Commit or resolve changes before deploy.\n\n" + status
+        if status != "工作区干净":
+            return 1, "部署前检查失败", "当前工作区不干净，请先提交或处理改动后再部署。\n\n" + status
 
         if progress_callback:
-            progress_callback("deploy", "Pushing to GitHub")
+            progress_callback("deploy", "正在推送到 GitHub")
         push_code, push_output = run_command(["git", "push", "origin", "main"], timeout=1800)
         exit_code = 0 if push_code == 0 else 1
-        summary = "deploy push succeeded" if exit_code == 0 else "deploy push failed"
-        return exit_code, summary, push_output or "(no output)"
+        summary = "部署推送成功" if exit_code == 0 else "部署推送失败"
+        return exit_code, summary, push_output or "(无输出)"
 
-    return 1, "unknown task", f"Unsupported task kind: {kind}"
+    return 1, "未知任务", f"不支持的任务类型：{kind}"
 
 
 def build_status_text(store: TaskStore) -> str:
@@ -122,52 +122,58 @@ def build_status_text(store: TaskStore) -> str:
     status = format_git_status()
 
     lines = [
-        "Telegram dev bot is online.",
-        f"Repository: {ROOT_DIR}",
-        f"Working tree: {status}",
+        "Telegram 开发机器人在线。",
+        f"当前仓库：{ROOT_DIR}",
+        f"工作区状态：{status}",
     ]
     if last_task:
         lines.extend(
             [
                 "",
-                "Latest task:",
+                "最近任务：",
                 f"#{last_task['id']} {last_task['kind']} [{last_task['status']}]",
-                f"Command: {last_task['command_text']}",
-                f"Summary: {last_task['summary'] or 'none'}",
+                f"命令：{last_task['command_text']}",
+                f"摘要：{last_task['summary'] or '暂无'}",
             ]
         )
     return "\n".join(lines)
 
 
 def build_logs_text(store: TaskStore) -> str:
-    task = store.get_last_task()
-    if not task:
-        return "No task has been executed yet."
+    tasks = store.list_recent_tasks(limit=5)
+    if not tasks:
+        return "还没有执行过任务。"
 
-    parts = [
-        f"Latest task #{task['id']}",
-        f"Kind: {task['kind']}",
-        f"Status: {task['status']}",
-        f"Command: {task['command_text']}",
-        f"Summary: {task['summary'] or 'none'}",
-        "",
-        task["output"] or "(no output)",
-    ]
-    return "\n".join(parts)
+    lines = ["最近 5 条任务："]
+    for task in tasks:
+        lines.extend(
+            [
+                "",
+                f"#{task['id']} {task['kind']} [{task['status']}]",
+                f"时间：{task['created_at']}",
+                f"命令：{task['command_text']}",
+                f"摘要：{task['summary'] or '暂无'}",
+            ]
+        )
+
+    latest_task = tasks[0]
+    output = latest_task["output"] or "(无输出)"
+    lines.extend(["", "最近一次任务输出：", output])
+    return "\n".join(lines)
 
 
 def build_current_text(store: TaskStore) -> str:
     task = store.get_running_task()
     if not task:
-        return "There is no running task right now."
+        return "当前没有正在执行的任务。"
 
     return "\n".join(
         [
-            f"Current task #{task['id']}",
-            f"Kind: {task['kind']}",
-            f"Status: {task['status']}",
-            f"Command: {task['command_text']}",
-            f"Progress: {task['summary'] or 'no progress yet'}",
-            f"Started at: {task['started_at'] or task['created_at']}",
+            f"当前任务 #{task['id']}",
+            f"类型：{task['kind']}",
+            f"状态：{task['status']}",
+            f"命令：{task['command_text']}",
+            f"进度：{task['summary'] or '暂无进度'}",
+            f"开始时间：{task['started_at'] or task['created_at']}",
         ]
     )
