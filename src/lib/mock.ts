@@ -1358,6 +1358,28 @@ function buildKeywordLeadText(task: TaskForm, keyword: string) {
   return `如果你也想知道怎么把流量变成自己的资产，评论区打${keyword}，我把方法发给你。`;
 }
 
+function extractViralSourceActionSentences(task: TaskForm) {
+  if (task.entryType !== "viral") return [];
+  const source = task.sourceText || task.userNote || "";
+  return splitParagraphSentences(source)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => /(\u8bc4\u8bba\u533a|\u79c1\u4fe1|\u5173\u6ce8|\u4e3b\u9875|\u76f4\u64ad|\u5c0f\u7231\u5fc3|\u70b9\u4eae|\u7559\u8a00|\u53d1\u9001\u79c1\u4fe1|\u6211\u8981\u770b\u76f4\u64ad|\u76f4\u64ad\u5165\u53e3)/.test(item));
+}
+
+function shortenViralCtaText(text: string) {
+  const firstSentence = splitParagraphSentences(text)[0]?.trim() ?? text.trim();
+  if (!firstSentence) return "";
+  if (firstSentence.length <= 48) return ensureSentence(firstSentence);
+
+  const shortened = firstSentence
+    .replace(/\u8d81\u4f60\u8fd8\u6ca1\u5212\u8d70\uff0c?/g, "")
+    .replace(/\u53ea\u8981\u7ed9\u8fd9\u6761\u89c6\u9891\u70b9\u4e2a\u5c0f\u7ea2\u5fc3\uff0c?/g, "")
+    .replace(/\u70b9\u4eae\u53f3\u8fb9\u7684\u5c0f\u7231\u5fc3\uff0c?/g, "")
+    .trim();
+  return ensureSentence(shortened.length <= 48 ? shortened : firstSentence.slice(0, 46));
+}
+
 function buildTaskCtaText(ctaMode: CtaMode, task: TaskForm, profile: BaseProfile) {
   const keyword = inferTaskKeyword(task, profile);
   if (ctaMode === "none") return "如果你也有同样的感受，评论区留下厚德载物。";
@@ -2099,6 +2121,15 @@ export function buildMockCtas(task: TaskForm, profile: BaseProfile): CtaItem[] {
   }
 
   if (task.ctaMode === "keyword") {
+    const sourceCtas = extractViralSourceActionSentences(task).map((item) => shortenViralCtaText(item)).filter(Boolean);
+    if (sourceCtas.length) {
+      return Array.from(new Set(sourceCtas)).slice(0, 3).map((text, index) => ({
+        id: createId("cta"),
+        type: "???????",
+        text,
+        scenario: index === 0 ? "???? / ??????" : "???? / ????",
+      }));
+    }
     if (task.entryType === "viral" && !viralSourceHasBusinessAnchor(task)) {
       return [
         {
@@ -2886,14 +2917,13 @@ function buildViralDraftParagraphs(task: TaskForm, skeleton: SkeletonItem, meatP
     })
     .filter(Boolean);
 
-  const normalizedSteps = skeleton.steps.length > 0 ? skeleton.steps : buildSourceCopySkeleton(task).steps;
   const cleaned = dedupeDraftLines(
     bodyParagraphs
       .map((item) => item.trim())
       .filter(Boolean)
       .map((item) => ensureSentence(item))
   );
-  return applyMeatPlanToParagraphs(cleaned, normalizedSteps, meatPlan);
+  return cleaned;
 }
 
 function buildDraftAnalysis(task: TaskForm) {

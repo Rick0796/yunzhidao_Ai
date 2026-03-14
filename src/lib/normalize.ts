@@ -693,7 +693,7 @@ export function normalizeHookResults(items: HookItem[], task: TaskForm) {
     .sort((left, right) => getHookQualityScore(right.text, task) - getHookQualityScore(left.text, task))
     .filter((item, index, list) => list.findIndex((candidate) => candidate.text === item.text) === index);
 
-  const nextItems = [...merged];
+  const nextItems = task.entryType === "viral" ? [fallback[0], ...merged] : [...merged];
   for (const candidate of fallback) {
     if (nextItems.length >= 3) break;
     if (!isHardBridgeHook(candidate.text, task) && !nextItems.some((item) => item.text === candidate.text)) {
@@ -701,7 +701,8 @@ export function normalizeHookResults(items: HookItem[], task: TaskForm) {
     }
   }
 
-  return nextItems.length > 0 ? nextItems.slice(0, 3) : fallback.slice(0, 3);
+  const deduped = nextItems.filter((item, index, list) => list.findIndex((candidate) => candidate.text === item.text) === index);
+  return deduped.length > 0 ? deduped.slice(0, 3) : fallback.slice(0, 3);
 }
 
 export function normalizeSkeletonResults(items: SkeletonItem[], task: TaskForm) {
