@@ -1,4 +1,4 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -317,6 +317,155 @@ textarea {
   transform: translateX(18px);
 }
 
+
+.compose-shell {
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(140deg, rgba(5, 10, 22, 0.96), rgba(9, 16, 33, 0.88)),
+    radial-gradient(circle at top left, rgba(0, 212, 255, 0.12), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.12), transparent 26%);
+  box-shadow:
+    0 26px 90px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.compose-panel {
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(8, 14, 28, 0.92), rgba(8, 14, 28, 0.82)),
+    radial-gradient(circle at top right, rgba(0, 212, 255, 0.08), transparent 28%);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
+}
+
+.compose-stat-card {
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+    rgba(0, 0, 0, 0.18);
+  padding: 16px;
+}
+
+.compose-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.compose-chip-cyan {
+  border-color: rgba(34, 211, 238, 0.22);
+  background: rgba(34, 211, 238, 0.12);
+  color: #cffafe;
+}
+
+.compose-chip-emerald {
+  border-color: rgba(52, 211, 153, 0.22);
+  background: rgba(16, 185, 129, 0.12);
+  color: #d1fae5;
+}
+
+.compose-chip-amber {
+  border-color: rgba(251, 191, 36, 0.24);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fde68a;
+}
+
+.compose-chip-slate {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+}
+
+.compose-toolbar-btn,
+.compose-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+  font-size: 12px;
+  transition: 180ms ease;
+}
+
+.compose-toolbar-btn:hover:not(:disabled),
+.compose-copy-btn:hover:not(:disabled) {
+  border-color: rgba(34, 211, 238, 0.26);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.compose-copy-btn {
+  color: #c7d2fe;
+}
+
+.compose-score-card {
+  border-radius: 24px;
+  border: 1px solid rgba(34, 211, 238, 0.14);
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.12), transparent 32%),
+    linear-gradient(160deg, rgba(8, 20, 38, 0.94), rgba(8, 14, 28, 0.86));
+  padding: 18px;
+}
+
+.compose-progress-track {
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+  height: 8px;
+}
+
+.compose-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(34, 211, 238, 0.92), rgba(59, 130, 246, 0.92));
+}
+
+.compose-preview-window {
+  max-height: 460px;
+  overflow: auto;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.82), rgba(15, 23, 42, 0.7));
+  padding: 18px;
+}
+
+.compose-block-textarea {
+  width: 100%;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(2, 6, 23, 0.72);
+  color: #f8fafc;
+  padding: 14px 16px;
+  font-size: 14px;
+  line-height: 1.8;
+  outline: none;
+  transition: 180ms ease;
+}
+
+.compose-block-textarea:focus {
+  border-color: rgba(34, 211, 238, 0.35);
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.08);
+}
+
+.compose-block-textarea::placeholder {
+  color: rgba(203, 213, 225, 0.48);
+}
 .mobile-scroll-row {
   min-width: 0;
   max-width: 100%;
@@ -359,3 +508,4 @@ textarea {
     -webkit-line-clamp: 3;
   }
 }
+

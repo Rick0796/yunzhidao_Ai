@@ -1,3 +1,5 @@
+import { normalizeBaseUrl } from "./http";
+
 export interface ScriptSectionItem {
   originalId: string;
   theme: string;
@@ -39,10 +41,6 @@ export interface ComposeCandidateResponse {
   filters: {
     limitPerSlot: number;
   };
-}
-
-function normalizeBaseUrl(baseUrl: string) {
-  return (baseUrl || "/api").replace(/\/+$/, "");
 }
 
 async function parseJson(response: Response) {
@@ -96,9 +94,7 @@ export async function fetchComposeCandidates(
 ) {
   const response = await fetch(`${normalizeBaseUrl(baseUrl)}/library/compose-candidates`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const payload = await parseJson(response);

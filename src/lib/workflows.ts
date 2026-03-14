@@ -1,6 +1,4 @@
-function normalizeBaseUrl(baseUrl: string) {
-  return (baseUrl || "/api").replace(/\/+$/, "");
-}
+import { normalizeBaseUrl } from "./http";
 
 const WORKFLOW_REQUEST_TIMEOUT_MS = 45000;
 const INVALID_DISPLAY_CHAR_PATTERN = /[\u0000-\u001f\u007f-\u009f\uE000-\uF8FF\uFFF0-\uFFFF�]+/g;

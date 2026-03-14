@@ -1,4 +1,4 @@
-import {
+﻿import {
   BaseProfile,
   CtaItem,
   DecomposeResult,
@@ -18,7 +18,8 @@ import {
   buildMockHooks,
   buildMockMeat,
   buildMockScore,
-  buildMockSkeletons
+  buildMockSkeletons,
+  splitSourceParagraphs
 } from "./mock";
 import { buildHookExampleLines, buildHookPromptRuleLines } from "./hookEngine";
 import { generateJson } from "./llm";
@@ -35,7 +36,7 @@ function buildEntryWorkflowInstruction(entryType: TaskForm["entryType"]) {
   if (entryType === "boss_story") {
     return "这是老板经历任务，优先写冲突、代价、反转和老板自己的认知。";
   }
-  return "这是参考爆款任务，优先拆结构、改表达、保留停留感。";
+  return "这是参考爆款任务，优先拆结构、轻改表达、做去重，保留原文停留感和推进骨架。";
 }
 
 function buildHookStructureGuide(task: TaskForm) {
@@ -60,6 +61,39 @@ function buildHookStructureGuide(task: TaskForm) {
 function sourceHasDirectBusinessAnchor(text: string) {
   return /(AI获客|数字IP|数字资产|获客|流量|私域|自动化|平台变化|内容增长|企业增长|老板增长|数字人|客户|订单|转化)/.test(text)
     || /(AI|人工智能).{0,12}(获客|流量|转化|客户|商业化|内容增长|数字人|企业增长|老板增长)/.test(text);
+}
+
+function splitViralReferenceParagraphs(task: TaskForm) {
+  const sourceParagraphs = splitSourceParagraphs(task.sourceText || task.userNote);
+  return sourceParagraphs
+    .map((paragraph, index) => {
+      const sentences = paragraph.match(/[^。！？!?]+[。！？!?]?/g)?.map((item) => item.trim()).filter(Boolean) ?? [];
+      if (!sentences.length) return "";
+      if (index === 0) return sentences.slice(1).join("").trim();
+      if (index === sourceParagraphs.length - 1) {
+        return paragraph
+          .replace(/，?趁现在还没划走.*$/g, "")
+          .replace(/，?只要给这条视频.*$/g, "")
+          .replace(/，?评论区.*$/g, "")
+          .replace(/，?按照下方这行小字.*$/g, "")
+          .replace(/，?到我主页.*$/g, "")
+          .trim();
+      }
+      return paragraph.trim();
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function buildViralParagraphGuide(task: TaskForm) {
+  if (task.entryType !== "viral") return "";
+  const paragraphs = splitViralReferenceParagraphs(task);
+  if (!paragraphs.length) return "";
+  return [
+    "【原文段落对照】",
+    "除第一句钩子外，后续正文请尽量和下面这些原文段落一一对应去重改写：",
+    ...paragraphs.map((paragraph, index) => `${index + 1}. ${paragraph}`),
+  ].join("\n");
 }
 
 export async function runDecompose(
@@ -438,6 +472,7 @@ export async function runDraftGeneration(
   const meatStartIndex = getSkeletonMeatStartIndex(skeleton);
   const strategy = analyzeTaskStrategy(task);
 
+  const viralParagraphGuide = buildViralParagraphGuide(task);
   const selectedParts = [
     `已选钩子：${hook.text}`,
     `已选骨架：${skeleton.name}（${skeleton.steps.map(s => s.name).join(" → ")}）`,
@@ -445,9 +480,10 @@ export async function runDraftGeneration(
     ...formatTaskStrategyLines(strategy),
     "骨架执行单：",
     ...skeletonExecutionLines,
+    viralParagraphGuide,
     meat ? `已选肉：桥层：${meat.bridgeText || ""} / 服务层：${meat.serviceText || ""} / 动作铺垫：${meat.actionPrepText || ""}` : "不挂肉",
     `已选收口：${cta.text}`
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   return generateJson({
     settings,
@@ -491,6 +527,8 @@ export async function runDraftGeneration(
       "=== 内容来源规则 ===",
       "1. 所有正文必须严格基于当前任务内容来写，不能外扩到用户没给的人物、事件、热点和故事。",
       "2. 仿写爆款时，要保留参考文案的核心命题和论证方向，只改表达，不改主题。",
+      "2.1 仿写正文要逐段贴着原文走，尽量一段对应一段，不要把多段压成一段摘要。",
+      "2.2 每一段都只做轻微去重，优先保留原句式、原爆点、原数字、原后果和原判断。",
       "3. 热点任务要用热点本身做推进，不要空泛说教。",
       "4. 老板故事要基于经历口述，不要编出额外桥段。",
       "5. 不能只让第一句和最后一句贴题，中段每一步也必须继续使用用户给的参考内容、事实、判断和方向，不要写成通用模板句式。",
@@ -503,7 +541,7 @@ export async function runDraftGeneration(
       "- 句子尽量短，单句优先控制在 12 到 28 个字；一旦超过 30 个字，主动断成两句。",
       "- 口播感优先，宁可多断句，也不要写成长条说明文。",
       task.entryType === "viral"
-        ? "【仿写爆款】\n- 严格按原文的段落结构和推进顺序写，段落数尽量保持不变\n- 总字数尽量保持在原文的90%到110%\n- 改写只做轻微调词、去重、换表达，不要改骨架，不要新增新的论证层"
+        ? "【仿写爆款】\n- 严格按原文的段落结构和推进顺序写，段落数尽量保持不变\n- 总字数尽量保持在原文的90%到110%，每一段字数也尽量贴着原文\n- 句数尽量贴着原文，原文是长句就继续长句，原文是短句就继续短句\n- 原文的爆点、判决句、反问句、数字、后果和三点式结构，能保留就尽量保留\n- 改写只做轻微调词、去重、换表达，不要改骨架，不要新增新的论证层，不要偷字"
       : task.entryType === "hotspot"
         ? "【蹭热点】\n- 600-900字\n- 先事件，后映射，再升级风险，再过桥到新认知，最后再落点"
         : task.entryType === "topic"
@@ -582,3 +620,7 @@ export async function runDraftScore(
     )
   });
 }
+
+
+
+

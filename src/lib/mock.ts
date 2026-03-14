@@ -1,4 +1,4 @@
-import {
+﻿import {
   ApiSettings,
   BaseProfile,
   BridgeStrength,
@@ -1312,7 +1312,23 @@ function defaultCtaText(ctaMode: CtaMode, profile: BaseProfile) {
   return "如果你真想拿资料，评论区直接打想要，我把完整内容发给你。";
 }
 
+function viralSourceHasBusinessAnchor(task: TaskForm) {
+  return /(AI获客|数字IP|数字资产|获客|流量|私域|自动化|内容增长|企业增长|老板增长|数字人|客户|订单|转化|系统|方法|训练营|公开课)/.test(
+    task.sourceText || task.userNote || ""
+  );
+}
+
+function inferSafeViralKeyword(task: TaskForm) {
+  const text = task.sourceText || task.userNote || "";
+  if (/(入口|平台|微信|流量)/.test(text)) return "入口";
+  if (/(机会|第三个|三样|三件|房子|资产)/.test(text)) return "机会";
+  if (/(老板|生意|客户|订单)/.test(text)) return "变化";
+  if (/(修行|学佛|福气|心稳)/.test(text)) return "清醒";
+  return "看懂了";
+}
+
 function inferTaskKeyword(task: TaskForm, profile: BaseProfile) {
+  if (task.entryType === "viral" && !viralSourceHasBusinessAnchor(task)) return inferSafeViralKeyword(task);
   const theme = inferHookTheme(task);
   if (theme === "ai") return "AI获客";
   if (theme === "asset") return "数字资产";
@@ -1332,6 +1348,7 @@ function inferTaskAssetNoun(task: TaskForm, profile: BaseProfile) {
 }
 
 function buildKeywordLeadText(task: TaskForm, keyword: string) {
+  if (task.entryType === "viral" && !viralSourceHasBusinessAnchor(task)) return `如果你也想让我把这条爆款继续拆透，评论区打${keyword}，我继续往下讲。`; 
   const theme = inferHookTheme(task);
   if (theme === "ai") return `如果你也想把客户真正跑起来，评论区打${keyword}，我把方法发给你。`;
   if (theme === "asset") return `如果你也想知道怎么把流量变成自己的资产，评论区打${keyword}，我把方法发给你。`;
@@ -1645,7 +1662,11 @@ interface DraftMeatPlan {
 }
 
 function buildDraftMeatPlan(task: TaskForm, meat: MeatItem | null): DraftMeatPlan {
-  if (!meat) {
+  const viralSourceHasBusinessAnchor = /(AI获客|数字IP|数字资产|获客|流量|私域|自动化|内容增长|企业增长|老板增长|数字人|客户|订单|转化|系统|方法|训练营|公开课)/.test(
+    task.sourceText || task.userNote || ""
+  );
+
+  if (!meat || (task.entryType === "viral" && !viralSourceHasBusinessAnchor)) {
     return {
       bridgeLine: "",
       serviceLine: "",
@@ -2036,6 +2057,28 @@ export function buildMockCtas(task: TaskForm, profile: BaseProfile): CtaItem[] {
   }
 
   if (task.ctaMode === "keyword") {
+    if (task.entryType === "viral" && !viralSourceHasBusinessAnchor(task)) {
+      return [
+        {
+          id: createId("cta"),
+          type: "评论关键词继续拆型",
+          text: `如果你也想让我把这条爆款继续拆透，评论区打${keyword}，我继续往下讲。`,
+          scenario: "仿写爆款 / 低业务 / 继续拆解"
+        },
+        {
+          id: createId("cta"),
+          type: "评论关键词继续拆型",
+          text: `看懂的人，评论区打${keyword}，我把后面那层逻辑继续拆给你。`,
+          scenario: "仿写爆款 / 关键词筛选"
+        },
+        {
+          id: createId("cta"),
+          type: "评论关键词继续拆型",
+          text: `如果你也想把这条文案继续拆明白，评论区留${keyword}。`,
+          scenario: "仿写爆款 / 继续拆 / 拉评论"
+        }
+      ];
+    }
     return [
       {
         id: createId("cta"),
@@ -2746,6 +2789,38 @@ function looksLikeBusinessParagraph(text: string) {
   return /(我们现在做的|帮老板|AI获客|内容链路|客户承接|系统|账号|AI员工|发号施令|方法发给你|进一步来问)/.test(text);
 }
 
+const VIRAL_LIGHT_REWRITE_RULES = [
+  ["老百姓", "普通人"],
+  ["普通人", "很多人"],
+  ["接下来", "往后"],
+  ["其实", "说白了"],
+  ["已经", "早就"],
+  ["这个时候", "这时候"],
+  ["你会发现", "你慢慢会发现"],
+  ["真正", "真正"],
+] as const;
+
+function lightlyRewriteViralSentence(sentence: string, paragraphIndex: number, sentenceIndex: number) {
+  const normalized = sentence.trim();
+  if (!normalized) return "";
+  const ruleOffset = (paragraphIndex + sentenceIndex) % VIRAL_LIGHT_REWRITE_RULES.length;
+  const orderedRules = [...VIRAL_LIGHT_REWRITE_RULES.slice(ruleOffset), ...VIRAL_LIGHT_REWRITE_RULES.slice(0, ruleOffset)];
+
+  for (const [from, to] of orderedRules) {
+    if (from !== to && normalized.includes(from)) {
+      return ensureSentence(normalized.replace(from, to));
+    }
+  }
+
+  return ensureSentence(normalized);
+}
+
+function lightlyRewriteViralParagraph(paragraph: string, paragraphIndex: number) {
+  const sentences = splitParagraphSentences(paragraph);
+  if (!sentences.length) return ensureSentence(paragraph);
+  return sentences.map((sentence, sentenceIndex) => lightlyRewriteViralSentence(sentence, paragraphIndex, sentenceIndex)).join("");
+}
+
 function buildViralDraftParagraphs(task: TaskForm, skeleton: SkeletonItem, meatPlan: DraftMeatPlan) {
   const sourceParagraphs = splitSourceParagraphs(task.sourceText || task.userNote);
   if (sourceParagraphs.length === 0) {
@@ -2758,14 +2833,14 @@ function buildViralDraftParagraphs(task: TaskForm, skeleton: SkeletonItem, meatP
       if (sentences.length === 0) return "";
 
       if (index === 0) {
-        return sentences.slice(1).join("").trim();
+        return lightlyRewriteViralParagraph(sentences.slice(1).join("").trim(), index);
       }
 
       if (index === sourceParagraphs.length - 1) {
-        return stripTrailingParagraphCta(paragraph);
+        return lightlyRewriteViralParagraph(stripTrailingParagraphCta(paragraph), index);
       }
 
-      return paragraph.trim();
+      return lightlyRewriteViralParagraph(paragraph.trim(), index);
     })
     .filter(Boolean);
 
@@ -3326,3 +3401,9 @@ export function displayBusinessMode(mode: BusinessMode) {
 export function displayCtaMode(mode: CtaMode) {
   return ctaLabelMap[mode];
 }
+
+
+
+
+
+

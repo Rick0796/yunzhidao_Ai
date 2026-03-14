@@ -1,16 +1,18 @@
-export type NavKey =
-  | "task"
-  | "decompose"
-  | "workbench"
-  | "drafts"
-  | "score";
+export type NavKey = "task" | "decompose" | "workbench" | "drafts" | "score";
 
 export type EntryType = "viral" | "hotspot" | "topic" | "boss_story";
 export type BusinessMode = "none" | "light" | "strong";
 export type CtaMode = "none" | "comment" | "keyword" | "profile" | "lead";
 export type RiskLevel = "低" | "中" | "高";
 export type DraftStatus = "待审核" | "待剪辑" | "可发布";
-export type HotspotType = "risk_regulation" | "platform_change" | "external_shock" | "social_heat" | "mixed_digest" | "trend_shift" | "generic";
+export type HotspotType =
+  | "risk_regulation"
+  | "platform_change"
+  | "external_shock"
+  | "social_heat"
+  | "mixed_digest"
+  | "trend_shift"
+  | "generic";
 export type BridgeStrength = "none" | "weak" | "medium" | "strong";
 
 export interface ApiSettings {
@@ -212,16 +214,6 @@ export interface WorkspaceSnapshot {
   score: ScoreCard | null;
 }
 
-export interface TemplateItem {
-  id: string;
-  type: "皮模板" | "骨架模板" | "肉模板" | "收口模板" | "成品模板";
-  scene: string;
-  title: string;
-  content: string;
-  tags: string[];
-  useCount: number;
-}
-
 export interface HistoryItem {
   id: string;
   entryType: EntryType;
@@ -230,6 +222,16 @@ export interface HistoryItem {
   createdAt: string;
   snapshot: TaskForm;
   workspace: WorkspaceSnapshot | null;
+}
+
+export interface TemplateItem {
+  id: string;
+  type: "皮模板" | "骨架模板" | "肉模板" | "收口模板" | "成品模板";
+  scene: string;
+  title: string;
+  content: string;
+  tags?: string[];
+  useCount?: number;
 }
 
 export interface GenerationSource<T> {

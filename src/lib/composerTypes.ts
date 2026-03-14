@@ -1,4 +1,4 @@
-import type { ScriptSectionItem } from "./scriptLibrary";
+﻿import type { ScriptSectionItem } from "./scriptLibrary";
 
 export type ComposeSectionType = "A" | "B" | "C" | "D" | "F" | "G" | "H" | "I" | "J" | "K" | "L";
 export type ComposeSlotKey = "A" | "B1" | "C1" | "D" | "B2" | "C2" | "F" | "G" | "H" | "I" | "J" | "K" | "L";
@@ -95,40 +95,62 @@ export interface CandidateRankEntry {
   score: number;
 }
 
+export interface DedupeComparisonItem {
+  id: string;
+  slotKey: string;
+  title: string;
+  before: string;
+  after: string;
+  beforeLength: number;
+  afterLength: number;
+  lengthDelta: number;
+  similarityScore: number;
+  verdict: "stable" | "watch";
+  note: string;
+}
+
 export interface DedupeResult {
   blocks: ComposeBlock[];
   changed: boolean;
   warning?: string | null;
+  comparisons?: DedupeComparisonItem[];
 }
 
 export const SLOT_BLUEPRINT: SlotBlueprintItem[] = [
-  { slotKey: "A", sectionType: "A", title: "开头" },
+  { slotKey: "A", sectionType: "A", title: "开头爆点" },
   { slotKey: "B1", sectionType: "B", title: "第一次钩子" },
   { slotKey: "C1", sectionType: "C", title: "第一次动作" },
-  { slotKey: "D", sectionType: "D", title: "铺垫" },
+  { slotKey: "D", sectionType: "D", title: "铺垫承接" },
   { slotKey: "B2", sectionType: "B", title: "第二次钩子" },
   { slotKey: "C2", sectionType: "C", title: "第二次动作" },
   { slotKey: "F", sectionType: "F", title: "趋势判断" },
-  { slotKey: "G", sectionType: "G", title: "历史对比" },
+  { slotKey: "G", sectionType: "G", title: "旧逻辑对比" },
   { slotKey: "H", sectionType: "H", title: "现实案例" },
   { slotKey: "I", sectionType: "I", title: "风险代价" },
   { slotKey: "J", sectionType: "J", title: "解法路径" },
   { slotKey: "K", sectionType: "K", title: "课程承接" },
-  { slotKey: "L", sectionType: "L", title: "最终行动" },
+  { slotKey: "L", sectionType: "L", title: "最终动作" },
 ];
 
 export const SECTION_TITLE_MAP: Record<ComposeSectionType, string> = {
-  A: "开头",
+  A: "开头爆点",
   B: "钩子",
   C: "动作",
-  D: "铺垫",
+  D: "铺垫承接",
   F: "趋势判断",
-  G: "历史对比",
+  G: "旧逻辑对比",
   H: "现实案例",
   I: "风险代价",
   J: "解法路径",
   K: "课程承接",
-  L: "最终行动",
+  L: "最终动作",
 };
 
 export const MID_SLOT_KEYS: ComposeSlotKey[] = ["F", "G", "H", "I", "J"];
+
+export const LARGE_GROUPS: Array<{ key: string; title: string; slots: ComposeSlotKey[] }> = [
+  { key: "opening", title: "开场大板块", slots: ["A", "B1", "C1", "D", "B2", "C2"] },
+  { key: "middle", title: "中段大板块", slots: ["F", "G", "H", "I", "J"] },
+  { key: "closing", title: "承接收口大板块", slots: ["K", "L"] },
+];
+
