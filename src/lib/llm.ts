@@ -2,7 +2,7 @@
 import { buildHookPromptRuleLines } from "./hookEngine";
 import { normalizeBaseUrl } from "./http";
 import { extractJsonBlock, normalizeMessageContent } from "./modelResponse";
-import { displayBusinessMode, displayCtaMode } from "./mock";
+import { displayBusinessMode, displayCtaMode } from "./workbenchConfig";
 import { analyzeTaskStrategy, formatTaskStrategyLines } from "./taskStrategy";
 
 

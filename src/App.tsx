@@ -5,13 +5,7 @@ import ParticleBackground from "./components/ParticleBackground";
 import ComposeWorkbench from "./components/ComposeWorkbench";
 import HotspotCenterPanel from "./components/HotspotCenterPanel";
 import {
-  buildMockSourceStructure,
-  defaultApiSettings,
-  defaultBaseProfile,
-  defaultTask,
-  displayBusinessMode,
-  displayCtaMode,
-  displayEntryType
+  buildMockSourceStructure
 } from "./lib/mock";
 import {
   classNames,
@@ -33,6 +27,12 @@ import {
   CTA_OPTIONS,
   DEFAULT_ORIGINAL_ENTRY_TYPE,
   ORIGINAL_ENTRY_OPTIONS,
+  defaultApiSettings,
+  defaultBaseProfile,
+  defaultTask,
+  displayBusinessMode,
+  displayCtaMode,
+  displayEntryType,
   getStepConfig,
   getWorkbenchCopy,
   isOriginalEntryType,
@@ -56,6 +56,7 @@ import type {
   HistoryItem,
   HookItem,
   MeatItem,
+  ModuleMeta,
   SkeletonItem,
   SourceStructureItem,
   TaskForm,
@@ -67,12 +68,6 @@ type NoticeTone = "success" | "warning" | "info";
 interface NoticeState {
   text: string;
   tone: NoticeTone;
-}
-
-interface ModuleMeta {
-  source: "api" | "local" | "mock";
-  updatedAt: string;
-  message?: string;
 }
 
 function App() {

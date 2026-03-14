@@ -1,5 +1,4 @@
 ﻿import {
-  ApiSettings,
   BaseProfile,
   BridgeStrength,
   BusinessMode,
@@ -23,60 +22,16 @@ import { getHookLeadScore } from "./hookEngine";
 import { createSkeletonStep, normalizeSkeletonStep } from "./skeletons";
 import { analyzeTaskStrategy } from "./taskStrategy";
 import { hasDirectBusinessAnchor, viralHasBusinessAnchor } from "./keywords";
+import { defaultBaseProfile, defaultTask, displayEntryType, displayCtaMode } from "./workbenchConfig";
 
-const typeLabelMap: Record<EntryType, string> = {
-  viral: "仿写爆款",
-  hotspot: "蹭热点",
-  topic: "主题创作",
-  boss_story: "我的故事"
-};
-
-const ctaLabelMap: Record<CtaMode, string> = {
-  none: "纯评论流量",
-  comment: "评论666互动",
-  keyword: "评论关键词领资料",
-  profile: "评论+主页承接",
-  lead: "评论后资料承接"
-};
-
-const businessLabelMap: Record<BusinessMode, string> = {
-  none: "不挂业务",
-  light: "顺带提一下",
-  strong: "明确挂业务"
-};
-
-export const defaultApiSettings: ApiSettings = {
-  useLiveApi: true,
-  baseUrl: "/api",
-  apiKey: "",
-  mainModel: "gemini-3-flash",
-  batchModel: "gemini-3-flash",
-  polishModel: "gemini-3-flash",
-  requestTimeoutMs: 120000
-};
-
-export const defaultBaseProfile: BaseProfile = {
-  selfIntro:
-    "我帮助老板、创业者、企业操盘手，用 AI 把内容增长、流量增长、获客增长系统化跑起来。",
-  targetAudience:
-    "老板、创业者、企业操盘手、实体老板、想通过 AI 做内容获客的人",
-  coreKeywords: "AI获客, 内容增长, 数字资产, 私域沉淀, 企业增长"
-};
-
-export const defaultTask: TaskForm = {
-  entryType: "viral",
-  entryTypeChosen: false,
-  sourceText:
-    "就在大家都在准备回家过年过节的时候，世界正在发生巨大变化。微信和支付宝躺赢的时代结束了，国家接连扔出两个王炸，海南封关、数字人民币交易飙升，这都在释放一个信号：物理世界的边界正在打破，数字时代强势来临。",
-  userNote: "",
-  hotspotAngle: "从普通人资产焦虑切入，落到数字资产和 AI 获客",
-  topicGoal: "用趋势认知的方式讲透数字资产为什么重要",
-  storyConclusion: "老板之所以能穿越周期，不是运气好，而是更早把内容和流量变成自己的资产。",
-  businessMode: "light",
-  businessModeChosen: false,
-  ctaMode: "keyword",
-  ctaModeChosen: false
-};
+export {
+  defaultApiSettings,
+  defaultBaseProfile,
+  defaultTask,
+  displayBusinessMode,
+  displayCtaMode,
+  displayEntryType
+} from "./workbenchConfig";
 
 const hookTypeByEntry: Record<EntryType, string> = {
   viral: "预警型",
@@ -1420,7 +1375,7 @@ export function buildMockDecompose(task: TaskForm, profile: BaseProfile): Decomp
       : `${topic}会淘汰99%的人。`);
 
   return {
-    taskName: `${typeLabelMap[entryType]} · ${topic}`,
+    taskName: `${displayEntryType(entryType)} · ${topic}`,
     summary: containsWarShock(task)
       ? "这条热点真正该打的，不是战争信息本身，而是战争背后把普通老板安全感炸穿的那一下。先把线下资产的不确定性打出来，再顺着落到数字资产和 AI 获客，才会有停留和代入。"
       : `这条素材真正该打的，不是信息量，而是注意力警报。原文的问题是“先解释，后判断”，所以前三秒留不住人。建议改成“先把前4到8个字钉住 -> 先下判决 -> 再补后果 -> 最后解释原因”。`,
@@ -1456,7 +1411,7 @@ export function buildMockDecompose(task: TaskForm, profile: BaseProfile): Decomp
       example: businessPhrase(task, profile)
     },
     ctaAnalysis: {
-      type: ctaLabelMap[task.ctaMode],
+      type: displayCtaMode(task.ctaMode),
       example: buildTaskCtaText(task.ctaMode, task, profile),
       reason: "这类收口更适合视频号，动作简单，便于先做互动再承接精准用户。"
     },
@@ -3455,17 +3410,6 @@ export const defaultHistory: HistoryItem[] = [
   }
 ];
 
-export function displayEntryType(entryType: EntryType) {
-  return typeLabelMap[entryType];
-}
-
-export function displayBusinessMode(mode: BusinessMode) {
-  return businessLabelMap[mode];
-}
-
-export function displayCtaMode(mode: CtaMode) {
-  return ctaLabelMap[mode];
-}
 
 
 

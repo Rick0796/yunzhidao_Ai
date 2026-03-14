@@ -239,3 +239,9 @@ export interface GenerationSource<T> {
   source: "api" | "local" | "mock";
   message?: string;
 }
+
+export interface ModuleMeta {
+  source: "api" | "local" | "mock";
+  updatedAt: string;
+  message?: string;
+}

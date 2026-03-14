@@ -5,6 +5,7 @@ import type {
   DraftItem,
   HookItem,
   MeatItem,
+  ModuleMeta,
   SkeletonItem,
   TaskForm
 } from "../types";
@@ -23,12 +24,6 @@ import {
   normalizeSkeletonResults
 } from "../lib/normalize";
 import type { WorkbenchMode } from "../lib/workbenchConfig";
-
-interface ModuleMeta {
-  source: "api" | "local" | "mock";
-  updatedAt: string;
-  message?: string;
-}
 
 interface GenerationHandlersParams {
   settings: ApiSettings;

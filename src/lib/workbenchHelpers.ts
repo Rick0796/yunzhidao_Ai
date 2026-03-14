@@ -12,9 +12,8 @@ import type {
   TaskForm,
   WorkspaceSnapshot,
 } from "../types";
-import { defaultApiSettings, defaultTask, displayEntryType } from "./mock";
+import { DEFAULT_ORIGINAL_ENTRY_TYPE, defaultApiSettings, defaultTask, displayEntryType, type OriginalEntryType, isOriginalEntryType, type WorkbenchMode } from "./workbenchConfig";
 import type { BusinessHotItem, HotRankItem } from "./workflows";
-import { DEFAULT_ORIGINAL_ENTRY_TYPE, type OriginalEntryType, isOriginalEntryType, type WorkbenchMode } from "./workbenchConfig";
 
 export function classNames(...items: Array<string | false | null | undefined>) {
   return items.filter(Boolean).join(" ");

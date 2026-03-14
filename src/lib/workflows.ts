@@ -346,7 +346,43 @@ export interface HotRankDetailResponse {
   quality_status?: string;
 }
 
-function mapRawHotItem(item: any, generatedAt: string): HotRankItem {
+interface RawHotItem {
+  title?: string;
+  summary?: string;
+  display_title?: string;
+  display_summary?: string;
+  content?: string;
+  clean_content?: string;
+  why_hot?: string;
+  business_reason?: string;
+  boss_impact?: string;
+  recommend_reason?: string;
+  recommended_angle?: string;
+  recommended_content_type?: string;
+  bridge_directions?: string[];
+  hot_id?: string;
+  url?: string;
+  article_url?: string;
+  source_url?: string;
+  source_platform?: string;
+  platform?: string;
+  article_source?: string;
+  media_name?: string;
+  publish_time?: string;
+  topic_type?: string;
+  heat_score?: number;
+  hot_value?: string;
+  key_points?: string[];
+  timeline?: string[];
+  public_impact?: string;
+  quality_score?: number;
+  quality_status?: string;
+  business_relevance_score?: number;
+  business_score?: number;
+  matched_keywords?: string[];
+}
+
+function mapRawHotItem(item: RawHotItem, generatedAt: string): HotRankItem {
   const title = cleanDisplayText(item.title || "");
   const summary = cleanDisplayText(item.summary || "");
   const content = looksLikeUpstreamErrorText(item.clean_content || item.content) ? "" : buildHiddenContent(item.clean_content || item.content || "", item.summary || item.title || "");
@@ -369,7 +405,7 @@ function mapRawHotItem(item: any, generatedAt: string): HotRankItem {
     article_source: item.article_source || "",
     article_url: item.article_url || "",
     topic_type: item.topic_type || "平台热榜",
-    heat_score: parseInt(item.hot_value, 10) || 0,
+    heat_score: parseInt(item.hot_value ?? "0", 10) || 0,
     why_hot: whyHot || buildDisplaySummary(summary || businessReason, content, 110),
     key_points: [],
     timeline: [],
@@ -444,12 +480,12 @@ export async function fetchHotRank(baseUrl: string, options?: { allLimit?: numbe
     throw new Error(error);
   }
 
-  const platformBuckets = Object.entries((freeData?.data || {}) as Record<string, any[]>).reduce<Record<string, HotRankItem[]>>((acc, [platform, items]) => {
+  const platformBuckets = Object.entries((freeData?.data || {}) as Record<string, RawHotItem[]>).reduce<Record<string, HotRankItem[]>>((acc, [platform, items]) => {
     acc[platform] = (items || []).map((item) => mapRawHotItem(item, freeData.generatedAt || ""));
     return acc;
   }, {});
 
-  let allHotList = ((freeData?.allHotList || freeData?.aggregated || []) as any[]).map((item) => ({
+  let allHotList = ((freeData?.allHotList || freeData?.aggregated || []) as RawHotItem[]).map((item) => ({
     hot_id: item.hot_id || item.url || "",
     title: cleanDisplayText(item.title || ""),
     summary: cleanDisplayText(item.summary || ""),
@@ -464,7 +500,7 @@ export async function fetchHotRank(baseUrl: string, options?: { allLimit?: numbe
     article_source: item.article_source || "",
     article_url: item.article_url || "",
     topic_type: item.topic_type || "热点",
-    heat_score: item.heat_score || parseInt(item.hot_value, 10) || 0,
+    heat_score: item.heat_score || parseInt(item.hot_value ?? "0", 10) || 0,
     why_hot: cleanDisplayText(item.why_hot || ""),
     key_points: (item.key_points || []).map((value: string) => cleanDisplayText(value)).filter(Boolean),
     timeline: (item.timeline || []).map((value: string) => cleanDisplayText(value)).filter(Boolean),
@@ -475,7 +511,7 @@ export async function fetchHotRank(baseUrl: string, options?: { allLimit?: numbe
     quality_status: item.quality_status || ""
   }));
 
-  let businessHotList = ((freeData?.businessHotList || freeData?.businessAggregated || []) as any[]).map((item) => ({
+  let businessHotList = ((freeData?.businessHotList || freeData?.businessAggregated || []) as RawHotItem[]).map((item) => ({
     hot_id: item.hot_id || item.url || "",
     title: cleanDisplayText(item.title || ""),
     summary: cleanDisplayText(item.summary || ""),

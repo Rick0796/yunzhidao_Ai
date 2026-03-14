@@ -4,6 +4,7 @@ import { buildMockCtas, buildMockDrafts, buildMockHooks, buildMockMeat, buildMoc
 import { normalizeSkeletonStep } from "./skeletons";
 import { analyzeTaskStrategy } from "./taskStrategy";
 import { overlapScore } from "./textMatch";
+import { BUSINESS_KEYWORDS, hasDirectBusinessAnchor } from "./keywords";
 
 const AI_NOISE_PATTERNS = [
   /^当然可以/,
@@ -68,8 +69,6 @@ const INLINE_REF_PATTERN = /\[\d+\]/g;
 
 const SKELETON_BANNED_STEP_PATTERNS = /(钩子|爆点|开头|收口|互动|CTA|结尾|标题|导流)/i;
 const DRAFT_SOFT_PATTERNS = [/说到底/, /真正拉开差距/, /很多老板其实/, /你可以现在还没/, /先别急着划走/];
-const HOTSPOT_HARD_BRIDGE_PATTERNS = /(数字IP|数字资产|AI获客|私域|自动化|内容增长|流量增长|企业增长|老板增长|数字人)/;
-const HOTSPOT_NATIVE_BUSINESS_PATTERNS = /(AI|人工智能|AI获客|数字IP|数字资产|获客|流量|私域|自动化|内容增长|平台变化|企业增长|老板增长|数字人)/;
 const HOOK_OVERREACH_PATTERNS = /(时代已经彻底结束|再不.+就晚了|唯一.+(资产|确定性)|成本逻辑要彻底重构|绝对没生意|一定倒闭)/;
 
 function escapeRegExp(value: string) {
@@ -638,11 +637,11 @@ function polishHookText(text: string) {
 
 function sourceHasNativeBusinessAnchor(task: TaskForm) {
   const source = task.entryType === "topic" ? `${task.topicGoal || ""} ${task.sourceText || ""}` : task.sourceText || "";
-  return HOTSPOT_NATIVE_BUSINESS_PATTERNS.test(source);
+  return hasDirectBusinessAnchor(source);
 }
 
 function isHardBridgeHook(text: string, task: TaskForm) {
-  return task.entryType === "hotspot" && !sourceHasNativeBusinessAnchor(task) && HOTSPOT_HARD_BRIDGE_PATTERNS.test(text);
+  return task.entryType === "hotspot" && !sourceHasNativeBusinessAnchor(task) && BUSINESS_KEYWORDS.test(text);
 }
 
 function getHookQualityScore(text: string, task: TaskForm) {
