@@ -35,9 +35,12 @@ export function normalizeApiSettings(value: Partial<ApiSettings> | null | undefi
     batchModel: typeof value?.batchModel === "string" && value.batchModel.trim() ? value.batchModel : defaultApiSettings.batchModel,
     polishModel: typeof value?.polishModel === "string" && value.polishModel.trim() ? value.polishModel : defaultApiSettings.polishModel,
     requestTimeoutMs:
-      typeof value?.requestTimeoutMs === "number" && Number.isFinite(value.requestTimeoutMs) && value.requestTimeoutMs > 0
-        ? value.requestTimeoutMs
-        : defaultApiSettings.requestTimeoutMs,
+      Math.max(
+        90000,
+        typeof value?.requestTimeoutMs === "number" && Number.isFinite(value.requestTimeoutMs) && value.requestTimeoutMs > 0
+          ? value.requestTimeoutMs
+          : defaultApiSettings.requestTimeoutMs
+      ),
   };
 }
 
