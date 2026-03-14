@@ -5,6 +5,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+ALLOWED_TASK_UPDATE_FIELDS = {
+    "status",
+    "started_at",
+    "finished_at",
+    "exit_code",
+    "summary",
+    "output",
+}
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -89,6 +98,10 @@ class TaskStore:
     def update_task(self, task_id: int, **fields: Any) -> None:
         if not fields:
             return
+
+        invalid_fields = set(fields) - ALLOWED_TASK_UPDATE_FIELDS
+        if invalid_fields:
+            raise ValueError(f"Illegal task fields: {sorted(invalid_fields)}")
 
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [task_id]

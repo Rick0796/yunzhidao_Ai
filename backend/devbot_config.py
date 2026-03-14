@@ -13,8 +13,14 @@ RUNTIME_PATHS = resolve_runtime_paths()
 DEFAULT_ENV_PATH = ROOT_DIR / ".env.telegram.local"
 DEFAULT_DB_PATH = RUNTIME_PATHS.state_dir / "telegram_devbot.db"
 DEFAULT_POLL_INTERVAL = 2.0
-DEFAULT_MODEL = "gemini-3-flash"
+DEFAULT_MODEL = "gemini-2.0-flash"
 DEFAULT_MODEL_TIMEOUT_SECONDS = 90
+INVALID_MODEL_NAMES = {
+    "gemini-3-flash",
+    "your-model",
+    "example-model",
+    "placeholder-model",
+}
 
 CONFIG_PATHS = (
     ROOT_DIR / "backend" / "config.local.json",
@@ -183,8 +189,11 @@ def validate_model_config(config: ModelConfig) -> ModelConfig:
         errors.append("Model base URL must start with http:// or https://.")
     if not config.api_key:
         errors.append("Missing model API Key; check UPSTREAM_API_KEY / OPENAI_API_KEY / config.local.json.")
-    if not config.model:
+    normalized_model = config.model.strip().lower()
+    if not normalized_model:
         errors.append("Missing default model name; check UPSTREAM_DEFAULT_MODEL / OPENAI_MODEL / config.local.json.")
+    elif normalized_model in INVALID_MODEL_NAMES:
+        errors.append(f"Unsupported default model name: {config.model}.")
     if config.timeout_seconds < 30:
         errors.append("TELEGRAM_MODEL_TIMEOUT_SECONDS must be at least 30 seconds.")
     if errors:

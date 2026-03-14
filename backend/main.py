@@ -37,7 +37,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("缺少 FastAPI 依赖，请先运行：pip install -r backend/requirements.txt") from exc
 
 
-from backend.runtime_paths import resolve_runtime_paths
+from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
 
 RUNTIME_PATHS = resolve_runtime_paths()
 ROOT_DIR = RUNTIME_PATHS.root_dir
@@ -500,6 +500,7 @@ FREE_WORKFLOW_MANUAL_SEARCH = {"id": "free_search", "name": "免费搜索兼容�
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    ensure_runtime_paths(RUNTIME_PATHS)
     init_script_library(SCRIPT_LIBRARY_DB_PATH)
     if not get_hot_rank_cache():
         start_hot_rank_refresh(force=False)

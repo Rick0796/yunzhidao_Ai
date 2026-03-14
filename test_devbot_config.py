@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from backend.devbot_config import BotConfig, ConfigValidationError, ModelConfig, validate_bot_config, validate_model_config
-from backend.runtime_paths import resolve_runtime_paths
+from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
 
 
 def test_validate_bot_config_requires_token_and_allowed_users(tmp_path) -> None:
@@ -18,7 +18,7 @@ def test_validate_bot_config_requires_token_and_allowed_users(tmp_path) -> None:
 
 
 def test_validate_model_config_requires_base_url_and_api_key() -> None:
-    config = ModelConfig(base_url="", api_key="", model="gemini-3-flash", timeout_seconds=90)
+    config = ModelConfig(base_url="", api_key="", model="gemini-2.0-flash", timeout_seconds=90)
 
     with pytest.raises(ConfigValidationError) as exc_info:
         validate_model_config(config)
@@ -26,6 +26,15 @@ def test_validate_model_config_requires_base_url_and_api_key() -> None:
     message = str(exc_info.value)
     assert "base URL" in message
     assert "API Key" in message
+
+
+def test_validate_model_config_rejects_known_invalid_model() -> None:
+    config = ModelConfig(base_url="https://example.com", api_key="secret", model="gemini-3-flash", timeout_seconds=90)
+
+    with pytest.raises(ConfigValidationError) as exc_info:
+        validate_model_config(config)
+
+    assert "Unsupported default model name" in str(exc_info.value)
 
 
 def test_resolve_runtime_paths_supports_split_cache_and_state_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
@@ -44,5 +53,9 @@ def test_resolve_runtime_paths_supports_split_cache_and_state_dirs(monkeypatch: 
     assert paths.runtime_dir == runtime_dir.resolve()
     assert paths.cache_dir == cache_dir.resolve()
     assert paths.state_dir == state_dir.resolve()
-    assert paths.cache_dir.exists()
-    assert paths.state_dir.exists()
+    assert not paths.cache_dir.exists()
+    assert not paths.state_dir.exists()
+
+    ensured = ensure_runtime_paths(paths)
+    assert ensured.cache_dir.exists()
+    assert ensured.state_dir.exists()

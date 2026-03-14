@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import tempfile
@@ -42,9 +42,6 @@ def resolve_runtime_paths() -> RuntimePaths:
     cache_dir = cache_override or (runtime_dir / "cache" if serverless else runtime_dir)
     state_dir = state_override or (runtime_dir / "state" if serverless else runtime_dir)
 
-    for path in {runtime_dir, cache_dir, state_dir}:
-        path.mkdir(parents=True, exist_ok=True)
-
     return RuntimePaths(
         root_dir=ROOT_DIR,
         dist_dir=DIST_DIR,
@@ -53,3 +50,10 @@ def resolve_runtime_paths() -> RuntimePaths:
         state_dir=state_dir,
         serverless=serverless,
     )
+
+
+def ensure_runtime_paths(paths: RuntimePaths | None = None) -> RuntimePaths:
+    resolved = paths or resolve_runtime_paths()
+    for path in {resolved.runtime_dir, resolved.cache_dir, resolved.state_dir}:
+        path.mkdir(parents=True, exist_ok=True)
+    return resolved

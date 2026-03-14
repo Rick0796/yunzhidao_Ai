@@ -221,9 +221,16 @@ def _task_allows_markdown(task_text: str) -> bool:
 
 
 def _collect_repo_files() -> list[str]:
-    code, output = run_command(["rg", "--files"], timeout=120)
-    if code != 0:
+    output = ""
+    for command in (["rg", "--files"], ["git", "ls-files"]):
+        code, candidate_output = run_command(command, timeout=120)
+        if code == 0 and candidate_output.strip():
+            output = candidate_output
+            break
+
+    if not output.strip():
         return []
+
     files: list[str] = []
     for raw in output.splitlines():
         path = raw.strip()

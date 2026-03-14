@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from backend.runtime_paths import resolve_runtime_paths
+from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -253,8 +253,7 @@ def canonical_direction_label(value: str) -> str:
 
 
 def resolve_script_library_db_path() -> Path:
-    runtime_paths = resolve_runtime_paths()
-    runtime_paths.state_dir.mkdir(parents=True, exist_ok=True)
+    runtime_paths = ensure_runtime_paths(resolve_runtime_paths())
     return runtime_paths.state_dir / "script_library.db"
 
 
