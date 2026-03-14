@@ -51,7 +51,7 @@ export const defaultApiSettings: ApiSettings = {
   mainModel: "gemini-3-flash",
   batchModel: "gemini-3-flash",
   polishModel: "gemini-3-flash",
-  requestTimeoutMs: 45000
+  requestTimeoutMs: 120000
 };
 
 export const defaultBaseProfile: BaseProfile = {
