@@ -214,7 +214,11 @@ function App() {
   const currentSelectionSignature = `${selectedHook?.id ?? "none"}-${selectedSkeleton?.id ?? "none"}-${selectedMeat?.id ?? "none"}-${selectedCta?.id ?? "none"}`;
   const canGoStep2 = hasRequiredTaskChoices && Boolean(getTaskPrimaryText(task).trim());
   const canGoStep3 = canGoStep2 && Boolean(selectedHook);
-  const canGoStep4 = canGoStep3 && Boolean(selectedSkeleton && selectedCta && (task.businessMode === "none" || selectedMeat));
+  const canGoStep4 = canGoStep3 && (
+    currentWorkbenchMode === "rewrite"
+      ? Boolean(selectedCta && (task.businessMode === "none" || selectedMeat))
+      : Boolean(selectedSkeleton && selectedCta && (task.businessMode === "none" || selectedMeat))
+  );
   const progress = [canGoStep2, canGoStep3, canGoStep4, drafts.length > 0].filter(Boolean).length;
 
   useEffect(() => {
@@ -548,31 +552,45 @@ function App() {
   }
 
   async function handleGenerateDrafts() {
-    if (!selectedHook || !selectedSkeleton || !selectedCta || (task.businessMode !== "none" && !selectedMeat)) {
-      showNotice("warning", "先把皮、骨、肉、收口都定下来。");
-      return;
+    if (currentWorkbenchMode === "rewrite") {
+      if (!selectedHook || !selectedCta || (task.businessMode !== "none" && !selectedMeat)) {
+        showNotice("warning", "先把皮、收口确定下来。");
+        return;
+      }
+    } else {
+      if (!selectedHook || !selectedSkeleton || !selectedCta || (task.businessMode !== "none" && !selectedMeat)) {
+        showNotice("warning", "先把皮、骨、肉、收口都定下来。");
+        return;
+      }
     }
 
     setIsGeneratingDrafts(true);
+    const effectiveSkeleton: SkeletonItem = selectedSkeleton ?? {
+      id: "sk-viral-fallback",
+      name: "原文改写",
+      scenario: "仿写爆款",
+      summary: "按原文段落顺序改写",
+      steps: [{ name: "改写推进", purpose: "按原文顺序改写", targetWords: 80 }]
+    };
     try {
-      const result = await runDraftGeneration(settings, profile, task, selectedHook, selectedSkeleton, selectedMeat, selectedCta);
+      const result = await runDraftGeneration(settings, profile, task, selectedHook, effectiveSkeleton, selectedMeat, selectedCta);
       const nextDrafts = normalizeDraftResults(result.data.items, {
         task,
         profile,
         hook: selectedHook,
-        skeleton: selectedSkeleton,
+        skeleton: effectiveSkeleton,
         meat: selectedMeat,
         cta: selectedCta
       });
       const nextSelectedDraftId = nextDrafts[0]?.id ?? null;
       setDrafts(nextDrafts);
       setSelectedDraftId(nextSelectedDraftId);
-      setDraftSignature(`${selectedHook.id}-${selectedSkeleton.id}-${selectedMeat?.id ?? "none"}-${selectedCta.id}`);
+      setDraftSignature(`${selectedHook.id}-${effectiveSkeleton.id}-${selectedMeat?.id ?? "none"}-${selectedCta.id}`);
       setModuleMeta((prev) => ({
         ...prev,
         drafts: { source: result.source, updatedAt: new Date().toISOString(), message: result.message }
       }));
-      saveCurrentHistory(nextDrafts, nextSelectedDraftId, selectedHook, selectedSkeleton, selectedMeat, selectedCta);
+      saveCurrentHistory(nextDrafts, nextSelectedDraftId, selectedHook, effectiveSkeleton, selectedMeat, selectedCta);
       showNotice("success", "完整成品已经生成，并写入历史。");
     } catch (error: any) {
       showNotice("warning", `成品生成失败：${error instanceof Error ? error.message : "未知错误"}`);

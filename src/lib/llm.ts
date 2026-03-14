@@ -126,10 +126,10 @@ export function buildTaskContext(task: TaskForm) {
     ].join("\n");
   }
 
+  // viral: 原文已在 instruction 里完整传入，这里只传补充要求避免重复
   return [
     ...common,
-    `参考文案：${task.sourceText || "无"}`,
-    `你的要求：${task.userNote || "无"}`,
+    `补充要求：${task.userNote || "无"}`,
     buildEntryFocus(task)
   ].join("\n");
 }
