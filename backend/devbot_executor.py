@@ -46,10 +46,10 @@ def execute_named_task(
 
     if kind == "build":
         if progress_callback:
-            progress_callback("build", "正在运行前端构建")
+            progress_callback("build_frontend", "正在运行前端构建")
         build_code, build_output = run_command(["npm.cmd", "run", "build"], timeout=1800)
         if progress_callback:
-            progress_callback("compile", "正在运行后端编译检查")
+            progress_callback("compile_backend", "正在运行后端编译检查")
         py_code, py_output = run_command(
             [
                 "python",
@@ -70,7 +70,7 @@ def execute_named_task(
 
     if kind == "test":
         if progress_callback:
-            progress_callback("compile", "正在运行后端编译检查")
+            progress_callback("compile_backend", "正在运行后端编译检查")
         py_code, py_output = run_command(
             [
                 "python",
@@ -83,7 +83,7 @@ def execute_named_task(
             timeout=300,
         )
         if progress_callback:
-            progress_callback("status", "正在检查当前工作区状态")
+            progress_callback("git_status", "正在检查当前工作区状态")
         git_code, git_output = run_command(["git", "status", "--short"], timeout=60)
         exit_code = 0 if py_code == 0 and git_code == 0 else 1
         summary = "测试通过" if exit_code == 0 else "测试失败"
@@ -94,13 +94,13 @@ def execute_named_task(
 
     if kind == "deploy":
         if progress_callback:
-            progress_callback("status", "正在检查部署前的工作区状态")
+            progress_callback("git_status", "正在检查部署前的工作区状态")
         status = format_git_status()
         if status != "工作区干净":
             return (
                 1,
                 "部署前检查失败",
-                "当前工作区不干净，先提交或处理改动再部署。\n\n" + status,
+                "当前工作区不干净，先提交或处理改动后再部署。\n\n" + status,
             )
         if progress_callback:
             progress_callback("deploy", "正在推送到 GitHub 并触发部署")

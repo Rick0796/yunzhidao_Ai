@@ -166,6 +166,12 @@ def _safe_relative_path(raw_path: str) -> Path | None:
     return path
 
 
+def _task_allows_markdown(task_text: str) -> bool:
+    lowered = (task_text or "").lower()
+    markers = ("readme", "task.md", ".md", "文档", "说明", "markdown", "md文件")
+    return any(marker in lowered for marker in markers)
+
+
 def _extract_json_payload(content: str) -> dict[str, Any]:
     text = (content or "").strip()
     if not text:
@@ -316,7 +322,7 @@ def build_file_payload(paths: list[str]) -> str:
     return "\n\n".join(payloads)
 
 
-def apply_edit_plan(plan: EditPlan) -> tuple[int, str]:
+def apply_edit_plan(plan: EditPlan, *, task_text: str) -> tuple[int, str]:
     if not plan.edits:
         return 1, "模型没有给出可执行的修改。"
 
@@ -325,6 +331,8 @@ def apply_edit_plan(plan: EditPlan) -> tuple[int, str]:
         safe_path = _safe_relative_path(edit.path)
         if not safe_path:
             return 1, f"非法或不存在的路径：{edit.path}"
+        if safe_path.suffix.lower() == ".md" and not _task_allows_markdown(task_text):
+            return 1, f"当前任务未明确要求改文档，已阻止修改：{edit.path}"
 
         original = safe_path.read_text(encoding="utf-8", errors="replace")
         occurrences = original.count(edit.search)
@@ -384,7 +392,7 @@ def execute_ai_task(
 
     if progress_callback:
         progress_callback("apply", "正在修改代码文件")
-    apply_code, apply_output = apply_edit_plan(edit_plan)
+    apply_code, apply_output = apply_edit_plan(edit_plan, task_text=task_text)
     if apply_code != 0:
         return apply_code, edit_plan.summary or plan.summary or "AI 执行失败", apply_output
 

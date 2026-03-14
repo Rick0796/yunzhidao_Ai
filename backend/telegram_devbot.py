@@ -5,7 +5,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -22,6 +22,9 @@ from backend.devbot_executor import (
 )
 from backend.devbot_store import TaskStore, utc_now
 from backend.devbot_telegram import HELP_TEXT, ParsedCommand, TelegramClient, parse_command
+
+
+ProgressCallback = Callable[[str, str], None]
 
 
 def _message_text(update: dict[str, Any]) -> tuple[str, str, str]:
@@ -57,8 +60,8 @@ def _make_progress_reporter(
     *,
     chat_id: str,
     task_id: int,
-) -> Any:
-    last_stage: dict[str, str] = {"value": ""}
+) -> ProgressCallback:
+    last_stage = {"value": ""}
 
     def report(stage: str, message: str) -> None:
         if stage == last_stage["value"]:
@@ -219,6 +222,54 @@ def _looks_like_plain_greeting(text: str) -> bool:
     }
 
 
+def _looks_like_progress_query(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    markers = (
+        "当前任务",
+        "当前进度",
+        "任务进度",
+        "目前进度",
+        "目前任务",
+        "现在进度",
+        "进度怎么样",
+        "进展如何",
+        "current",
+        "progress",
+        "status",
+    )
+    return any(marker in normalized for marker in markers)
+
+
+def _looks_like_dev_task(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    markers = (
+        "修复",
+        "修改",
+        "更新",
+        "优化",
+        "增加",
+        "补上",
+        "删除",
+        "替换",
+        "检查",
+        "测试",
+        "调试",
+        "部署",
+        "构建",
+        "提交",
+        "推送",
+        "review",
+        "fix",
+        "update",
+        "optimize",
+        "debug",
+        "build",
+        "test",
+        "deploy",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 def handle_message(
     client: TelegramClient,
     store: TaskStore,
@@ -227,14 +278,37 @@ def handle_message(
     user_id: str,
     text: str,
 ) -> None:
-    if not (text or "").strip().startswith("/") and _looks_like_plain_greeting(text):
-        client.send_message(
-            chat_id,
-            "我在。你可以直接发开发任务给我，或者先用 /help 看命令。\n\n例如：/run 修复文案组合里去重按钮没有反馈的问题",
+    message = (text or "").strip()
+    if not message:
+        client.send_message(chat_id, HELP_TEXT)
+        return
+
+    if not message.startswith("/"):
+        if _looks_like_plain_greeting(message):
+            client.send_message(
+                chat_id,
+                "我在。你可以直接发开发任务给我，或者先用 /help 看命令。\n\n例如：/run 修复文案组合里去重按钮没有反馈的问题",
+            )
+            return
+        if _looks_like_progress_query(message):
+            client.send_message(chat_id, build_current_text(store))
+            return
+        if not _looks_like_dev_task(message):
+            client.send_message(
+                chat_id,
+                "这条消息看起来不像明确的开发任务。我先不直接改代码。\n\n你可以发：/current 查看进度，或者用 /run 具体描述要修什么。",
+            )
+            return
+        _start_ai_task(
+            client,
+            store,
+            chat_id=chat_id,
+            user_id=user_id,
+            task_text=message,
         )
         return
 
-    command: ParsedCommand = parse_command(text)
+    command: ParsedCommand = parse_command(message)
 
     if command.name in {"", "/start", "/help"}:
         client.send_message(chat_id, HELP_TEXT)
@@ -263,7 +337,7 @@ def handle_message(
             chat_id=chat_id,
             user_id=user_id,
             kind="build",
-            command_text=text,
+            command_text=message,
         )
         return
 
@@ -274,7 +348,7 @@ def handle_message(
             chat_id=chat_id,
             user_id=user_id,
             kind="test",
-            command_text=text,
+            command_text=message,
         )
         return
 
@@ -285,13 +359,22 @@ def handle_message(
             chat_id=chat_id,
             user_id=user_id,
             kind="deploy",
-            command_text=text,
+            command_text=message,
         )
         return
 
     if command.name == "/run":
         if not command.argument:
-            client.send_message(chat_id, "请在 /run 后面附上明确任务，例如：/run 修复去重按钮无反馈")
+            client.send_message(chat_id, "请在 /run 后面附上明确任务，例如：/run 修复去重按钮没有反馈的问题")
+            return
+        if _looks_like_progress_query(command.argument):
+            client.send_message(chat_id, build_current_text(store))
+            return
+        if _looks_like_plain_greeting(command.argument) or not _looks_like_dev_task(command.argument):
+            client.send_message(
+                chat_id,
+                "这条消息看起来不像明确的开发任务。我先不直接改代码。\n\n你可以发：/current 查看进度，或者用 /run 具体描述要修什么。",
+            )
             return
         _start_ai_task(
             client,
