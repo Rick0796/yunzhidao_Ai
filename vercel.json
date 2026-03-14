@@ -4,7 +4,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/**/*.py": {
-      "maxDuration": 60,
+      "maxDuration": 120,
       "excludeFiles": "{node_modules/**,src/**,dist/**,runtime/**,scripts/**,server/**,__pycache__/**,**/*.log,**/test_*.py,test_*.py,test_api_debug.html,README_FIXED.md,OPTIMIZATION_SUMMARY.md,FREE_API_GUIDE.md}"
     }
   },
