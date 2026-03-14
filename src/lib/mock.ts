@@ -18,6 +18,7 @@
   TaskForm,
   TemplateItem
 } from "../types";
+import { overlapScore } from "./textMatch";
 import { getHookLeadScore } from "./hookEngine";
 import { createSkeletonStep, normalizeSkeletonStep } from "./skeletons";
 import { analyzeTaskStrategy } from "./taskStrategy";
@@ -1477,6 +1478,20 @@ function inferMockHookType(text: string) {
   return "强结论型";
 }
 
+function isViralHookNearSource(text: string, sourceText: string) {
+  const sourceLead = extractFirstSentence(sourceText || "").replace(/\s+/g, "").trim();
+  const candidateLead = text.replace(/\s+/g, "").trim();
+  if (!sourceLead || !candidateLead) return false;
+  if (candidateLead === sourceLead) return true;
+  if (candidateLead.includes(sourceLead) || sourceLead.includes(candidateLead)) return true;
+  const sourceFirstClause = sourceLead.split(/[?,]/).find(Boolean) || sourceLead;
+  const candidateFirstClause = candidateLead.split(/[?,]/).find(Boolean) || candidateLead;
+  if (candidateFirstClause && sourceFirstClause && (candidateFirstClause.includes(sourceFirstClause) || sourceFirstClause.includes(candidateFirstClause))) {
+    return true;
+  }
+  return overlapScore(sourceLead, candidateLead) >= 2;
+}
+
 function buildViralSourceHookCandidates(task: TaskForm) {
   if (task.entryType !== "viral") return [];
 
@@ -1619,7 +1634,9 @@ export function buildMockHooks(task: TaskForm): HookItem[] {
       return !/(老办法|开始难受|迟早先没客户|根本没客户)/.test(item);
     });
 
-  const uniqueCandidates = Array.from(new Set(rawCandidates)).slice(0, 12);
+  const uniqueCandidates = Array.from(new Set(rawCandidates))
+    .filter((item) => (hookTask.entryType === "viral" ? isViralHookNearSource(item, hookTask.sourceText || hookTask.userNote || "") : true))
+    .slice(0, 12);
 
   return uniqueCandidates
     .map((text, index) => {
@@ -3426,6 +3443,8 @@ export function displayBusinessMode(mode: BusinessMode) {
 export function displayCtaMode(mode: CtaMode) {
   return ctaLabelMap[mode];
 }
+
+
 
 
 
