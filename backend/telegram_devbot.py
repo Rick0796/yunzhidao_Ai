@@ -371,6 +371,13 @@ def main() -> None:
     store = TaskStore(bot_config.db_path)
     store.mark_running_tasks_interrupted("机器人重启，上一轮运行中的任务已中断")
     client = TelegramClient(bot_config.token)
+
+    # 启动时跳过所有积压消息，只处理新消息
+    pending = client.get_updates(offset=store.get_offset(), timeout=0)
+    if pending:
+        latest_offset = int(pending[-1]["update_id"]) + 1
+        store.set_offset(latest_offset)
+        print(f"跳过 {len(pending)} 条积压消息，从最新消息开始。")
     offset = store.get_offset()
 
     print("Telegram 开发机器人已启动。")
