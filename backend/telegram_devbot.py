@@ -5,7 +5,9 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+
+import requests
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -13,7 +15,12 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from backend.devbot_ai import execute_ai_task
-from backend.devbot_config import load_bot_config, load_model_config
+from backend.devbot_config import (
+    ConfigValidationError,
+    ModelConfig,
+    load_validated_bot_config,
+    load_validated_model_config,
+)
 from backend.devbot_executor import (
     build_current_text,
     build_logs_text,
@@ -22,9 +29,11 @@ from backend.devbot_executor import (
 )
 from backend.devbot_store import TaskStore, utc_now
 from backend.devbot_telegram import HELP_TEXT, ParsedCommand, TelegramClient, parse_command
+from backend.shared_types import ProgressCallback, TASK_KIND_AI_RUN
 
 
-ProgressCallback = Callable[[str, str], None]
+MAX_CONCURRENT_TASKS = 2
+TASK_SEMAPHORE = threading.Semaphore(MAX_CONCURRENT_TASKS)
 
 
 def _message_text(update: dict[str, Any]) -> tuple[str, str, str]:
@@ -47,8 +56,8 @@ def _send_task_result(
     output: str,
     success: bool,
 ) -> None:
-    title = "任务完成" if success else "任务失败"
-    message = f"{title} #{task_id}\n{summary or '无摘要'}"
+    title = "Task complete" if success else "Task failed"
+    message = f"{title} #{task_id}\n{summary or 'No summary'}"
     if output.strip():
         message += f"\n\n{output}"
     client.send_message(chat_id, message)
@@ -69,9 +78,28 @@ def _make_progress_reporter(
             return
         last_stage["value"] = stage
         store.update_task(task_id, summary=message)
-        client.send_message(chat_id, f"任务 #{task_id} 进度更新：{message}")
+        client.send_message(chat_id, f"Task #{task_id} progress: {message}")
 
     return report
+
+
+def _send_busy_message(client: TelegramClient, chat_id: str) -> None:
+    client.send_message(
+        chat_id,
+        f"At most {MAX_CONCURRENT_TASKS} tasks run at the same time. Please retry later.\n\nUse /current to check the active task.",
+    )
+
+
+def _classify_task_error(exc: Exception) -> tuple[str, str]:
+    if isinstance(exc, ConfigValidationError):
+        return "Configuration validation failed", str(exc)
+    if isinstance(exc, requests.Timeout):
+        return "Upstream request timed out", str(exc)
+    if isinstance(exc, requests.RequestException):
+        return "Upstream request failed", str(exc)
+    if isinstance(exc, TimeoutError):
+        return "Task timed out", str(exc)
+    return "Task execution failed", f"{exc}\n\n{traceback.format_exc()}"
 
 
 def _run_named_task(
@@ -83,34 +111,34 @@ def _run_named_task(
     kind: str,
     command_text: str,
 ) -> None:
-    task_id = store.create_task(
-        chat_id=chat_id,
-        user_id=user_id,
-        kind=kind,
-        command_text=command_text,
-        status="running",
-    )
-    store.update_task(task_id, started_at=utc_now(), summary="任务开始执行")
-    client.send_message(chat_id, f"已收到任务 #{task_id}，正在执行 {kind}。")
+    if not TASK_SEMAPHORE.acquire(blocking=False):
+        _send_busy_message(client, chat_id)
+        return
 
-    progress_reporter = _make_progress_reporter(client, store, chat_id=chat_id, task_id=task_id)
-    exit_code, summary, output = execute_named_task(kind, progress_callback=progress_reporter)
-    store.update_task(
-        task_id,
-        status="done" if exit_code == 0 else "failed",
-        finished_at=utc_now(),
-        exit_code=exit_code,
-        summary=summary,
-        output=output,
-    )
-    _send_task_result(
-        client,
-        chat_id,
-        task_id=task_id,
-        summary=summary,
-        output=output,
-        success=exit_code == 0,
-    )
+    try:
+        task_id = store.create_task(
+            chat_id=chat_id,
+            user_id=user_id,
+            kind=kind,
+            command_text=command_text,
+            status="running",
+        )
+        store.update_task(task_id, started_at=utc_now(), summary="Task started")
+        client.send_message(chat_id, f"Accepted task #{task_id}; running {kind}.")
+
+        progress_reporter = _make_progress_reporter(client, store, chat_id=chat_id, task_id=task_id)
+        exit_code, summary, output = execute_named_task(kind, progress_callback=progress_reporter)
+        store.update_task(
+            task_id,
+            status="done" if exit_code == 0 else "failed",
+            finished_at=utc_now(),
+            exit_code=exit_code,
+            summary=summary,
+            output=output,
+        )
+        _send_task_result(client, chat_id, task_id=task_id, summary=summary, output=output, success=exit_code == 0)
+    finally:
+        TASK_SEMAPHORE.release()
 
 
 def _start_named_task(
@@ -122,7 +150,7 @@ def _start_named_task(
     kind: str,
     command_text: str,
 ) -> None:
-    thread = threading.Thread(
+    threading.Thread(
         target=_run_named_task,
         kwargs={
             "client": client,
@@ -133,8 +161,7 @@ def _start_named_task(
             "command_text": command_text,
         },
         daemon=True,
-    )
-    thread.start()
+    ).start()
 
 
 def _run_ai_task(
@@ -144,45 +171,41 @@ def _run_ai_task(
     chat_id: str,
     user_id: str,
     task_text: str,
+    model_config: ModelConfig,
 ) -> None:
-    task_id = store.create_task(
-        chat_id=chat_id,
-        user_id=user_id,
-        kind="ai_run",
-        command_text=task_text,
-        status="running",
-    )
-    store.update_task(task_id, started_at=utc_now(), summary="AI 任务开始执行")
-    client.send_message(chat_id, f"已收到 AI 任务 #{task_id}，正在分析并执行。")
+    if not TASK_SEMAPHORE.acquire(blocking=False):
+        _send_busy_message(client, chat_id)
+        return
 
-    progress_reporter = _make_progress_reporter(client, store, chat_id=chat_id, task_id=task_id)
     try:
-        exit_code, summary, output = execute_ai_task(
-            task_text,
-            load_model_config(),
-            progress_callback=progress_reporter,
+        task_id = store.create_task(
+            chat_id=chat_id,
+            user_id=user_id,
+            kind=TASK_KIND_AI_RUN,
+            command_text=task_text,
+            status="running",
         )
-    except Exception as exc:  # noqa: BLE001
-        exit_code = 1
-        summary = "AI 任务执行异常"
-        output = f"{exc}\n\n{traceback.format_exc()}"
+        store.update_task(task_id, started_at=utc_now(), summary="AI task started")
+        client.send_message(chat_id, f"Accepted AI task #{task_id}; analyzing and executing.")
 
-    store.update_task(
-        task_id,
-        status="done" if exit_code == 0 else "failed",
-        finished_at=utc_now(),
-        exit_code=exit_code,
-        summary=summary,
-        output=output,
-    )
-    _send_task_result(
-        client,
-        chat_id,
-        task_id=task_id,
-        summary=summary,
-        output=output,
-        success=exit_code == 0,
-    )
+        progress_reporter = _make_progress_reporter(client, store, chat_id=chat_id, task_id=task_id)
+        try:
+            exit_code, summary, output = execute_ai_task(task_text, model_config, progress_callback=progress_reporter)
+        except Exception as exc:  # noqa: BLE001
+            summary, output = _classify_task_error(exc)
+            exit_code = 1
+
+        store.update_task(
+            task_id,
+            status="done" if exit_code == 0 else "failed",
+            finished_at=utc_now(),
+            exit_code=exit_code,
+            summary=summary,
+            output=output,
+        )
+        _send_task_result(client, chat_id, task_id=task_id, summary=summary, output=output, success=exit_code == 0)
+    finally:
+        TASK_SEMAPHORE.release()
 
 
 def _start_ai_task(
@@ -192,8 +215,9 @@ def _start_ai_task(
     chat_id: str,
     user_id: str,
     task_text: str,
+    model_config: ModelConfig,
 ) -> None:
-    thread = threading.Thread(
+    threading.Thread(
         target=_run_ai_task,
         kwargs={
             "client": client,
@@ -201,38 +225,28 @@ def _start_ai_task(
             "chat_id": chat_id,
             "user_id": user_id,
             "task_text": task_text,
+            "model_config": model_config,
         },
         daemon=True,
-    )
-    thread.start()
+    ).start()
 
 
 def _looks_like_plain_greeting(text: str) -> bool:
     normalized = (text or "").strip().lower()
-    return normalized in {
-        "hi",
-        "hello",
-        "你好",
-        "在吗",
-        "在么",
-        "在嗎",
-        "在不在",
-        "有人吗",
-        "有人嗎",
-    }
+    return normalized in {"hi", "hello", "??", "??", "??", "???", "???"}
 
 
 def _looks_like_progress_query(text: str) -> bool:
     normalized = (text or "").strip().lower()
     markers = (
-        "当前任务",
-        "当前进度",
-        "任务进度",
-        "目前进度",
-        "目前任务",
-        "现在进度",
-        "进度怎么样",
-        "进展如何",
+        "????",
+        "????",
+        "????",
+        "????",
+        "????",
+        "????",
+        "?????",
+        "????",
         "current",
         "progress",
         "status",
@@ -243,21 +257,21 @@ def _looks_like_progress_query(text: str) -> bool:
 def _looks_like_dev_task(text: str) -> bool:
     normalized = (text or "").strip().lower()
     markers = (
-        "修复",
-        "修改",
-        "更新",
-        "优化",
-        "增加",
-        "补上",
-        "删除",
-        "替换",
-        "检查",
-        "测试",
-        "调试",
-        "部署",
-        "构建",
-        "提交",
-        "推送",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
+        "??",
         "review",
         "fix",
         "update",
@@ -277,6 +291,7 @@ def handle_message(
     chat_id: str,
     user_id: str,
     text: str,
+    model_config: ModelConfig,
 ) -> None:
     message = (text or "").strip()
     if not message:
@@ -287,7 +302,7 @@ def handle_message(
         if _looks_like_plain_greeting(message):
             client.send_message(
                 chat_id,
-                "我在。你可以直接发开发任务给我，或者先用 /help 看命令。\n\n例如：/run 修复文案组合里去重按钮没有反馈的问题",
+                "I am here. Send a concrete dev task, or use /help first.\n\nExample: /run fix the dedupe feedback issue",
             )
             return
         if _looks_like_progress_query(message):
@@ -296,20 +311,13 @@ def handle_message(
         if not _looks_like_dev_task(message):
             client.send_message(
                 chat_id,
-                "这条消息看起来不像明确的开发任务。我先不直接改代码。\n\n你可以发：/current 查看进度，或者用 /run 具体描述要修什么。",
+                "This message does not look like a concrete development task.\n\nSend a progress query, or use /run with a precise task.",
             )
             return
-        _start_ai_task(
-            client,
-            store,
-            chat_id=chat_id,
-            user_id=user_id,
-            task_text=message,
-        )
+        _start_ai_task(client, store, chat_id=chat_id, user_id=user_id, task_text=message, model_config=model_config)
         return
 
     command: ParsedCommand = parse_command(message)
-
     if command.name in {"", "/start", "/help"}:
         client.send_message(chat_id, HELP_TEXT)
         return
@@ -317,55 +325,27 @@ def handle_message(
     if command.name == "/status":
         client.send_message(chat_id, build_status_text(store))
         return
-
     if command.name == "/current":
         client.send_message(chat_id, build_current_text(store))
         return
-
     if command.name == "/whoami":
-        client.send_message(chat_id, f"你的 Telegram user id 是：{user_id}\nchat id 是：{chat_id}")
+        client.send_message(chat_id, f"Telegram user id: {user_id}\nchat id: {chat_id}")
         return
-
     if command.name == "/logs":
         client.send_message(chat_id, build_logs_text(store))
         return
-
     if command.name == "/build":
-        _start_named_task(
-            client,
-            store,
-            chat_id=chat_id,
-            user_id=user_id,
-            kind="build",
-            command_text=message,
-        )
+        _start_named_task(client, store, chat_id=chat_id, user_id=user_id, kind="build", command_text=message)
         return
-
     if command.name == "/test":
-        _start_named_task(
-            client,
-            store,
-            chat_id=chat_id,
-            user_id=user_id,
-            kind="test",
-            command_text=message,
-        )
+        _start_named_task(client, store, chat_id=chat_id, user_id=user_id, kind="test", command_text=message)
         return
-
     if command.name == "/deploy":
-        _start_named_task(
-            client,
-            store,
-            chat_id=chat_id,
-            user_id=user_id,
-            kind="deploy",
-            command_text=message,
-        )
+        _start_named_task(client, store, chat_id=chat_id, user_id=user_id, kind="deploy", command_text=message)
         return
-
     if command.name == "/run":
         if not command.argument:
-            client.send_message(chat_id, "请在 /run 后面附上明确任务，例如：/run 修复去重按钮没有反馈的问题")
+            client.send_message(chat_id, "Add a clear task after /run, for example: /run fix the dedupe feedback issue")
             return
         if _looks_like_progress_query(command.argument):
             client.send_message(chat_id, build_current_text(store))
@@ -373,35 +353,25 @@ def handle_message(
         if _looks_like_plain_greeting(command.argument) or not _looks_like_dev_task(command.argument):
             client.send_message(
                 chat_id,
-                "这条消息看起来不像明确的开发任务。我先不直接改代码。\n\n你可以发：/current 查看进度，或者用 /run 具体描述要修什么。",
+                "This message does not look like a concrete development task.\n\nSend a progress query, or use /run with a precise task.",
             )
             return
-        _start_ai_task(
-            client,
-            store,
-            chat_id=chat_id,
-            user_id=user_id,
-            task_text=command.argument,
-        )
+        _start_ai_task(client, store, chat_id=chat_id, user_id=user_id, task_text=command.argument, model_config=model_config)
         return
 
-    client.send_message(chat_id, "暂不支持这条命令，发送 /help 查看可用命令。")
+    client.send_message(chat_id, "Unsupported command. Use /help to see available commands.")
 
 
 def main() -> None:
-    bot_config = load_bot_config()
-    if not bot_config.token:
-        raise RuntimeError("缺少 TELEGRAM_BOT_TOKEN，请先配置 .env.telegram.local")
-    if not bot_config.allowed_user_ids:
-        raise RuntimeError("缺少 TELEGRAM_ALLOWED_USER_ID，请先配置允许操作的 Telegram 用户")
+    bot_config = load_validated_bot_config()
+    model_config = load_validated_model_config()
 
     store = TaskStore(bot_config.db_path)
-    store.mark_running_tasks_interrupted("机器人重启，上一轮运行中的任务已中断")
+    store.mark_running_tasks_interrupted("Bot restarted; previously running tasks were marked as interrupted.")
     client = TelegramClient(bot_config.token)
     offset = store.get_offset()
 
-    print("Telegram 开发机器人已启动。")
-
+    print("Telegram dev bot started.")
     while True:
         try:
             updates = client.get_updates(offset=offset, timeout=20)
@@ -414,26 +384,19 @@ def main() -> None:
                     continue
 
                 command = parse_command(text)
-                if user_id not in bot_config.allowed_user_ids and command.name not in {
-                    "/start",
-                    "/help",
-                    "/whoami",
-                }:
-                    client.send_message(chat_id, "当前账号没有操作权限。")
+                if user_id not in bot_config.allowed_user_ids and command.name not in {"/start", "/help", "/whoami"}:
+                    client.send_message(chat_id, "This account is not allowed to operate the bot.")
                     continue
 
-                handle_message(
-                    client,
-                    store,
-                    chat_id=chat_id,
-                    user_id=user_id,
-                    text=text,
-                )
+                handle_message(client, store, chat_id=chat_id, user_id=user_id, text=text, model_config=model_config)
         except KeyboardInterrupt:
-            print("Telegram 开发机器人已停止。")
+            print("Telegram dev bot stopped.")
             break
+        except requests.RequestException as exc:
+            print(f"Polling request error: {exc}")
+            time.sleep(bot_config.poll_interval)
         except Exception as exc:  # noqa: BLE001
-            print(f"轮询异常：{exc}")
+            print(f"Polling error: {exc}")
             time.sleep(bot_config.poll_interval)
 
 

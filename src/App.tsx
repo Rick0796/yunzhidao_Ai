@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { useHotspotCenter, type HotspotExpandState } from "./hooks/useHotspotCenter";
 import ParticleBackground from "./components/ParticleBackground";
 import ComposeWorkbench from "./components/ComposeWorkbench";
 import {
@@ -55,14 +56,8 @@ import {
   normalizeMeatResults,
   normalizeSkeletonResults
 } from "./lib/normalize";
-import {
-  buildMaterialFromBusinessHot,
-  buildMaterialFromHotRank,
-  fetchHotRankDetail,
-  fetchHotRank,
-  fetchManualSearch
-} from "./lib/workflows";
 import { formatSkeletonCardDescription, formatSkeletonExecutionLines } from "./lib/skeletons";
+import { STORAGE_KEYS } from "./lib/workbenchStorage";
 import type {
   ApiSettings,
   BaseProfile,
@@ -81,32 +76,8 @@ import type {
 } from "./types";
 import type { BusinessHotItem, HotRankItem, HotRankResponse, ManualSearchResponse } from "./lib/workflows";
 
-const STORAGE_KEYS = {
-  enteredWorkbench: "yzd.copy.entered-workbench",
-  workbenchMode: "yzd.copy.workbench-mode",
-  settings: "yzd.copy.settings",
-  profile: "yzd.copy.profile",
-  task: "yzd.copy.task",
-  hooks: "yzd.copy.hooks",
-  skeletons: "yzd.copy.skeletons",
-  meats: "yzd.copy.meats",
-  ctas: "yzd.copy.ctas",
-  drafts: "yzd.copy.drafts",
-  history: "yzd.copy.history",
-  hotRankResult: "yzd.copy.hot-rank-result.v2",
-  hotRankFetchedAt: "yzd.copy.hot-rank-fetched-at.v2",
-  selectedHookId: "yzd.copy.selected-hook-id",
-  selectedSkeletonId: "yzd.copy.selected-skeleton-id",
-  selectedMeatId: "yzd.copy.selected-meat-id",
-  selectedCtaId: "yzd.copy.selected-cta-id",
-  selectedDraftId: "yzd.copy.selected-draft-id"
-} as const;
-
 type WizardStep = 1 | 2 | 3 | 4;
 type NoticeTone = "success" | "warning" | "info";
-type HotspotPanelTab = "all" | "business" | "douyin" | "weibo" | "zhihu" | "baidu" | "search";
-type HotspotExpandState = { all: boolean; business: boolean; douyin: boolean; weibo: boolean; zhihu: boolean; baidu: boolean };
-
 interface NoticeState {
   text: string;
   tone: NoticeTone;
@@ -149,27 +120,9 @@ function App() {
   const [isGeneratingDrafts, setIsGeneratingDrafts] = useState(false);
   const [draftSignature, setDraftSignature] = useState("");
   const [structureTab, setStructureTab] = useState<"skeleton" | "meat" | "cta">("skeleton");
-  const [hotRankResult, setHotRankResult] = useStoredState<HotRankResponse | null>(STORAGE_KEYS.hotRankResult, null);
-  const [hotRankFetchedAt, setHotRankFetchedAt] = useStoredState<string>(STORAGE_KEYS.hotRankFetchedAt, "");
-  const [manualSearchResult, setManualSearchResult] = useState<ManualSearchResponse | null>(null);
-  const [manualSearchQuery, setManualSearchQuery] = useState("");
-  const [hotspotPanelTab, setHotspotPanelTab] = useState<HotspotPanelTab>("all");
-  const [selectedHotspotKey, setSelectedHotspotKey] = useState<string | null>(null);
-  const [isLoadingHotRank, setIsLoadingHotRank] = useState(false);
-  const [isLoadingManualSearch, setIsLoadingManualSearch] = useState(false);
-  const [loadingHotspotKey, setLoadingHotspotKey] = useState<string | null>(null);
   const [isRewriteStructureCollapsed, setIsRewriteStructureCollapsed] = useState(false);
   const [isWorkbenchIntroCollapsed, setIsWorkbenchIntroCollapsed] = useState(true);
   const [composeWorkbenchNonce, setComposeWorkbenchNonce] = useState(0);
-  const [hotspotListExpanded, setHotspotListExpanded] = useState<HotspotExpandState>({
-    all: false,
-    business: false,
-    douyin: false,
-    weibo: false,
-    zhihu: false,
-    baidu: false
-  });
-  const [showHotspotCenter, setShowHotspotCenter] = useState(true);
   const [wizardStep, setWizardStep] = useState<WizardStep>(() =>
     drafts.length > 0 ? 4 : skeletons.length > 0 || ctas.length > 0 || meats.length > 0 ? 3 : hooks.length > 0 ? 2 : 1
   );
@@ -180,6 +133,43 @@ function App() {
   const lastOriginalEntryRef = useRef<{ entryType: OriginalEntryType; chosen: boolean }>({
     entryType: isOriginalEntryType(defaultTask.entryType) ? defaultTask.entryType : DEFAULT_ORIGINAL_ENTRY_TYPE,
     chosen: false
+  });
+
+  const {
+    allHotItems,
+    baiduHotItems,
+    businessHotItems,
+    cacheText,
+    cacheWarning,
+    confirmRefreshHotRank,
+    douyinHotItems,
+    factPack,
+    handleSearchTopic,
+    handleUseHotRankItem,
+    hotRankFetchedAt,
+    hotRankResult,
+    hotspotListExpanded,
+    hotspotPanelTab,
+    isLoadingHotRank,
+    isLoadingManualSearch,
+    loadingHotspotKey,
+    manualSearchQuery,
+    manualSearchResult,
+    resetHotspotWorkspace,
+    searchItems,
+    selectedHotspotKey,
+    setSelectedHotspotKey,
+    setHotspotListExpanded,
+    setHotspotPanelTab,
+    setManualSearchQuery,
+    setShowHotspotCenter,
+    showHotspotCenter,
+    weiboHotItems,
+    zhihuHotItems
+  } = useHotspotCenter({
+    baseUrl: settings.baseUrl || "/api",
+    showNotice,
+    applyHotspotMaterial
   });
 
   useEffect(() => {
@@ -268,18 +258,6 @@ function App() {
     }
     previousRequiredChoicesRef.current = hasRequiredTaskChoices;
   }, [hasRequiredTaskChoices, showTaskSettings]);
-
-  useEffect(() => {
-    void handleFetchTodayHotRank({ silent: true, forceRefresh: false });
-  }, []);
-
-  useEffect(() => {
-    if (!hotRankResult?.cache?.refreshing) return;
-    const timer = window.setTimeout(() => {
-      void handleFetchTodayHotRank({ silent: true, forceRefresh: false });
-    }, 8000);
-    return () => window.clearTimeout(timer);
-  }, [hotRankResult?.cache?.refreshing]);
 
   useEffect(() => {
     if (hooks.length > 0 && !hooks.some((item) => item.id === selectedHookId)) {
@@ -437,10 +415,7 @@ function App() {
     clearFrom("task");
     setWizardStep(1);
     setStructureTab("skeleton");
-    setManualSearchResult(null);
-    setManualSearchQuery("");
-    setHotspotPanelTab("all");
-    setSelectedHotspotKey(null);
+    resetHotspotWorkspace();
     setShowTaskSettings(false);
     setShowAdvanced(false);
     setShowHistory(false);
@@ -505,244 +480,6 @@ function App() {
     }
     setWizardStep(1);
     showNotice("success", "热点素材已回填到内容输入区。");
-  }
-
-  function hotRankItemNeedsDetail(item: Partial<HotRankItem & BusinessHotItem>) {
-    if (!(item as any).detail_loaded) return true;
-    const content = ((item as HotRankItem).clean_content || item.content || "").trim();
-    const title = (item.title || "").trim();
-    const summary = (item.summary || "").trim();
-    const qualityStatus = ((item as any).quality_status || "").trim();
-    if (!content) return true;
-    if (qualityStatus !== "ready") return true;
-    if (content.length < 260) return true;
-    if (title && content === title) return true;
-    if (summary && content === summary) return true;
-    return false;
-  }
-
-  function hotRankItemNeedsSearchFallback(item: Partial<HotRankItem & BusinessHotItem>) {
-    const content = ((item as HotRankItem).clean_content || item.content || "").trim();
-    const qualityStatus = ((item as any).quality_status || "").trim();
-    if (!content) return true;
-    if (/^(Warning:|This page contains shadow DOM|This is a cached snapshot|Target URL returned error|Forbidden\b)/i.test(content)) return true;
-    if (qualityStatus !== "ready") return true;
-    return content.length < 220;
-  }
-
-  function buildHotRankSearchFallbackQuery(item: Partial<HotRankItem & BusinessHotItem>) {
-    const title = (item.title || "").trim();
-    const summary = (item.summary || "").trim();
-    if (!title) return "";
-    if (!summary || summary === title) return title;
-    const firstSummary = summary
-      .split(/[。！？!?；;]/)
-      .map((part) => part.trim())
-      .find(Boolean) || "";
-    if (!firstSummary || firstSummary === title) return title;
-    return `${title} ${firstSummary}`.slice(0, 42).trim();
-  }
-
-  function mergeHotRankDetailIntoState(
-    detail: Partial<HotRankItem & BusinessHotItem>,
-    identity: { hotId?: string; title?: string; sourceUrl?: string }
-  ) {
-    const matchItem = (item: Partial<HotRankItem & BusinessHotItem>) => {
-      const sourceUrl = (item as HotRankItem).source_url || (item as BusinessHotItem).source_url || "";
-      if (identity.hotId && item.hot_id === identity.hotId) return true;
-      if (identity.title && item.title === identity.title && identity.sourceUrl && sourceUrl === identity.sourceUrl) return true;
-      return Boolean(identity.title && item.title === identity.title && !identity.sourceUrl);
-    };
-
-    const applyItem = <T extends Partial<HotRankItem & BusinessHotItem>>(item: T) => (matchItem(item) ? { ...item, ...detail } : item);
-
-    setHotRankResult((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        allHotList: prev.allHotList.map((item) => applyItem(item as HotRankItem) as HotRankItem),
-        businessHotList: prev.businessHotList.map((item) => applyItem(item as BusinessHotItem) as BusinessHotItem),
-        platformBuckets: Object.fromEntries(
-          Object.entries(prev.platformBuckets || {}).map(([platform, items]) => [platform, (items || []).map((item) => applyItem(item as HotRankItem) as HotRankItem)])
-        )
-      };
-    });
-  }
-
-  async function handleUseHotRankItem(item: HotRankItem | BusinessHotItem, options: { business?: boolean; itemKey: string }) {
-    setLoadingHotspotKey(options.itemKey);
-    try {
-      let resolvedItem: HotRankItem | BusinessHotItem = item;
-      if (hotRankItemNeedsDetail(item)) {
-        const detail = await fetchHotRankDetail(settings.baseUrl || "/api", item);
-        const displaySummary = ((detail as any).display_summary || (item as any).display_summary || detail.summary || item.summary || "").trim();
-        resolvedItem = {
-          ...item,
-          title: detail.title || item.title,
-          summary: detail.summary || item.summary,
-          display_title: (detail as any).display_title || (item as any).display_title,
-          display_summary: displaySummary,
-          clean_content: (detail as any).clean_content || detail.content || (item as any).clean_content || item.content,
-          content: (detail as any).clean_content || detail.content || (item as any).clean_content || item.content,
-          business_reason: (detail as any).business_reason || (item as any).business_reason || (item as any).boss_impact,
-          quality_score: (detail as any).quality_score ?? (item as any).quality_score,
-          quality_status: (detail as any).quality_status || (item as any).quality_status,
-          detail_loaded: true,
-          source_url: detail.source_url || item.source_url,
-          article_source: detail.article_source || item.article_source,
-          article_url: detail.article_url || (item as HotRankItem).article_url
-        };
-        if (hotRankItemNeedsSearchFallback(resolvedItem)) {
-          const fallbackQuery = buildHotRankSearchFallbackQuery(resolvedItem);
-          if (fallbackQuery) {
-            const searchResult = await fetchManualSearch(settings.baseUrl || "/api", fallbackQuery);
-            const factPack = (searchResult as ManualSearchResponse).factPack;
-            const fallbackContent = (factPack?.cleanContent || factPack?.sourceText || "").trim();
-            const currentContent = (((resolvedItem as any).clean_content || resolvedItem.content || "") as string).trim();
-            if (fallbackContent.length > currentContent.length + 40) {
-              resolvedItem = {
-                ...resolvedItem,
-                clean_content: fallbackContent,
-                content: fallbackContent,
-                business_reason: (resolvedItem as any).business_reason || factPack?.businessReason || "",
-                quality_score: Math.max(Number((resolvedItem as any).quality_score) || 0, Number(factPack?.qualityScore) || 0),
-                quality_status: factPack?.qualityStatus || (resolvedItem as any).quality_status,
-                detail_loaded: true
-              };
-            }
-          }
-        }
-        mergeHotRankDetailIntoState(
-          {
-            title: resolvedItem.title,
-            summary: resolvedItem.summary,
-            display_title: (resolvedItem as any).display_title,
-            display_summary: (resolvedItem as any).display_summary,
-            clean_content: (resolvedItem as any).clean_content,
-            content: resolvedItem.content,
-            business_reason: (resolvedItem as any).business_reason,
-            quality_score: (resolvedItem as any).quality_score,
-            quality_status: (resolvedItem as any).quality_status,
-            detail_loaded: true,
-            source_url: resolvedItem.source_url,
-            article_source: resolvedItem.article_source,
-            article_url: (resolvedItem as HotRankItem).article_url
-          },
-          {
-            hotId: item.hot_id,
-            title: item.title,
-            sourceUrl: item.source_url
-          }
-        );
-      }
-
-      const material = options.business
-        ? buildMaterialFromBusinessHot(resolvedItem as BusinessHotItem)
-        : buildMaterialFromHotRank(resolvedItem as HotRankItem);
-      applyHotspotMaterial(material.sourceText, material.hotspotAngle, options.itemKey);
-      if ((resolvedItem as any).quality_status && (resolvedItem as any).quality_status !== "ready") {
-        showNotice("warning", "这条热点正文还不够完整，已按线索回填，建议再用全网搜索补素材。");
-      }
-    } catch (error: any) {
-      const fallbackQuery = buildHotRankSearchFallbackQuery(item);
-      if (fallbackQuery) {
-        try {
-          const searchResult = await fetchManualSearch(settings.baseUrl || "/api", fallbackQuery);
-          const factPack = (searchResult as ManualSearchResponse).factPack;
-          const fallbackContent = (factPack?.cleanContent || factPack?.sourceText || "").trim();
-          if (fallbackContent.length >= 120) {
-            applyHotspotMaterial(fallbackContent, factPack?.businessReason || "", options.itemKey);
-            showNotice("warning", "热点详情提取失败，已自动改用全网搜索事实包回填。");
-            return;
-          }
-        } catch {
-          // Keep the existing摘要兜底 below.
-        }
-      }
-      const fallbackMaterial = options.business ? buildMaterialFromBusinessHot(item as BusinessHotItem) : buildMaterialFromHotRank(item as HotRankItem);
-      applyHotspotMaterial(fallbackMaterial.sourceText, fallbackMaterial.hotspotAngle, options.itemKey);
-      showNotice("warning", `热点详情提取失败，先使用已有摘要：${error instanceof Error ? error.message : "未知错误"}`);
-    } finally {
-      setLoadingHotspotKey(null);
-    }
-  }
-
-  async function handleFetchTodayHotRank(options?: { forceRefresh?: boolean; silent?: boolean }) {
-    setIsLoadingHotRank(true);
-    try {
-      const result = await fetchHotRank(settings.baseUrl || "/api", { allLimit: 20, businessLimit: 10, forceRefresh: options?.forceRefresh ?? false });
-      setHotRankResult(result);
-      setHotRankFetchedAt(result.cache?.fetchedAt || result.generatedAt || "");
-      setHotspotPanelTab("all");
-      setSelectedHotspotKey(null);
-      setHotspotListExpanded({
-        all: false,
-        business: false,
-        douyin: false,
-        weibo: false,
-        zhihu: false,
-        baidu: false
-      });
-      if (options?.silent) {
-        return;
-      }
-      if (result.cache?.refreshing && result.allHotList.length > 0) {
-        showNotice("info", "已切到最近热榜缓存，后台正在刷新最新结果。");
-        return;
-      }
-      if (result.cache?.refreshing) {
-        showNotice("info", "热榜正在后台抓取，稍后会自动刷新出来。");
-        return;
-      }
-      if (result.cache?.warning && result.allHotList.length > 0) {
-        showNotice("warning", `本次刷新没拿到新结果，先展示最近缓存：${result.cache.warning}`);
-        return;
-      }
-      if (result.allHotList.length === 0) {
-        showNotice("info", "热榜正在准备中，稍后会自动补齐。");
-        return;
-      }
-      showNotice("success", `今日热榜已就绪，当前可选 ${result.allHotList.length} 条全网热点。`);
-    } catch (error: any) {
-      if (!options?.silent || !hotRankResult) {
-        showNotice("warning", `热榜获取失败：${error instanceof Error ? error.message : "未知错误"}`);
-      }
-    } finally {
-      setIsLoadingHotRank(false);
-    }
-  }
-
-  async function handleSearchTopic() {
-    const query = manualSearchQuery.trim();
-    if (!query) {
-      showNotice("warning", "先输入你要搜索的热点关键词。");
-      return;
-    }
-
-    setIsLoadingManualSearch(true);
-    try {
-      const result = await fetchManualSearch(settings.baseUrl || "/api", query);
-      setManualSearchResult(result);
-      setHotspotPanelTab("search");
-      setSelectedHotspotKey(null);
-      const total = result.searchData.length + result.toutiaoData.length;
-      if (total === 0) {
-        showNotice("warning", "搜索完成，但暂时没有拿到有效结果，建议换个关键词再试。");
-        return;
-      }
-      showNotice("success", `搜索完成，已整理 ${total} 条线索，并生成事实包。`);
-    } catch (error: any) {
-      showNotice("warning", `搜索失败：${error instanceof Error ? error.message : "未知错误"}`);
-    } finally {
-      setIsLoadingManualSearch(false);
-    }
-  }
-
-  function confirmRefreshHotRank() {
-    if (!window.confirm("确定要刷新今日热榜吗？这会重新触发工作流抓取最新结果。")) {
-      return;
-    }
-    void handleFetchTodayHotRank({ forceRefresh: true });
   }
 
   async function handleGenerateHooks() {

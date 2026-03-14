@@ -1,0 +1,20 @@
+export const STORAGE_KEYS = {
+  enteredWorkbench: "yzd.copy.entered-workbench",
+  workbenchMode: "yzd.copy.workbench-mode",
+  settings: "yzd.copy.settings",
+  profile: "yzd.copy.profile",
+  task: "yzd.copy.task",
+  hooks: "yzd.copy.hooks",
+  skeletons: "yzd.copy.skeletons",
+  meats: "yzd.copy.meats",
+  ctas: "yzd.copy.ctas",
+  drafts: "yzd.copy.drafts",
+  history: "yzd.copy.history",
+  hotRankResult: "yzd.copy.hot-rank-result.v2",
+  hotRankFetchedAt: "yzd.copy.hot-rank-fetched-at.v2",
+  selectedHookId: "yzd.copy.selected-hook-id",
+  selectedSkeletonId: "yzd.copy.selected-skeleton-id",
+  selectedMeatId: "yzd.copy.selected-meat-id",
+  selectedCtaId: "yzd.copy.selected-cta-id",
+  selectedDraftId: "yzd.copy.selected-draft-id"
+} as const;

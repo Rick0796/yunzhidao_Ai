@@ -6,7 +6,6 @@ import html
 import json
 import os
 import re
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -38,21 +37,16 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("缺少 FastAPI 依赖，请先运行：pip install -r backend/requirements.txt") from exc
 
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-DIST_DIR = ROOT_DIR / "dist"
-IS_VERCEL = bool(os.getenv("VERCEL"))
+from backend.runtime_paths import resolve_runtime_paths
 
-
-def resolve_runtime_dir() -> Path:
-    if IS_VERCEL:
-        return Path(tempfile.gettempdir()) / "ai-copy-workbench"
-    return ROOT_DIR / "runtime"
-
-
-RUNTIME_DIR = resolve_runtime_dir()
-RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE = RUNTIME_DIR / "api_requests.jsonl"
-HOT_RANK_CACHE_PATH = RUNTIME_DIR / "hot_rank_cache.json"
+RUNTIME_PATHS = resolve_runtime_paths()
+ROOT_DIR = RUNTIME_PATHS.root_dir
+DIST_DIR = RUNTIME_PATHS.dist_dir
+RUNTIME_DIR = RUNTIME_PATHS.runtime_dir
+CACHE_DIR = RUNTIME_PATHS.cache_dir
+STATE_DIR = RUNTIME_PATHS.state_dir
+LOG_FILE = STATE_DIR / "api_requests.jsonl"
+HOT_RANK_CACHE_PATH = CACHE_DIR / "hot_rank_cache.json"
 SCRIPT_LIBRARY_DB_PATH = resolve_script_library_db_path()
 
 LOCAL_CONFIG_PATH = Path(__file__).resolve().parent / "config.local.json"
@@ -504,7 +498,14 @@ CONFIG = read_config()
 FREE_WORKFLOW_HOT_RANK = {"id": "free_scrapers", "name": "免费热榜兼容入口"}
 FREE_WORKFLOW_MANUAL_SEARCH = {"id": "free_search", "name": "免费搜索兼容入口"}
 
-app = FastAPI(title="云智道AI后端", version="0.4.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_script_library(SCRIPT_LIBRARY_DB_PATH)
+    if not get_hot_rank_cache():
+        start_hot_rank_refresh(force=False)
+    yield
+
+app = FastAPI(title="云智道AI后端", version="0.4.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -619,11 +620,11 @@ def hot_rank_cache_is_fresh(cache: dict[str, Any] | None) -> bool:
 
 
 def hot_rank_supports_background_refresh() -> bool:
-    return not IS_VERCEL
+    return not RUNTIME_PATHS.serverless
 
 
 def hot_rank_should_refresh_inline(cache: dict[str, Any] | None, *, force_refresh: bool) -> bool:
-    if not IS_VERCEL:
+    if not RUNTIME_PATHS.serverless:
         return False
     if force_refresh:
         return True

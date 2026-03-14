@@ -4,10 +4,11 @@ import json
 import os
 import re
 import sqlite3
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
+from backend.runtime_paths import resolve_runtime_paths
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -252,12 +253,9 @@ def canonical_direction_label(value: str) -> str:
 
 
 def resolve_script_library_db_path() -> Path:
-    if os.getenv("VERCEL"):
-        runtime_dir = Path(tempfile.gettempdir()) / "ai-copy-workbench"
-    else:
-        runtime_dir = ROOT_DIR / "runtime"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    return runtime_dir / "script_library.db"
+    runtime_paths = resolve_runtime_paths()
+    runtime_paths.state_dir.mkdir(parents=True, exist_ok=True)
+    return runtime_paths.state_dir / "script_library.db"
 
 
 def connect_script_library(db_path: Path | None = None) -> sqlite3.Connection:
