@@ -16,7 +16,6 @@ DEFAULT_POLL_INTERVAL = 2.0
 DEFAULT_MODEL = "gemini-2.0-flash"
 DEFAULT_MODEL_TIMEOUT_SECONDS = 90
 INVALID_MODEL_NAMES = {
-    "gemini-3-flash",
     "your-model",
     "example-model",
     "placeholder-model",

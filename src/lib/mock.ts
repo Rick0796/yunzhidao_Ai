@@ -520,10 +520,9 @@ export function splitSourceParagraphs(text: string) {
 
   const paragraphs: string[] = [];
   let current = "";
-  sentenceBlocks.forEach((sentence, index) => {
+  sentenceBlocks.forEach((sentence) => {
     current = `${current}${sentence}`.trim();
-    const shouldBreak = current.length >= 130 || (index + 1) % 3 === 0;
-    if (shouldBreak) {
+    if (current.length >= 120) {
       paragraphs.push(current);
       current = "";
     }

@@ -87,13 +87,22 @@ function splitViralReferenceParagraphs(task: TaskForm) {
 
 function buildViralParagraphGuide(task: TaskForm) {
   if (task.entryType !== "viral") return "";
+  const fullSource = (task.sourceText || task.userNote || "").trim();
   const paragraphs = splitViralReferenceParagraphs(task);
-  if (!paragraphs.length) return "";
-  return [
-    "【原文段落对照】",
-    "除第一句钩子外，后续正文请尽量和下面这些原文段落一一对应去重改写：",
-    ...paragraphs.map((paragraph, index) => `${index + 1}. ${paragraph}`),
-  ].join("\n");
+  const lines = [
+    "【原文完整内容】",
+    "以下是原文全文，改写时必须以此为准，逐段对应，不能丢字、不能合并段落、不能改变推进逻辑：",
+    fullSource,
+  ];
+  if (paragraphs.length) {
+    lines.push(
+      "",
+      "【原文段落拆解参考（辅助）】",
+      "以下是系统对原文的段落拆解，仅供参考，若与上方原文有出入，以上方原文为准：",
+      ...paragraphs.map((paragraph, index) => `${index + 1}. ${paragraph}`)
+    );
+  }
+  return lines.join("\n");
 }
 
 export async function runDecompose(
@@ -494,6 +503,13 @@ export async function runDraftGeneration(
     instruction: [
       "请基于用户选中的皮、骨、肉、收口，生成 5 个不同版本的完整短视频文案。",
       "",
+      ...(task.entryType === "viral" && (task.sourceText || task.userNote) ? [
+        "=== 仿写核心原则（最高优先级）===",
+        "你的任务是：在保留原文所有爆点、逻辑、段落结构、数字、判断句、关键词的前提下，只做表达去重和轻微措辞调整。",
+        "禁止：删除段落、合并段落、改变推进顺序、替换核心结论、新增原文没有的论证。",
+        "允许：同义换词、句式微调、替换重复高频词、调整语气强度。",
+        "",
+      ] : []),
       selectedParts,
       "",
       "=== 结构约束 ===",
