@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 import html
 import json
 import os
@@ -2169,12 +2170,6 @@ def build_search_fact_pack(topic_query: str, search_items: list[dict[str, Any]],
     }
 
 
-@app.on_event("startup")
-async def startup_event() -> None:
-    init_script_library(SCRIPT_LIBRARY_DB_PATH)
-    cache = get_hot_rank_cache()
-    if FREE_SCRAPERS_AVAILABLE and not hot_rank_cache_is_fresh(cache):
-        start_hot_rank_refresh(force=True)
 
 
 @app.get("/api/health")
