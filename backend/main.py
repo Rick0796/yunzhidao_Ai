@@ -481,7 +481,7 @@ def read_config() -> dict[str, Any]:
     prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
     port = env_int("PORT") or to_int(config.get("port", 8788), 8788)
     retries = env_int("API_RETRIES") or to_int(config.get("retries", 2), 2)
-    timeout_seconds = env_int("API_TIMEOUT_SECONDS") or to_int(config.get("timeoutSeconds", 45), 45)
+    timeout_seconds = env_int("API_TIMEOUT_SECONDS") or to_int(config.get("timeoutSeconds", 110), 110)
 
     return {
         "baseUrl": base_url.rstrip("/"),

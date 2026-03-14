@@ -2,6 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "env": {
+    "API_TIMEOUT_SECONDS": "110"
+  },
   "functions": {
     "api/**/*.py": {
       "maxDuration": 120,
