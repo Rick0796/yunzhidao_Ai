@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 from backend.devbot_config import ROOT_DIR
 from backend.devbot_store import TaskStore
+
+
+ProgressCallback = Callable[[str, str], None]
 
 
 def run_command(
@@ -33,11 +37,19 @@ def format_git_status() -> str:
     return output or "工作区干净"
 
 
-def execute_named_task(kind: str) -> tuple[int, str, str]:
+def execute_named_task(
+    kind: str,
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> tuple[int, str, str]:
     kind = kind.lower().strip()
 
     if kind == "build":
+        if progress_callback:
+            progress_callback("build", "正在运行前端构建")
         build_code, build_output = run_command(["npm.cmd", "run", "build"], timeout=1800)
+        if progress_callback:
+            progress_callback("compile", "正在运行后端编译检查")
         py_code, py_output = run_command(
             [
                 "python",
@@ -57,6 +69,8 @@ def execute_named_task(kind: str) -> tuple[int, str, str]:
         return exit_code, summary, output
 
     if kind == "test":
+        if progress_callback:
+            progress_callback("compile", "正在运行后端编译检查")
         py_code, py_output = run_command(
             [
                 "python",
@@ -68,6 +82,8 @@ def execute_named_task(kind: str) -> tuple[int, str, str]:
             ],
             timeout=300,
         )
+        if progress_callback:
+            progress_callback("status", "正在检查当前工作区状态")
         git_code, git_output = run_command(["git", "status", "--short"], timeout=60)
         exit_code = 0 if py_code == 0 and git_code == 0 else 1
         summary = "测试通过" if exit_code == 0 else "测试失败"
@@ -77,6 +93,8 @@ def execute_named_task(kind: str) -> tuple[int, str, str]:
         return exit_code, summary, output
 
     if kind == "deploy":
+        if progress_callback:
+            progress_callback("status", "正在检查部署前的工作区状态")
         status = format_git_status()
         if status != "工作区干净":
             return (
@@ -84,6 +102,8 @@ def execute_named_task(kind: str) -> tuple[int, str, str]:
                 "部署前检查失败",
                 "当前工作区不干净，先提交或处理改动再部署。\n\n" + status,
             )
+        if progress_callback:
+            progress_callback("deploy", "正在推送到 GitHub 并触发部署")
         push_code, push_output = run_command(["git", "push", "origin", "main"], timeout=1800)
         exit_code = 0 if push_code == 0 else 1
         summary = "部署推送成功" if exit_code == 0 else "部署推送失败"
@@ -129,3 +149,20 @@ def build_logs_text(store: TaskStore) -> str:
         task["output"] or "(无输出)",
     ]
     return "\n".join(parts)
+
+
+def build_current_text(store: TaskStore) -> str:
+    task = store.get_running_task()
+    if not task:
+        return "当前没有正在执行的任务。"
+
+    return "\n".join(
+        [
+            f"当前任务 #{task['id']}",
+            f"类型：{task['kind']}",
+            f"状态：{task['status']}",
+            f"命令：{task['command_text']}",
+            f"当前进度：{task['summary'] or '暂无进度'}",
+            f"开始时间：{task['started_at'] or task['created_at']}",
+        ]
+    )

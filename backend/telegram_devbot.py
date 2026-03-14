@@ -13,7 +13,12 @@ if str(ROOT_DIR) not in sys.path:
 
 from backend.devbot_ai import execute_ai_task
 from backend.devbot_config import load_bot_config, load_model_config
-from backend.devbot_executor import build_logs_text, build_status_text, execute_named_task
+from backend.devbot_executor import (
+    build_current_text,
+    build_logs_text,
+    build_status_text,
+    execute_named_task,
+)
 from backend.devbot_store import TaskStore, utc_now
 from backend.devbot_telegram import HELP_TEXT, ParsedCommand, TelegramClient, parse_command
 
@@ -45,6 +50,26 @@ def _send_task_result(
     client.send_message(chat_id, message)
 
 
+def _make_progress_reporter(
+    client: TelegramClient,
+    store: TaskStore,
+    *,
+    chat_id: str,
+    task_id: int,
+) -> Any:
+    last_stage: dict[str, str] = {"value": ""}
+
+    def report(stage: str, message: str) -> None:
+        if stage == last_stage["value"]:
+            store.update_task(task_id, summary=message)
+            return
+        last_stage["value"] = stage
+        store.update_task(task_id, summary=message)
+        client.send_message(chat_id, f"任务 #{task_id} 进度更新：{message}")
+
+    return report
+
+
 def _run_named_task(
     client: TelegramClient,
     store: TaskStore,
@@ -64,7 +89,8 @@ def _run_named_task(
     store.update_task(task_id, started_at=utc_now(), summary="任务开始执行")
     client.send_message(chat_id, f"已收到任务 #{task_id}，正在执行 {kind}。")
 
-    exit_code, summary, output = execute_named_task(kind)
+    progress_reporter = _make_progress_reporter(client, store, chat_id=chat_id, task_id=task_id)
+    exit_code, summary, output = execute_named_task(kind, progress_callback=progress_reporter)
     store.update_task(
         task_id,
         status="done" if exit_code == 0 else "failed",
@@ -101,8 +127,13 @@ def _run_ai_task(
     store.update_task(task_id, started_at=utc_now(), summary="AI 任务开始执行")
     client.send_message(chat_id, f"已收到 AI 任务 #{task_id}，正在分析并执行。")
 
+    progress_reporter = _make_progress_reporter(client, store, chat_id=chat_id, task_id=task_id)
     try:
-        exit_code, summary, output = execute_ai_task(task_text, load_model_config())
+        exit_code, summary, output = execute_ai_task(
+            task_text,
+            load_model_config(),
+            progress_callback=progress_reporter,
+        )
     except Exception as exc:  # noqa: BLE001
         exit_code = 1
         summary = "AI 任务执行异常"
@@ -144,11 +175,12 @@ def handle_message(
         client.send_message(chat_id, build_status_text(store))
         return
 
+    if command.name == "/current":
+        client.send_message(chat_id, build_current_text(store))
+        return
+
     if command.name == "/whoami":
-        client.send_message(
-            chat_id,
-            f"你的 Telegram user id 是：{user_id}\nchat id 是：{chat_id}",
-        )
+        client.send_message(chat_id, f"你的 Telegram user id 是：{user_id}\nchat id 是：{chat_id}")
         return
 
     if command.name == "/logs":
@@ -190,7 +222,7 @@ def handle_message(
 
     if command.name == "/run":
         if not command.argument:
-            client.send_message(chat_id, "请在 /run 后面附上明确任务，例如：/run 修复去重按钮无反应")
+            client.send_message(chat_id, "请在 /run 后面附上明确任务，例如：/run 修复去重按钮无反馈")
             return
         _run_ai_task(
             client,
@@ -227,6 +259,7 @@ def main() -> None:
                 chat_id, user_id, text = _message_text(update)
                 if not chat_id or not user_id or not text:
                     continue
+
                 command = parse_command(text)
                 if user_id not in bot_config.allowed_user_ids and command.name not in {
                     "/start",

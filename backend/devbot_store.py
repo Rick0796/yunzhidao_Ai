@@ -122,3 +122,16 @@ class TaskStore:
                 """
             ).fetchone()
         return row
+
+    def get_running_task(self) -> sqlite3.Row | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM telegram_tasks
+                WHERE status = 'running'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        return row

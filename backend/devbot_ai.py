@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
@@ -27,6 +28,8 @@ VALIDATION_COMMANDS = {
     ],
     "git_status": ["git", "status", "--short"],
 }
+
+ProgressCallback = Callable[[str, str], None]
 
 
 @dataclass(frozen=True)
@@ -84,7 +87,7 @@ class ModelClient:
             content = "".join(
                 part.get("text", "") for part in content if isinstance(part, dict)
             )
-        return json.loads(content)
+        return _extract_json_payload(str(content or ""))
 
     def create_plan(self, task_text: str, repo_snapshot: str) -> PlanResult:
         system_prompt = (
@@ -92,16 +95,22 @@ class ModelClient:
             "输出 JSON，字段只能包含 summary, file_candidates, search_terms, validation_steps。"
             "file_candidates 是最可能修改的相对路径数组；search_terms 是适合 ripgrep 的关键字；"
             "validation_steps 只能从 build_frontend, compile_backend, git_status 中选择。"
+            f"你只能在这个项目里工作：{ROOT_DIR.as_posix()}。"
+            "不要创建新的项目目录，不要引用项目外路径，不要输出 markdown。"
         )
         user_prompt = f"任务：{task_text}\n\n代码库摘要：\n{repo_snapshot}"
         payload = self._request_json(system_prompt=system_prompt, user_prompt=user_prompt)
         return PlanResult(
             summary=str(payload.get("summary", "")).strip(),
             file_candidates=[
-                str(item).strip() for item in payload.get("file_candidates", []) if str(item).strip()
+                str(item).strip()
+                for item in payload.get("file_candidates", [])
+                if str(item).strip()
             ],
             search_terms=[
-                str(item).strip() for item in payload.get("search_terms", []) if str(item).strip()
+                str(item).strip()
+                for item in payload.get("search_terms", [])
+                if str(item).strip()
             ],
             validation_steps=[
                 step
@@ -117,12 +126,14 @@ class ModelClient:
             "edits 是数组，每项包含 path, search, replace, reason。"
             "要求：只做少量、精确、可落地的修改；search 必须是文件中能精确找到的一段原文；"
             "不要输出解释性文字，不要输出 markdown。"
+            f"你只能修改这个项目里的文件：{ROOT_DIR.as_posix()}。"
+            "path 必须是当前项目相对路径，不能是绝对路径，不能编造不存在的新项目。"
         )
         user_prompt = (
-            f"任务：{task_text}\n\n代码库摘要：\n{repo_snapshot}\n\n"
-            f"候选文件内容：\n{file_payload}"
+            f"任务：{task_text}\n\n代码库摘要：\n{repo_snapshot}\n\n候选文件内容：\n{file_payload}"
         )
         payload = self._request_json(system_prompt=system_prompt, user_prompt=user_prompt)
+
         edits: list[EditInstruction] = []
         for item in payload.get("edits", [])[:MAX_EDIT_COUNT]:
             path = str(item.get("path", "")).strip()
@@ -153,6 +164,72 @@ def _safe_relative_path(raw_path: str) -> Path | None:
     if not path.exists() or not path.is_file():
         return None
     return path
+
+
+def _extract_json_payload(content: str) -> dict[str, Any]:
+    text = (content or "").strip()
+    if not text:
+        raise RuntimeError("模型返回了空内容，无法解析 JSON。")
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    fence_match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        candidate = fence_match.group(1).strip()
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    object_match = _find_first_json_object(text)
+    if object_match:
+        try:
+            parsed = json.loads(object_match)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    preview = text[:600]
+    raise RuntimeError(
+        "模型返回的内容不是合法 JSON，无法继续执行。原始返回片段如下：\n\n" + preview
+    )
+
+
+def _find_first_json_object(text: str) -> str | None:
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for index in range(start, len(text)):
+            char = text[index]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : index + 1]
+        start = text.find("{", start + 1)
+    return None
 
 
 def _collect_repo_files() -> list[str]:
@@ -208,8 +285,7 @@ def select_candidate_files(
         key=lambda item: _score_file(item, task_text, search_terms),
         reverse=True,
     )
-    combined = preferred + ranked
-    return combined[:MAX_FILE_COUNT]
+    return (preferred + ranked)[:MAX_FILE_COUNT]
 
 
 def build_repo_snapshot(task_text: str) -> str:
@@ -236,9 +312,7 @@ def build_file_payload(paths: list[str]) -> str:
         if not safe:
             continue
         text = safe.read_text(encoding="utf-8", errors="replace")
-        payloads.append(
-            f"FILE: {safe.relative_to(ROOT_DIR).as_posix()}\n{text[:MAX_FILE_CHARS]}"
-        )
+        payloads.append(f"FILE: {safe.relative_to(ROOT_DIR).as_posix()}\n{text[:MAX_FILE_CHARS]}")
     return "\n\n".join(payloads)
 
 
@@ -283,20 +357,42 @@ def run_validation_steps(steps: list[str]) -> tuple[int, str]:
     return exit_code, "\n\n".join(outputs)
 
 
-def execute_ai_task(task_text: str, model_config: ModelConfig) -> tuple[int, str, str]:
+def execute_ai_task(
+    task_text: str,
+    model_config: ModelConfig,
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> tuple[int, str, str]:
     client = ModelClient(model_config)
+
+    if progress_callback:
+        progress_callback("analyze", "正在分析仓库和任务上下文")
     repo_snapshot = build_repo_snapshot(task_text)
+
+    if progress_callback:
+        progress_callback("plan", "正在生成修改计划")
     plan = client.create_plan(task_text, repo_snapshot)
+
+    if progress_callback:
+        progress_callback("files", "正在筛选候选文件")
     candidate_files = select_candidate_files(task_text, plan.file_candidates, plan.search_terms)
     file_payload = build_file_payload(candidate_files)
+
+    if progress_callback:
+        progress_callback("edit-plan", "正在生成具体改动方案")
     edit_plan = client.create_edit_plan(task_text, repo_snapshot, file_payload)
 
+    if progress_callback:
+        progress_callback("apply", "正在修改代码文件")
     apply_code, apply_output = apply_edit_plan(edit_plan)
     if apply_code != 0:
         return apply_code, edit_plan.summary or plan.summary or "AI 执行失败", apply_output
 
     validation_steps = edit_plan.validation_steps or plan.validation_steps or ["compile_backend", "git_status"]
+    if progress_callback:
+        progress_callback("validate", "正在运行验证步骤")
     validation_code, validation_output = run_validation_steps(validation_steps)
+
     exit_code = 0 if validation_code == 0 else 1
     summary = edit_plan.summary or plan.summary or "AI 任务已执行"
     output = "\n\n".join(part for part in [apply_output, validation_output] if part.strip())

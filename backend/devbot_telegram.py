@@ -10,16 +10,19 @@ TELEGRAM_API_BASE = "https://api.telegram.org"
 MESSAGE_LIMIT = 3800
 
 HELP_TEXT = """可用命令：
-/status - 查看机器人和最近任务状态
+/status - 查看机器人状态和最近任务
+/current - 查看当前正在执行的任务
 /whoami - 查看当前 Telegram 用户 ID
 /build - 运行前后端构建检查
-/test - 运行最小测试/编译检查
+/test - 运行最小测试和编译检查
 /deploy - 推送 main 并触发线上部署
 /logs - 查看最近一次任务日志摘要
 /run 任务描述 - 交给 AI 执行一个具体开发任务
 
+也可以直接发自然语言，我会默认按 /run 处理。
+
 示例：
-/run 修复文案组合里去重没有提示的问题
+/run 修复文案组合里去重没有 loading 提示的问题
 """
 
 
