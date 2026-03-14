@@ -512,24 +512,27 @@ export function splitSourceParagraphs(text: string) {
   }
 
   const sentenceBlocks =
-    normalized.match(/[^。！？!?]+[。！？!?]?/g)?.map((item) => item.trim()).filter(Boolean) ?? [];
+    normalized.match(/[^。！？!?]+[。！？!?]/g)?.map((item) => item.trim()).filter(Boolean) ?? [];
 
   if (sentenceBlocks.length <= 3) {
     return [normalized];
   }
 
+  // 按完整句子边界合并，不在句子中间断段
   const paragraphs: string[] = [];
   let current = "";
   sentenceBlocks.forEach((sentence) => {
-    current = `${current}${sentence}`.trim();
-    if (current.length >= 120) {
-      paragraphs.push(current);
-      current = "";
+    const next = current ? `${current}${sentence}` : sentence;
+    if (current && current.length >= 60 && next.length >= 100) {
+      paragraphs.push(current.trim());
+      current = sentence;
+    } else {
+      current = next;
     }
   });
 
   if (current) {
-    paragraphs.push(current);
+    paragraphs.push(current.trim());
   }
 
   return paragraphs.filter(Boolean);
@@ -2906,10 +2909,6 @@ function buildViralDraftParagraphs(task: TaskForm, skeleton: SkeletonItem, meatP
 
       if (index === 0) {
         return lightlyRewriteViralParagraph(sentences.slice(1).join("").trim(), index);
-      }
-
-      if (index === sourceParagraphs.length - 1) {
-        return lightlyRewriteViralParagraph(stripTrailingParagraphCta(paragraph), index);
       }
 
       return lightlyRewriteViralParagraph(paragraph.trim(), index);
