@@ -1,13 +1,5 @@
 import type { BridgeStrength, BusinessMode, HotspotType, TaskForm, TaskStrategy } from "../types";
-
-const BUSINESS_KEYWORDS = /(AI获客|数字IP|数字资产|私域|自动化|内容增长|流量增长|企业增长|老板增长|数字人|客户承接|获客链路)/i;
-const AI_KEYWORDS = /(AI|人工智能|AIGC|智能体|算法)/i;
-const REGULATION_KEYWORDS = /(风险|监管|合规|提醒|回应|代表|委员|专家|两会|政策|权益|替代|工作|岗位|司机|平台治理)/i;
-const PLATFORM_KEYWORDS = /(平台|腾讯|微信|抖音|小红书|快手|视频号|支付宝|规则|入口|改版|封禁|封号|流量口子|推荐机制)/i;
-const MACRO_KEYWORDS = /(油价|利率|汇率|战争|冲突|关税|供应链|黄金|楼市|房价|A股|股市|美股|原油|能源|出口|外贸)/i;
-const SOCIAL_HEAT_KEYWORDS = /(爆火|爆红|刷屏|热搜|走红|争议|围观|全网都在看|带火)/i;
-const AGGREGATE_KEYWORDS = /(今日热点|热点新闻|新闻摘要|早知道|盘点|合集|速览|汇总|看完)/i;
-const WEALTH_KEYWORDS = /(农业时代|工业时代|互联网时代|数字时代|财富洗牌|第四次变革|数字资产|资源更替|变现逻辑)/i;
+import { AI_KEYWORDS, AGGREGATE_KEYWORDS, BUSINESS_KEYWORDS, MACRO_KEYWORDS, PLATFORM_KEYWORDS, REGULATION_KEYWORDS, SOCIAL_HEAT_KEYWORDS, WEALTH_KEYWORDS } from "./keywords";
 
 function cleanText(text: string) {
   return text.replace(/\s+/g, " ").trim();

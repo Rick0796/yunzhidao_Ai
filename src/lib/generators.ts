@@ -21,6 +21,7 @@ import {
   buildMockSkeletons,
   splitSourceParagraphs
 } from "./mock";
+import { hasDirectBusinessAnchor } from "./keywords";
 import { buildHookExampleLines, buildHookPromptRuleLines } from "./hookEngine";
 import { generateJson } from "./llm";
 import { formatSkeletonExecutionLines, getSkeletonMeatStartIndex } from "./skeletons";
@@ -56,11 +57,6 @@ function buildHookStructureGuide(task: TaskForm) {
     "如果第一段是财富阶段/逻辑切换，皮可以先打时代变化、旧逻辑失效、结果判决，但不能慢慢解释。",
     "禁止出现这种错法：皮在讲业务结论，正文第一段却还在补事件事实。"
   ].filter(Boolean);
-}
-
-function sourceHasDirectBusinessAnchor(text: string) {
-  return /(AI获客|数字IP|数字资产|获客|流量|私域|自动化|平台变化|内容增长|企业增长|老板增长|数字人|客户|订单|转化)/.test(text)
-    || /(AI|人工智能).{0,12}(获客|流量|转化|客户|商业化|内容增长|数字人|企业增长|老板增长)/.test(text);
 }
 
 function splitViralReferenceParagraphs(task: TaskForm) {
@@ -147,7 +143,7 @@ export async function runHookGeneration(
     ].join("\n");
   } else if (task.entryType === "hotspot") {
     coreContent = task.sourceText || "";
-    const sourceHasBusinessAnchor = sourceHasDirectBusinessAnchor(coreContent);
+    const sourceHasBusinessAnchor = hasDirectBusinessAnchor(coreContent);
     entrySpecificInstruction = [
       "【蹭热点要求】",
       "1. 开头必须直接借热点本身的人物、平台、时间或冲突点，不要绕远。",
@@ -200,7 +196,7 @@ export async function runHookGeneration(
       "- 每条钩子都必须是第一句话就能抓住人的句子，要像判决、爆料、命令、预警、拷问或异常发现。",
       ...buildHookPromptRuleLines({
         allowBusinessKeywords:
-          task.entryType === "viral" ? false : task.entryType === "hotspot" ? sourceHasDirectBusinessAnchor(task.sourceText || "") : true
+          task.entryType === "viral" ? false : task.entryType === "hotspot" ? hasDirectBusinessAnchor(task.sourceText || "") : true
       }),
       "- 3条可以有不同注意力入口，但必须都跟这条内容强相关；如果某种入口不适合这个内容，就不要硬凑。",
       "- 每条钩子的 text 字段只写那一句开头，不要写后续内容。",

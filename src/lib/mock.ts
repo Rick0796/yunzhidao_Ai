@@ -22,6 +22,7 @@ import { overlapScore } from "./textMatch";
 import { getHookLeadScore } from "./hookEngine";
 import { createSkeletonStep, normalizeSkeletonStep } from "./skeletons";
 import { analyzeTaskStrategy } from "./taskStrategy";
+import { hasDirectBusinessAnchor, viralHasBusinessAnchor } from "./keywords";
 
 const typeLabelMap: Record<EntryType, string> = {
   viral: "仿写爆款",
@@ -1316,9 +1317,7 @@ function defaultCtaText(ctaMode: CtaMode, profile: BaseProfile) {
 }
 
 function viralSourceHasBusinessAnchor(task: TaskForm) {
-  return /(AI获客|数字IP|数字资产|获客|流量|私域|自动化|内容增长|企业增长|老板增长|数字人|客户|订单|转化|系统|方法|训练营|公开课)/.test(
-    task.sourceText || task.userNote || ""
-  );
+  return viralHasBusinessAnchor(task.sourceText || "", task.userNote || "");
 }
 
 function inferSafeViralKeyword(task: TaskForm) {
@@ -1543,9 +1542,7 @@ function buildViralSourceHookCandidates(task: TaskForm) {
 export function buildMockHooks(task: TaskForm): HookItem[] {
   const hookTask = task.entryType === "hotspot" ? { ...task, hotspotAngle: "" } : task;
   const strategy = analyzeTaskStrategy(hookTask);
-  const sourceHasDirectBusinessAnchor =
-    /(AI获客|数字IP|数字资产|获客|流量|私域|自动化|内容增长|平台变化|企业增长|老板增长|数字人|客户|订单|转化)/.test(hookTask.sourceText || "")
-    || /(AI|人工智能).{0,12}(获客|流量|转化|客户|商业化|内容增长|数字人|企业增长|老板增长)/.test(hookTask.sourceText || "");
+  const sourceHasDirectBusinessAnchor = hasDirectBusinessAnchor(hookTask.sourceText || "");
   const anchor = inferHookAnchor(hookTask);
   const theme = inferHookTheme(hookTask);
   const target = inferHookTarget(hookTask);
@@ -1728,11 +1725,9 @@ interface DraftMeatPlan {
 }
 
 function buildDraftMeatPlan(task: TaskForm, meat: MeatItem | null): DraftMeatPlan {
-  const viralSourceHasBusinessAnchor = /(AI获客|数字IP|数字资产|获客|流量|私域|自动化|内容增长|企业增长|老板增长|数字人|客户|订单|转化|系统|方法|训练营|公开课)/.test(
-    task.sourceText || task.userNote || ""
-  );
+  const hasBusinessAnchor = viralHasBusinessAnchor(task.sourceText || "", task.userNote || "");
 
-  if (!meat || (task.entryType === "viral" && !viralSourceHasBusinessAnchor)) {
+  if (!meat || (task.entryType === "viral" && !hasBusinessAnchor)) {
     return {
       bridgeLine: "",
       serviceLine: "",

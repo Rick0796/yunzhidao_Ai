@@ -159,8 +159,10 @@ export async function generateJson<T>({
     };
   }
 
+  // 前端比后端(120s)早10秒中止，避免 signal aborted without reason
+  const frontendTimeout = Math.max(30000, settings.requestTimeoutMs - 10000);
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), settings.requestTimeoutMs);
+  const timer = window.setTimeout(() => controller.abort(), frontendTimeout);
 
   try {
     const randomSeed = Math.random().toString(36).substring(7);
