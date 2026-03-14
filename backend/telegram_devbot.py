@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -109,6 +110,30 @@ def _run_named_task(
     )
 
 
+def _start_named_task(
+    client: TelegramClient,
+    store: TaskStore,
+    *,
+    chat_id: str,
+    user_id: str,
+    kind: str,
+    command_text: str,
+) -> None:
+    thread = threading.Thread(
+        target=_run_named_task,
+        kwargs={
+            "client": client,
+            "store": store,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "kind": kind,
+            "command_text": command_text,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+
 def _run_ai_task(
     client: TelegramClient,
     store: TaskStore,
@@ -157,6 +182,43 @@ def _run_ai_task(
     )
 
 
+def _start_ai_task(
+    client: TelegramClient,
+    store: TaskStore,
+    *,
+    chat_id: str,
+    user_id: str,
+    task_text: str,
+) -> None:
+    thread = threading.Thread(
+        target=_run_ai_task,
+        kwargs={
+            "client": client,
+            "store": store,
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "task_text": task_text,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+
+def _looks_like_plain_greeting(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return normalized in {
+        "hi",
+        "hello",
+        "你好",
+        "在吗",
+        "在么",
+        "在嗎",
+        "在不在",
+        "有人吗",
+        "有人嗎",
+    }
+
+
 def handle_message(
     client: TelegramClient,
     store: TaskStore,
@@ -165,6 +227,13 @@ def handle_message(
     user_id: str,
     text: str,
 ) -> None:
+    if not (text or "").strip().startswith("/") and _looks_like_plain_greeting(text):
+        client.send_message(
+            chat_id,
+            "我在。你可以直接发开发任务给我，或者先用 /help 看命令。\n\n例如：/run 修复文案组合里去重按钮没有反馈的问题",
+        )
+        return
+
     command: ParsedCommand = parse_command(text)
 
     if command.name in {"", "/start", "/help"}:
@@ -188,7 +257,7 @@ def handle_message(
         return
 
     if command.name == "/build":
-        _run_named_task(
+        _start_named_task(
             client,
             store,
             chat_id=chat_id,
@@ -199,7 +268,7 @@ def handle_message(
         return
 
     if command.name == "/test":
-        _run_named_task(
+        _start_named_task(
             client,
             store,
             chat_id=chat_id,
@@ -210,7 +279,7 @@ def handle_message(
         return
 
     if command.name == "/deploy":
-        _run_named_task(
+        _start_named_task(
             client,
             store,
             chat_id=chat_id,
@@ -224,7 +293,7 @@ def handle_message(
         if not command.argument:
             client.send_message(chat_id, "请在 /run 后面附上明确任务，例如：/run 修复去重按钮无反馈")
             return
-        _run_ai_task(
+        _start_ai_task(
             client,
             store,
             chat_id=chat_id,
@@ -244,6 +313,7 @@ def main() -> None:
         raise RuntimeError("缺少 TELEGRAM_ALLOWED_USER_ID，请先配置允许操作的 Telegram 用户")
 
     store = TaskStore(bot_config.db_path)
+    store.mark_running_tasks_interrupted("机器人重启，上一轮运行中的任务已中断")
     client = TelegramClient(bot_config.token)
     offset = store.get_offset()
 

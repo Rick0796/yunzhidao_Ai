@@ -135,3 +135,19 @@ class TaskStore:
                 """
             ).fetchone()
         return row
+
+    def mark_running_tasks_interrupted(self, summary: str) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE telegram_tasks
+                SET status = 'failed',
+                    finished_at = ?,
+                    exit_code = 1,
+                    summary = ?,
+                    output = COALESCE(output, '')
+                WHERE status = 'running'
+                """,
+                (utc_now(), summary),
+            )
+            return int(cursor.rowcount or 0)
