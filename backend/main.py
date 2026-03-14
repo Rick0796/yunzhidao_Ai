@@ -28,6 +28,7 @@ try:
         init_script_library,
         list_script_documents,
         list_script_sections,
+        list_compose_candidates,
         render_script_document_text,
         resolve_script_library_db_path,
         upsert_script_document,
@@ -2254,6 +2255,36 @@ async def list_library_sections(
             "secondaryDirection": secondary_direction,
             "sectionType": section_type,
             "limit": limit,
+        },
+    }
+
+
+@app.post("/api/library/compose-candidates")
+async def list_library_compose_candidates(request: Request) -> dict[str, Any]:
+    payload = await read_request_json(request)
+    theme = str(payload.get("theme") or "").strip()
+    primary_direction = str(payload.get("primaryDirection") or "").strip()
+    try:
+        limit_per_slot = int(payload.get("limitPerSlot") or 18)
+    except (TypeError, ValueError):
+        limit_per_slot = 18
+
+    if not theme:
+        raise HTTPException(status_code=400, detail="theme is required")
+
+    items = list_compose_candidates(
+        SCRIPT_LIBRARY_DB_PATH,
+        theme=theme,
+        primary_direction=primary_direction,
+        limit_per_slot=limit_per_slot,
+    )
+    return {
+        "items": items,
+        "count": len(items),
+        "theme": theme,
+        "primaryDirection": primary_direction,
+        "filters": {
+            "limitPerSlot": limit_per_slot,
         },
     }
 

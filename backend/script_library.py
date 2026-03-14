@@ -697,15 +697,9 @@ def fetch_script_document(original_id: str, db_path: Path | None = None) -> dict
                 "orderIndex": section["order_index"],
                 "sequenceNo": int(section["order_index"]) + 1,
                 "content": section["content"],
-                "entityTag": section["entity_tag"] or infer_entity_tag(row["theme"], row["secondary_direction"], section["content"]),
-                "topicFamily": section["topic_family"] or infer_topic_family(
-                    row["theme"],
-                    row["primary_direction"],
-                    row["secondary_direction"],
-                    section["content"],
-                ),
-                "bindingScope": section["binding_scope"]
-                or infer_binding_scope(section["content"], row["audience"], row["secondary_direction"]),
+                "entityTag": section["entity_tag"] or "none",
+                "topicFamily": section["topic_family"] or "general",
+                "bindingScope": section["binding_scope"] or "general",
             }
             for section in sections
         ],
@@ -817,20 +811,333 @@ def list_script_sections(
                 "label": SECTION_LABELS.get(row["section_type"], row["section_type"]),
                 "orderIndex": row["order_index"],
                 "content": row["content"],
-                "entityTag": row["entity_tag"] or infer_entity_tag(row["theme"], row["secondary_direction"], row["content"]),
-                "topicFamily": row["topic_family"] or infer_topic_family(
-                    row["theme"],
-                    row["primary_direction"],
-                    row["secondary_direction"],
-                    row["content"],
-                ),
-                "bindingScope": row["binding_scope"] or infer_binding_scope(row["content"], row["audience"], row["secondary_direction"]),
+                "entityTag": row["entity_tag"] or "none",
+                "topicFamily": row["topic_family"] or "general",
+                "bindingScope": row["binding_scope"] or "general",
             }
         )
         if len(filtered) >= row_limit:
             break
 
     return filtered
+
+
+COMPOSE_SLOT_BLUEPRINT: list[tuple[str, str]] = [
+    ("A", "A"),
+    ("B1", "B"),
+    ("C1", "C"),
+    ("D", "D"),
+    ("B2", "B"),
+    ("C2", "C"),
+    ("F", "F"),
+    ("G", "G"),
+    ("H", "H"),
+    ("I", "I"),
+    ("J", "J"),
+    ("K", "K"),
+    ("L", "L"),
+]
+
+COMPOSE_SLOT_ALLOWED_TYPES: dict[str, tuple[str, ...]] = {
+    "A": ("A",),
+    "B1": ("B",),
+    "C1": ("C",),
+    # D is a true bridge slot in this product. It can absorb pure D blocks,
+    # and can also borrow F/G/H/I/J style segments when they are serving as
+    # paving or transition rather than a strict main argument.
+    "D": ("D", "F", "G", "H", "I", "J"),
+    "B2": ("B",),
+    "C2": ("C",),
+    "F": ("F",),
+    "G": ("G",),
+    "H": ("H",),
+    "I": ("I",),
+    "J": ("J",),
+    "K": ("K",),
+    "L": ("L",),
+}
+
+OPENING_SCAFFOLD_MARKERS = (
+    "这不是我说的",
+    "告诉你一个",
+    "这话你现在",
+    "这句话你现在",
+    "尤其后面",
+    "尤其是后面",
+    "马斯克刚刚",
+    "他在一场",
+    "长达三小时",
+    "四句让全网炸锅",
+    "第一句",
+    "第二句",
+    "第三句",
+    "第四句",
+)
+
+SECOND_OPENING_MARKERS = (
+    "我不是跟你开玩笑",
+    "我做的预言全都会兑现",
+    "经常有人说",
+    "因为我懂历史",
+    "我再给你做一个预言",
+    "新的财富风口在哪里",
+    "接下来这五分钟很重要",
+    "会改变你的命运",
+    "我花了三天时间",
+    "来自未来的风险提示书",
+    "这不是一个科技大佬在吹牛",
+)
+
+THEME_STOPWORDS = {
+    "未来",
+    "普通人",
+    "我们",
+    "他们",
+    "这个",
+    "那个",
+    "什么",
+    "怎么",
+    "因为",
+    "今天",
+    "现在",
+    "就是",
+    "一个",
+    "已经",
+    "正在",
+    "非常",
+    "真的",
+    "可以",
+}
+
+
+def looks_like_opening_scaffold(text: str) -> bool:
+    normalized = normalize_meta_text(text)
+    return any(marker.lower() in normalized for marker in OPENING_SCAFFOLD_MARKERS)
+
+
+def looks_like_second_opening(text: str) -> bool:
+    normalized = normalize_meta_text(text)
+    return any(marker.lower() in normalized for marker in SECOND_OPENING_MARKERS)
+
+
+def extract_theme_markers(theme: str, primary_direction: str) -> set[str]:
+    normalized = normalize_meta_text(theme, primary_direction)
+    markers: set[str] = set()
+
+    for _, family_markers in TOPIC_FAMILY_PATTERNS:
+        for marker in family_markers:
+            marker_text = str(marker or "").strip().lower()
+            if len(marker_text) < 2:
+                continue
+            if marker_text in normalized:
+                markers.add(marker_text)
+
+    for _, entity_markers in ENTITY_PATTERNS:
+        for marker in entity_markers:
+            marker_text = str(marker or "").strip().lower()
+            if len(marker_text) < 2:
+                continue
+            if marker_text in normalized:
+                markers.add(marker_text)
+
+    if not markers:
+        raw_tokens = re.findall(r"[a-z0-9]{2,}|[\u4e00-\u9fff]{2,8}", normalized)
+        for token in raw_tokens:
+            token = token.strip().lower()
+            if token and token not in THEME_STOPWORDS:
+                markers.add(token)
+
+    return markers
+
+
+def keyword_overlap_score(markers: set[str], content: str) -> int:
+    if not markers:
+        return 0
+    normalized = normalize_meta_text(content)
+    hits = sum(1 for marker in markers if marker in normalized)
+    return min(hits * 6, 30)
+
+
+def richness_score(content: str) -> int:
+    text = str(content or "").strip()
+    if not text:
+        return -40
+    sentence_count = len([item for item in re.split(r"[。！？!?；;\n]", text) if item.strip()])
+    score = min(sentence_count * 3, 18)
+    if len(text) < 28:
+        score -= 10
+    elif len(text) > 160:
+        score += 4
+    return score
+
+
+def compose_candidate_score(
+    slot_key: str,
+    section_type: str,
+    item: dict[str, Any],
+    *,
+    primary_direction: str,
+    theme_markers: set[str],
+    theme_family: str,
+    theme_entity: str,
+    allow_family_binding: bool,
+) -> int:
+    allowed_types = COMPOSE_SLOT_ALLOWED_TYPES.get(slot_key, (section_type,))
+    if item["type"] not in allowed_types:
+        return -10_000
+
+    score = 0
+    if item["type"] == section_type:
+        score += 6
+    elif slot_key == "D":
+        score -= 6
+
+    row_primary = canonical_direction_label(str(item["primaryDirection"] or ""))
+    target_primary = canonical_direction_label(str(primary_direction or ""))
+    if row_primary == target_primary:
+        score += 18
+    elif target_primary:
+        score -= 26
+
+    if theme_family and theme_family != "general":
+        if item.get("topicFamily") == theme_family:
+            score += 18
+        elif topic_family_cluster(item.get("topicFamily")) == topic_family_cluster(theme_family):
+            score += 10
+
+    if theme_entity and theme_entity != "none" and item.get("entityTag") == theme_entity:
+        score += 8
+
+    score += keyword_overlap_score(theme_markers, item["content"])
+    score += richness_score(item["content"])
+
+    if slot_key != "A" and looks_like_opening_scaffold(item["content"]):
+        score -= 45
+    if slot_key in {"B1", "B2"} and looks_like_second_opening(item["content"]):
+        score -= 55
+    if slot_key not in {"A", "B1", "B2"} and looks_like_second_opening(item["content"]):
+        score -= 30
+
+    binding_scope = str(item.get("bindingScope") or "general")
+    if not allow_family_binding and binding_scope in {"family", "relationship"}:
+        score -= 18
+
+    return score
+
+
+def topic_family_cluster(topic_family: Any) -> str:
+    value = str(topic_family or "").strip()
+    if not value or value in {"general", "ai_general", "wealth_general", "cognition_general"}:
+        return "generic"
+    if value.startswith("musk_"):
+        return "musk"
+    return value
+
+
+def build_slot_candidate_map(
+    *,
+    items: list[dict[str, Any]],
+    theme: str,
+    primary_direction: str,
+    limit_per_slot: int,
+) -> list[dict[str, Any]]:
+    theme_markers = extract_theme_markers(theme, primary_direction)
+    theme_family = infer_topic_family(theme, primary_direction, "", theme)
+    theme_entity = infer_entity_tag(theme, primary_direction)
+    allow_family_binding = any(marker in normalize_meta_text(theme) for marker in ("孩子", "家长", "父母", "婚姻", "夫妻"))
+
+    slot_scores_by_material: dict[str, dict[str, int]] = {}
+    items_by_material: dict[str, dict[str, Any]] = {}
+
+    for slot_key, section_type in COMPOSE_SLOT_BLUEPRINT:
+        ranked: list[tuple[int, dict[str, Any]]] = []
+        for item in items:
+            score = compose_candidate_score(
+                slot_key,
+                section_type,
+                item,
+                primary_direction=primary_direction,
+                theme_markers=theme_markers,
+                theme_family=theme_family,
+                theme_entity=theme_entity,
+                allow_family_binding=allow_family_binding,
+            )
+            if score <= -1_000:
+                continue
+            ranked.append((score, item))
+
+        ranked.sort(key=lambda pair: pair[0], reverse=True)
+        selected: list[tuple[int, dict[str, Any]]] = []
+        seen_original_ids: set[str] = set()
+        seen_topic_families: set[str] = set()
+
+        for score, item in ranked:
+            original_id = str(item.get("originalId") or "")
+            topic_family = str(item.get("topicFamily") or "")
+            if original_id and original_id in seen_original_ids and len(selected) < max(4, limit_per_slot // 2):
+                continue
+            if topic_family and topic_family in seen_topic_families and len(selected) < max(4, limit_per_slot // 2):
+                continue
+            selected.append((score, item))
+            if original_id:
+                seen_original_ids.add(original_id)
+            if topic_family and topic_family != "general":
+                seen_topic_families.add(topic_family)
+            if len(selected) >= limit_per_slot:
+                break
+
+        for score, item in selected:
+            material_id = str(item["materialId"])
+            items_by_material.setdefault(material_id, item)
+            slot_scores = slot_scores_by_material.setdefault(material_id, {})
+            slot_scores[slot_key] = max(score, slot_scores.get(slot_key, -10_000))
+
+    result: list[dict[str, Any]] = []
+    for material_id, item in items_by_material.items():
+        slot_scores = slot_scores_by_material.get(material_id, {})
+        if not slot_scores:
+            continue
+        result.append(
+            {
+                **item,
+                "candidateSlots": sorted(slot_scores.keys()),
+                "candidateScore": max(slot_scores.values()),
+                "slotScores": slot_scores,
+            }
+        )
+
+    result.sort(
+        key=lambda item: (
+            -int(item.get("candidateScore") or 0),
+            str(item.get("type") or ""),
+            str(item.get("materialId") or ""),
+        )
+    )
+    return result
+
+
+def list_compose_candidates(
+    db_path: Path | None = None,
+    *,
+    theme: str,
+    primary_direction: str = "",
+    limit_per_slot: int = 18,
+) -> list[dict[str, Any]]:
+    normalized_primary = str(primary_direction or "").strip()
+    if not normalized_primary:
+        normalized_primary = "AI趋势"
+
+    items = list_script_sections(
+        db_path,
+        primary_direction=normalized_primary,
+        limit=1000,
+    )
+    return build_slot_candidate_map(
+        items=items,
+        theme=theme,
+        primary_direction=normalized_primary,
+        limit_per_slot=max(6, min(int(limit_per_slot or 18), 30)),
+    )
 
 
 def count_script_documents(db_path: Path | None = None) -> int:
