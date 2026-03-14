@@ -69,7 +69,7 @@ function splitViralReferenceParagraphs(task: TaskForm) {
     .map((paragraph, index) => {
       const sentences = paragraph.match(/[^。！？!?]+[。！？!?]?/g)?.map((item) => item.trim()).filter(Boolean) ?? [];
       if (!sentences.length) return "";
-      if (index === 0) return sentences.slice(1).join("").trim();
+      if (index === 0) return paragraph.trim();
       if (index === sourceParagraphs.length - 1) {
         return paragraph
           .replace(/，?趁现在还没划走.*$/g, "")
