@@ -197,11 +197,11 @@ export function displayCtaMode(mode: CtaMode): string {
 export const defaultApiSettings: ApiSettings = {
   useLiveApi: true,
   baseUrl: "/ai-api/v1",
-  apiKey: "uupz2vFsrvOWS2gky80dtT96xlBO8jHI",
-  mainModel: "gpt-4o-mini",
-  batchModel: "gpt-4o-mini",
-  polishModel: "gpt-4o-mini",
-  imageModel: "gpt-4o",
+  apiKey: "sk-ZUl7JB6pCYDywsuMnAH5tcewOxfqPYYv8WYKCgeOcKWoMQB9",
+  mainModel: "gemini-3-flash",
+  batchModel: "gemini-3-flash",
+  polishModel: "gemini-3-flash",
+  imageModel: "gemini-2.5-flash",
   requestTimeoutMs: 120000
 };
 

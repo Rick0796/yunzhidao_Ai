@@ -14,7 +14,7 @@
   "rewrites": [
     {
       "source": "/ai-api/:path*",
-      "destination": "http://proxy.fakestcode.xin/back/:path*"
+      "destination": "https://llm.xiaochisaas.com/:path*"
     },
     {
       "source": "/api/workflows/hot-rank",

@@ -12,9 +12,9 @@ export default defineConfig({
         changeOrigin: true
       },
       "/ai-api": {
-        target: "http://proxy.fakestcode.xin",
+        target: "https://llm.xiaochisaas.com",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/ai-api/, "/back")
+        rewrite: (path) => path.replace(/^\/ai-api/, "")
       }
     }
   }

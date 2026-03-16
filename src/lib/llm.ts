@@ -180,6 +180,7 @@ export async function generateJson<T>({
         model: model || settings.mainModel,
         temperature: 0.75,
         top_p: 0.9,
+        max_tokens: 4000,
         messages: [
           {
             role: "system",
