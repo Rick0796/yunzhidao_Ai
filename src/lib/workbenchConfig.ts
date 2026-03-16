@@ -201,7 +201,7 @@ export const defaultApiSettings: ApiSettings = {
   mainModel: "gemini-3-flash",
   batchModel: "gemini-3-flash",
   polishModel: "gemini-3-flash",
-  imageModel: "claude-sonnet-4-5",
+  imageModel: "gemini-2.5-flash",
   requestTimeoutMs: 120000
 };
 
