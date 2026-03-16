@@ -12,8 +12,10 @@ from bs4 import BeautifulSoup
 
 try:
     from .free_search import fetch_clean_content, search_duckduckgo, search_news, summarize_content
+    from .platform_utils import clean_text, collect_business_keyword_hits, dedupe_strings
 except ImportError:
     from free_search import fetch_clean_content, search_duckduckgo, search_news, summarize_content
+    from platform_utils import clean_text, collect_business_keyword_hits, dedupe_strings
 
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -87,30 +89,10 @@ PRIMARY_BUSINESS_KEYWORDS = {
 }
 
 
-def clean_text(text: Any) -> str:
-    """清理文本"""
-    if text is None:
-        return ""
-    return re.sub(r'\s+', ' ', str(text)).strip()
-
-
 def trim_text(text: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text
     return text[: max_length - 1].rstrip(" ，。；;:：") + "…"
-
-
-def dedupe_strings(items: list[str]) -> list[str]:
-    results: list[str] = []
-    seen: set[str] = set()
-    for item in items:
-        value = clean_text(item)
-        key = re.sub(r"[\W_]+", "", value.lower())
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        results.append(value)
-    return results
 
 
 def collect_business_matches(text: str) -> tuple[list[str], int]:

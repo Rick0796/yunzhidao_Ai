@@ -19,7 +19,7 @@ except ImportError as exc:  # pragma: no cover
 try:
     from fastapi import FastAPI, HTTPException, Request, Query
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse, JSONResponse
+    from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
     import uvicorn
     from backend.script_library import (
@@ -38,6 +38,7 @@ except ImportError as exc:  # pragma: no cover
 
 
 from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
+from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
 
 RUNTIME_PATHS = resolve_runtime_paths()
 ROOT_DIR = RUNTIME_PATHS.root_dir
@@ -380,18 +381,104 @@ DISPLAY_TITLE_MAX_LENGTH = 24
 DISPLAY_SUMMARY_MAX_LENGTH = 28
 BUSINESS_REASON_MAX_LENGTH = 90
 
-HOT_RANK_CACHE: dict[str, Any] | None = None
-HOT_RANK_REFRESH_TASK: asyncio.Task[Any] | None = None
-HOT_RANK_REFRESH_LOCK = asyncio.Lock()
-HOT_RANK_REFRESH_RETRY_COOLDOWN_SECONDS = 5 * 60
-HOT_RANK_REFRESH_ERROR: dict[str, Any] | None = None
-
-
 class UpstreamHttpError(Exception):
     def __init__(self, status_code: int, raw_text: str):
         super().__init__(f"HTTP {status_code}")
         self.status_code = status_code
         self.raw_text = raw_text
+
+
+class HotRankCacheManager:
+    """热榜缓存管理器，封装全局缓存状态和并发控制"""
+
+    def __init__(self, cache_path: Path, max_age_seconds: int):
+        self.cache_path = cache_path
+        self.max_age_seconds = max_age_seconds
+        self._cache: dict[str, Any] | None = None
+        self._refresh_task: asyncio.Task[Any] | None = None
+        self._refresh_lock = asyncio.Lock()
+        self._refresh_error: dict[str, Any] | None = None
+        self.retry_cooldown_seconds = 5 * 60
+
+    @property
+    def cache(self) -> dict[str, Any] | None:
+        """获取当前缓存"""
+        return self._cache
+
+    @cache.setter
+    def cache(self, value: dict[str, Any] | None) -> None:
+        """设置缓存"""
+        self._cache = value
+
+    @property
+    def refresh_task(self) -> asyncio.Task[Any] | None:
+        """获取刷新任务"""
+        return self._refresh_task
+
+    @refresh_task.setter
+    def refresh_task(self, value: asyncio.Task[Any] | None) -> None:
+        """设置刷新任务"""
+        self._refresh_task = value
+
+    @property
+    def refresh_lock(self) -> asyncio.Lock:
+        """获取刷新锁"""
+        return self._refresh_lock
+
+    @property
+    def refresh_error(self) -> dict[str, Any] | None:
+        """获取刷新错误"""
+        return self._refresh_error
+
+    @refresh_error.setter
+    def refresh_error(self, value: dict[str, Any] | None) -> None:
+        """设置刷新错误"""
+        self._refresh_error = value
+
+    def is_cache_stale(self) -> bool:
+        """检查缓存是否过期"""
+        if not self._cache:
+            return True
+        fetched_at = self._cache.get("fetchedAt")
+        if not fetched_at:
+            return True
+        try:
+            fetched_time = time.mktime(time.strptime(fetched_at, "%Y-%m-%d %H:%M:%S"))
+            return (time.time() - fetched_time) > self.max_age_seconds
+        except (ValueError, TypeError):
+            return True
+
+    def load_from_disk(self) -> dict[str, Any] | None:
+        """从磁盘加载缓存"""
+        if not self.cache_path.exists():
+            return None
+        try:
+            data = json.loads(self.cache_path.read_text(encoding="utf-8-sig"))
+            if isinstance(data, dict):
+                self._cache = data
+                return data
+        except (OSError, json.JSONDecodeError):
+            pass
+        return None
+
+    def save_to_disk(self, data: dict[str, Any]) -> None:
+        """保存缓存到磁盘"""
+        try:
+            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+            self.cache_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+            self._cache = data
+        except OSError:
+            pass
+
+
+# 全局缓存管理器实例
+hot_rank_cache_manager = HotRankCacheManager(
+    cache_path=HOT_RANK_CACHE_PATH,
+    max_age_seconds=HOT_RANK_CACHE_MAX_AGE_SECONDS
+)
 
 
 def read_json(path: Path) -> dict[str, Any] | None:
@@ -592,17 +679,17 @@ def stringify_error(detail: Any) -> str:
 
 
 def get_hot_rank_cache() -> dict[str, Any] | None:
-    global HOT_RANK_CACHE
-    if isinstance(HOT_RANK_CACHE, dict):
-        if to_int(HOT_RANK_CACHE.get("cacheVersion"), 0) == HOT_RANK_CACHE_VERSION:
-            return HOT_RANK_CACHE
-        HOT_RANK_CACHE = None
+    cache = hot_rank_cache_manager.cache
+    if isinstance(cache, dict):
+        if to_int(cache.get("cacheVersion"), 0) == HOT_RANK_CACHE_VERSION:
+            return cache
+        hot_rank_cache_manager.cache = None
 
     cache = read_json(HOT_RANK_CACHE_PATH)
     if isinstance(cache, dict):
         if to_int(cache.get("cacheVersion"), 0) != HOT_RANK_CACHE_VERSION:
             return None
-        HOT_RANK_CACHE = cache
+        hot_rank_cache_manager.cache = cache
         return cache
     return None
 
@@ -635,16 +722,16 @@ def hot_rank_should_refresh_inline(cache: dict[str, Any] | None, *, force_refres
 
 
 def get_hot_rank_refresh_error() -> dict[str, Any] | None:
-    global HOT_RANK_REFRESH_ERROR
-    if not isinstance(HOT_RANK_REFRESH_ERROR, dict):
+    error = hot_rank_cache_manager.refresh_error
+    if not isinstance(error, dict):
         return None
-    error_ts = to_int(HOT_RANK_REFRESH_ERROR.get("ts"), 0)
+    error_ts = to_int(error.get("ts"), 0)
     if error_ts <= 0:
         return None
-    if int(time.time()) - error_ts > HOT_RANK_REFRESH_RETRY_COOLDOWN_SECONDS:
-        HOT_RANK_REFRESH_ERROR = None
+    if int(time.time()) - error_ts > hot_rank_cache_manager.retry_cooldown_seconds:
+        hot_rank_cache_manager.refresh_error = None
         return None
-    return HOT_RANK_REFRESH_ERROR
+    return error
 
 
 def build_hot_rank_cache_payload(result: dict[str, Any], workflow_id: str, workflow_name: str) -> dict[str, Any]:
@@ -728,39 +815,6 @@ def build_hot_rank_placeholder(workflow_id: str, workflow_name: str, *, refreshi
 
 def contains_keyword(text: str, keyword: str) -> bool:
     return keyword.lower() in text.lower()
-
-
-def dedupe_strings(values: list[str]) -> list[str]:
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        text = clean_text(value)
-        key = re.sub(r"[\W_]+", "", text.lower())
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        cleaned.append(text)
-    return cleaned
-
-
-def collect_business_keyword_hits(text: str) -> tuple[list[str], int]:
-    normalized = clean_text(text).lower()
-    hits: list[str] = []
-    score = 0
-
-    for keyword, weight in BUSINESS_KEYWORD_WEIGHTS.items():
-        if keyword in normalized:
-            hits.append(keyword)
-            score += weight
-
-    if re.search(r"(监管|合规|治理|处罚|封号|风险)", normalized):
-        score += 2
-    if re.search(r"(获客|流量|转化|客户|成交|订单)", normalized):
-        score += 2
-    if re.search(r"(创业|企业|经营|老板)", normalized):
-        score += 1
-
-    return dedupe_strings(hits)[:6], score
 
 
 def collect_ai_keyword_hits(text: str) -> tuple[list[str], int]:
@@ -1242,12 +1296,11 @@ def normalize_hot_rank_result(result: dict[str, Any]) -> dict[str, Any]:
 
 
 async def refresh_hot_rank_cache(*, force: bool) -> dict[str, Any]:
-    global HOT_RANK_CACHE, HOT_RANK_REFRESH_ERROR
     cache = get_hot_rank_cache()
     if cache and hot_rank_cache_is_fresh(cache) and not force:
         return cache
 
-    async with HOT_RANK_REFRESH_LOCK:
+    async with hot_rank_cache_manager.refresh_lock:
         cache = get_hot_rank_cache()
         if cache and hot_rank_cache_is_fresh(cache) and not force:
             return cache
@@ -1261,25 +1314,23 @@ async def refresh_hot_rank_cache(*, force: bool) -> dict[str, Any]:
             display_all_limit=HOT_RANK_DEFAULT_ALL_LIMIT,
             display_business_limit=HOT_RANK_DEFAULT_BUSINESS_LIMIT,
         )
-        HOT_RANK_CACHE = cache_payload
-        HOT_RANK_REFRESH_ERROR = None
+        hot_rank_cache_manager.cache = cache_payload
+        hot_rank_cache_manager.refresh_error = None
         write_json(HOT_RANK_CACHE_PATH, cache_payload)
         return cache_payload
 
 
 def start_hot_rank_refresh(*, force: bool) -> None:
-    global HOT_RANK_REFRESH_TASK, HOT_RANK_REFRESH_ERROR
     if not hot_rank_supports_background_refresh():
         return
-    if HOT_RANK_REFRESH_TASK and not HOT_RANK_REFRESH_TASK.done():
+    if hot_rank_cache_manager.refresh_task and not hot_rank_cache_manager.refresh_task.done():
         return
 
     async def runner() -> None:
-        global HOT_RANK_REFRESH_ERROR
         try:
             await refresh_hot_rank_cache(force=force)
         except Exception as error:  # pragma: no cover
-            HOT_RANK_REFRESH_ERROR = {
+            hot_rank_cache_manager.refresh_error = {
                 "message": str(error),
                 "ts": int(time.time()),
             }
@@ -1293,26 +1344,12 @@ def start_hot_rank_refresh(*, force: bool) -> None:
                 }
             )
 
-    HOT_RANK_REFRESH_TASK = asyncio.create_task(runner())
+    hot_rank_cache_manager.refresh_task = asyncio.create_task(runner())
 
     def clear_task(_: asyncio.Task[Any]) -> None:
-        global HOT_RANK_REFRESH_TASK
-        HOT_RANK_REFRESH_TASK = None
+        hot_rank_cache_manager.refresh_task = None
 
-    HOT_RANK_REFRESH_TASK.add_done_callback(clear_task)
-
-
-def clean_text(value: Any) -> str:
-    if value is None:
-        return ""
-    text = html.unescape(str(value))
-    text = text.replace("\u3000", " ").replace("\xa0", " ")
-    text = re.sub(r"[\u0000-\u001f\u007f-\u009f\uE000-\uF8FF\uFFF0-\uFFFF�]+", " ", text)
-    text = re.sub(r"(?:更多资讯请)?(?:下载|打开)(?:[^\s，。！？!?]{0,10})?客户端", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    if text and UPSTREAM_ERROR_TEXT_PATTERN.search(text) and (text.startswith("{") or "SecurityCompromiseError" in text):
-        return ""
-    return text
+    hot_rank_cache_manager.refresh_task.add_done_callback(clear_task)
 
 
 def has_chinese(text: str) -> bool:
@@ -2377,7 +2414,6 @@ async def chat_completions(request: Request) -> JSONResponse:
 @app.post("/api/workflows/hot_rank")
 @app.post("/api/workflows/hot-rank")
 async def workflow_hot_rank(request: Request) -> JSONResponse:
-    global HOT_RANK_REFRESH_ERROR
     body = await read_request_json(request)
     start = time.perf_counter()
     status = 200
@@ -2390,7 +2426,7 @@ async def workflow_hot_rank(request: Request) -> JSONResponse:
     force_refresh = to_bool(body.get("forceRefresh"), False)
 
     cache = get_hot_rank_cache()
-    refreshing = HOT_RANK_REFRESH_TASK is not None and not HOT_RANK_REFRESH_TASK.done()
+    refreshing = hot_rank_cache_manager.refresh_task is not None and not hot_rank_cache_manager.refresh_task.done()
     recent_refresh_error = get_hot_rank_refresh_error()
     recent_refresh_warning = stringify_error(recent_refresh_error.get("message")) if recent_refresh_error else ""
 
@@ -2427,7 +2463,7 @@ async def workflow_hot_rank(request: Request) -> JSONResponse:
         if force_refresh:
             if recent_refresh_error:
                 recent_refresh_error = None
-                HOT_RANK_REFRESH_ERROR = None
+                hot_rank_cache_manager.refresh_error = None
                 recent_refresh_warning = ""
             if not refreshing:
                 start_hot_rank_refresh(force=True)
@@ -2770,7 +2806,7 @@ def free_item_to_hot_item(item: dict[str, Any], index: int, generated_at: str) -
     content = clean_text(item.get("content")) or summary or title
     merged_text = " ".join(filter(None, [title, summary, content]))
     directions = infer_bridge_directions(merged_text)
-    matched_keywords, signal_score = collect_business_keyword_hits(merged_text)
+    matched_keywords, signal_score = collect_business_keyword_hits(merged_text, BUSINESS_KEYWORD_WEIGHTS)
     key_points = split_search_sentences("\n".join(filter(None, [summary, content])), limit=3)
     timeline = extract_time_clues("\n".join(filter(None, [title, summary, content])))
     source_platform = clean_text(item.get("source_platform")).lower()
@@ -3023,6 +3059,11 @@ def hot_rank_detail_ready(content: str, title: str, summary: str) -> bool:
 
 
 @app.post("/api/free/hot_rank/detail")
+async def free_hot_rank_detail_underscore_redirect() -> JSONResponse:
+    """旧路由重定向到新路由"""
+    return RedirectResponse(url="/api/free/hot-rank/detail", status_code=308)
+
+
 @app.post("/api/free/hot-rank/detail")
 async def free_hot_rank_detail(request: Request) -> JSONResponse:
     if not FREE_SCRAPERS_AVAILABLE:
@@ -3098,7 +3139,7 @@ async def free_hot_rank_detail(request: Request) -> JSONResponse:
         summary = summarize_search_content(clean_content, max_length=220) or trim_text(title, 220)
     merged_text = " ".join(filter(None, [title, summary, clean_content]))
     directions = infer_bridge_directions(merged_text) if merged_text else []
-    _, signal_score = collect_business_keyword_hits(merged_text)
+    _, signal_score = collect_business_keyword_hits(merged_text, BUSINESS_KEYWORD_WEIGHTS)
     business_reason = infer_hot_boss_impact(merged_text, directions, signal_score) if merged_text else ""
     display_title = build_display_title(title, summary, clean_content)
     display_summary = build_display_summary(summary, clean_content, title)
@@ -3123,6 +3164,11 @@ async def free_hot_rank_detail(request: Request) -> JSONResponse:
 
 
 @app.get("/api/free/hot_rank")
+async def free_hot_rank_underscore_redirect() -> JSONResponse:
+    """旧路由重定向到新路由"""
+    return RedirectResponse(url="/api/free/hot-rank", status_code=308)
+
+
 @app.get("/api/free/hot-rank")
 async def free_hot_rank(
     platform: str = "all",
@@ -3162,7 +3208,7 @@ async def free_hot_rank(
             )
 
         cache = get_hot_rank_cache()
-        refreshing = HOT_RANK_REFRESH_TASK is not None and not HOT_RANK_REFRESH_TASK.done()
+        refreshing = hot_rank_cache_manager.refresh_task is not None and not hot_rank_cache_manager.refresh_task.done()
         recent_refresh_error = get_hot_rank_refresh_error()
         warning = stringify_error(recent_refresh_error.get("message")) if recent_refresh_error else ""
 

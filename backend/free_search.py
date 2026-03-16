@@ -15,6 +15,11 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 import requests
 from duckduckgo_search import DDGS
 
+try:
+    from .platform_utils import clean_text, looks_like_upstream_error
+except ImportError:
+    from platform_utils import clean_text, looks_like_upstream_error
+
 warnings.filterwarnings("ignore", message="This package (`duckduckgo_search`) has been renamed to `ddgs`!.*", category=RuntimeWarning)
 
 
@@ -111,18 +116,6 @@ LOW_QUALITY_TITLE_PATTERNS = (
 SESSION = requests.Session()
 SESSION.trust_env = False
 SESSION.headers.update(REQUEST_HEADERS)
-
-
-def clean_text(text: Any) -> str:
-    """清理文本"""
-    if text is None:
-        return ""
-    normalized = re.sub(r"[\u0000-\u001f\u007f-\u009f\uE000-\uF8FF\uFFF0-\uFFFF�]+", " ", str(text))
-    normalized = re.sub(r"(?:更多资讯请)?(?:下载|打开)(?:[^\s，。！？!?]{0,10})?客户端", " ", normalized)
-    normalized = WHITESPACE_PATTERN.sub(" ", normalized).strip()
-    if normalized and UPSTREAM_ERROR_TEXT_PATTERN.search(normalized) and (normalized.startswith("{") or "SecurityCompromiseError" in normalized):
-        return ""
-    return normalized
 
 
 def strip_url_noise(text: str) -> str:
