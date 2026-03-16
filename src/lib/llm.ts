@@ -141,6 +141,7 @@ export async function generateJson<T>({
   instruction,
   schemaHint,
   model,
+  maxTokens,
   fallback
 }: {
   settings: ApiSettings;
@@ -149,6 +150,7 @@ export async function generateJson<T>({
   instruction: string;
   schemaHint: string;
   model?: string;
+  maxTokens?: number;
   fallback: T;
 }): Promise<GenerationSource<T>> {
   if (!settings.useLiveApi) {
@@ -180,7 +182,7 @@ export async function generateJson<T>({
         model: model || settings.mainModel,
         temperature: 0.75,
         top_p: 0.9,
-        max_tokens: 4000,
+        max_tokens: maxTokens ?? 4000,
         messages: [
           {
             role: "system",

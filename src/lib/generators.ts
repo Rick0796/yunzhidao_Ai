@@ -526,6 +526,7 @@ export async function runDraftGeneration(
       task,
       fallback,
       model: settings.batchModel || settings.mainModel,
+      maxTokens: 8000,
       instruction: buildViralRewriteInstruction(task, hook, meat, cta),
       schemaHint: JSON.stringify(
         {
@@ -572,8 +573,8 @@ export async function runDraftGeneration(
     task,
     fallback,
     model: settings.batchModel || settings.mainModel,
-    instruction: [
-      "请基于用户选中的皮、骨、肉、收口，生成 5 个不同版本的完整短视频文案。",
+    maxTokens: 8000,
+    instruction: [,
       "",
       selectedParts,
       "",
