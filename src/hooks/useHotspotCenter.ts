@@ -74,7 +74,7 @@ function buildHotRankSearchFallbackQuery(item: Partial<HotRankItem & BusinessHot
 }
 
 export function useHotspotCenter(options: UseHotspotCenterOptions) {
-  const apiBaseUrl = options.baseUrl || "/api";
+  const apiBaseUrl = "/api";
   const [hotRankResult, setHotRankResult] = useStoredState<HotRankResponse | null>(STORAGE_KEYS.hotRankResult, null);
   const [hotRankFetchedAt, setHotRankFetchedAt] = useStoredState<string>(STORAGE_KEYS.hotRankFetchedAt, "");
   const [manualSearchResult, setManualSearchResult] = useState<ManualSearchResponse | null>(null);
