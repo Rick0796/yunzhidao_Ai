@@ -1320,7 +1320,7 @@ function extractViralSourceActionSentences(task: TaskForm) {
   return splitParagraphSentences(source)
     .map((item) => item.trim())
     .filter(Boolean)
-    .filter((item) => /(\u8bc4\u8bba\u533a|\u79c1\u4fe1|\u5173\u6ce8|\u4e3b\u9875|\u76f4\u64ad|\u5c0f\u7231\u5fc3|\u70b9\u4eae|\u7559\u8a00|\u53d1\u9001\u79c1\u4fe1|\u6211\u8981\u770b\u76f4\u64ad|\u76f4\u64ad\u5165\u53e3)/.test(item));
+    .filter((item) => /(\u8bc4\u8bba\u533a|\u79c1\u4fe1|\u5173\u6ce8|\u4e3b\u9875|\u76f4\u64ad|\u5c0f\u7231\u5fc3|\u70b9\u4eae|\u70b9\u4e2a\u5c0f\u7ea2\u5fc3|\u70b9\u4e2a\u7231\u5fc3|\u7559\u8a00|\u7559\u4e0b|\u53d1\u9001\u79c1\u4fe1|\u6211\u8981\u770b\u76f4\u64ad|\u770b\u76f4\u64ad|\u76f4\u64ad\u5165\u53e3)/.test(item));
 }
 
 function shortenViralCtaText(text: string) {
@@ -2026,6 +2026,16 @@ export function buildMockMeat(task: TaskForm, profile: BaseProfile): MeatItem[] 
 
 export function buildMockCtas(task: TaskForm, profile: BaseProfile): CtaItem[] {
   const keyword = inferTaskKeyword(task, profile);
+  const sourceCtas = task.entryType === "viral" ? extractViralSourceActionSentences(task).map((item) => shortenViralCtaText(item)).filter(Boolean) : [];
+
+  if (task.entryType === "viral" && sourceCtas.length > 0) {
+    return Array.from(new Set(sourceCtas)).slice(0, 3).map((text, index) => ({
+      id: createId("cta"),
+      type: "\u539f\u6587\u52a8\u4f5c\u4fdd\u7559\u578b",
+      text,
+      scenario: index === 0 ? "\u539f\u6587\u5c3e\u53e5 / \u4fdd\u771f\u4f18\u5148" : "\u539f\u6587\u52a8\u4f5c / \u8f7b\u6539\u53bb\u91cd"
+    }));
+  }
   if (task.ctaMode === "none") {
     return [
       {
@@ -2050,6 +2060,28 @@ export function buildMockCtas(task: TaskForm, profile: BaseProfile): CtaItem[] {
   }
 
   if (task.ctaMode === "comment") {
+    if (task.entryType === "viral") {
+      return [
+        {
+          id: createId("cta"),
+          type: "\u77ed\u8bc4\u8bba\u4e92\u52a8\u578b",
+          text: "\u8bc4\u8bba\u533a\u7559\u4e2a666\u3002",
+          scenario: "\u4eff\u5199\u7206\u6b3e / \u4f4e\u6539\u52a8 / \u8bc4\u8bba\u4e92\u52a8"
+        },
+        {
+          id: createId("cta"),
+          type: "\u77ed\u8bc4\u8bba\u4e92\u52a8\u578b",
+          text: "\u60f3\u7ee7\u7eed\u542c\uff0c\u8bc4\u8bba\u533a\u7559666\u3002",
+          scenario: "\u4eff\u5199\u7206\u6b3e / \u8bc4\u8bba\u7ee7\u7eed\u62c6"
+        },
+        {
+          id: createId("cta"),
+          type: "\u77ed\u8bc4\u8bba\u4e92\u52a8\u578b",
+          text: "\u8bc4\u8bba\u533a\u6253\u4e00\u6392666\u3002",
+          scenario: "\u4eff\u5199\u7206\u6b3e / \u8bc4\u8bba\u7ee7\u7eed\u62c6"
+        }
+      ];
+    }
     return [
       {
         id: createId("cta"),
@@ -2073,15 +2105,6 @@ export function buildMockCtas(task: TaskForm, profile: BaseProfile): CtaItem[] {
   }
 
   if (task.ctaMode === "keyword") {
-    const sourceCtas = extractViralSourceActionSentences(task).map((item) => shortenViralCtaText(item)).filter(Boolean);
-    if (sourceCtas.length) {
-      return Array.from(new Set(sourceCtas)).slice(0, 3).map((text, index) => ({
-        id: createId("cta"),
-        type: "???????",
-        text,
-        scenario: index === 0 ? "???? / ??????" : "???? / ????",
-      }));
-    }
     if (task.entryType === "viral" && !viralSourceHasBusinessAnchor(task)) {
       return [
         {
@@ -2814,22 +2837,62 @@ function looksLikeBusinessParagraph(text: string) {
   return /(我们现在做的|帮老板|AI获客|内容链路|客户承接|系统|账号|AI员工|发号施令|方法发给你|进一步来问)/.test(text);
 }
 
-const VIRAL_LIGHT_REWRITE_RULES = [
-  ["老百姓", "普通人"],
-  ["普通人", "很多人"],
-  ["接下来", "往后"],
-  ["其实", "说白了"],
-  ["已经", "早就"],
-  ["这个时候", "这时候"],
-  ["你会发现", "你慢慢会发现"],
-  ["真正", "真正"],
-] as const;
+const VIRAL_ACTION_MARKERS = ["\u8bc4\u8bba\u533a", "\u79c1\u4fe1", "\u5173\u6ce8", "\u5c0f\u7ea2\u5fc3", "\u5c0f\u7231\u5fc3", "\u7559\u4e0b", "\u70b9\u4e2a"];
 
-function lightlyRewriteViralSentence(sentence: string, paragraphIndex: number, sentenceIndex: number) {
+const VIRAL_VERSION_PROFILES = {
+  "最近原文版": [
+    ["老百姓", "普通人"],
+    ["接下来", "接下来"],
+    ["其实", "其实"],
+    ["已经", "已经"],
+    ["这个时候", "这个时候"],
+    ["你会发现", "你会发现"],
+  ],
+  "轻微换词版": [
+    ["老百姓", "普通人"],
+    ["普通人", "很多人"],
+    ["接下来", "往后"],
+    ["其实", "说白了"],
+    ["已经", "早就"],
+    ["这个时候", "这时候"],
+  ],
+  "口语顺滑版": [
+    ["你会发现", "你慢慢会发现"],
+    ["其实", "说白了"],
+    ["接下来", "往后"],
+    ["已经", "早就"],
+    ["如果你", "你要是"],
+    ["很多人", "不少人"],
+  ],
+  "去重加强版": [
+    ["老百姓", "普通人"],
+    ["普通人", "很多人"],
+    ["这个时候", "这个阶段"],
+    ["真正", "真正"],
+    ["你会发现", "你慢慢会发现"],
+    ["接下来", "往后"],
+  ],
+  "语气强化版": [
+    ["其实", "说白了"],
+    ["已经", "早就"],
+    ["接下来", "再往后"],
+    ["如果你", "你要是"],
+    ["很多人", "不少人"],
+    ["这个时候", "这时候"],
+  ],
+} as const;
+
+function getViralRewriteRules(versionName: string) {
+  return VIRAL_VERSION_PROFILES[versionName as keyof typeof VIRAL_VERSION_PROFILES] ?? VIRAL_VERSION_PROFILES["最近原文版"];
+}
+
+function lightlyRewriteViralSentence(sentence: string, paragraphIndex: number, sentenceIndex: number, versionName: string) {
   const normalized = sentence.trim();
   if (!normalized) return "";
-  const ruleOffset = (paragraphIndex + sentenceIndex) % VIRAL_LIGHT_REWRITE_RULES.length;
-  const orderedRules = [...VIRAL_LIGHT_REWRITE_RULES.slice(ruleOffset), ...VIRAL_LIGHT_REWRITE_RULES.slice(0, ruleOffset)];
+
+  const rules = getViralRewriteRules(versionName);
+  const ruleOffset = (paragraphIndex + sentenceIndex) % rules.length;
+  const orderedRules = [...rules.slice(ruleOffset), ...rules.slice(0, ruleOffset)];
 
   for (const [from, to] of orderedRules) {
     if (from !== to && normalized.includes(from)) {
@@ -2837,42 +2900,113 @@ function lightlyRewriteViralSentence(sentence: string, paragraphIndex: number, s
     }
   }
 
+  if (versionName === "\u8f7b\u5fae\u6362\u8bcd\u7248") {
+    if (normalized.includes("\u522b\u518d")) return ensureSentence(normalized.replace("\u522b\u518d", "\u522b\u8001\u628a"));
+    if (normalized.includes("\u672a\u6765")) return ensureSentence(normalized.replace("\u672a\u6765", "\u5f80\u540e"));
+    if (normalized.includes("\u53ea\u6709\u4e00\u4e2a")) return ensureSentence(normalized.replace("\u53ea\u6709\u4e00\u4e2a", "\u5c31\u8fd9\u4e00\u6761"));
+  }
+
+  if (versionName === "\u53e3\u8bed\u987a\u6ed1\u7248" && sentenceIndex > 0 && normalized.length > 12 && !normalized.startsWith("\u8bf4\u767d\u4e86")) {
+    return ensureSentence(`\u8bf4\u767d\u4e86\uff0c${normalized}`);
+  }
+
+  if (versionName === "\u53bb\u91cd\u52a0\u5f3a\u7248") {
+    if (normalized.includes("\u666e\u901a\u4eba")) return ensureSentence(normalized.replace("\u666e\u901a\u4eba", "\u5f88\u591a\u4eba"));
+    if (normalized.includes("\u5f88\u591a\u4eba")) return ensureSentence(normalized.replace("\u5f88\u591a\u4eba", "\u4e0d\u5c11\u4eba"));
+    if (normalized.includes("\u771f\u6b63")) return ensureSentence(normalized.replace("\u771f\u6b63", "\u8bf4\u5230\u5e95"));
+  }
+
+  if (versionName === "\u8bed\u6c14\u5f3a\u5316\u7248") {
+    if (/^\u4f60/.test(normalized)) return ensureSentence(normalized.replace(/^\u4f60/, "\u4f60\u73b0\u5728"));
+    if (sentenceIndex > 0 && normalized.length > 10 && !normalized.startsWith("\u4f60\u8981\u77e5\u9053")) {
+      return ensureSentence(`\u4f60\u8981\u77e5\u9053\uff0c${normalized}`);
+    }
+  }
+
   return ensureSentence(normalized);
 }
 
-function lightlyRewriteViralParagraph(paragraph: string, paragraphIndex: number) {
-  const sentences = splitParagraphSentences(paragraph);
-  if (!sentences.length) return ensureSentence(paragraph);
-  return sentences.map((sentence, sentenceIndex) => lightlyRewriteViralSentence(sentence, paragraphIndex, sentenceIndex)).join("");
+
+function lightlyRewriteViralParagraph(paragraph: string, paragraphIndex: number, versionName: string) {
+  const normalized = paragraph.trim();
+  if (!normalized) return ensureSentence(paragraph);
+
+  let next = normalized;
+  const rules = getViralRewriteRules(versionName);
+  const ruleOffset = paragraphIndex % rules.length;
+  const orderedRules = [...rules.slice(ruleOffset), ...rules.slice(0, ruleOffset)];
+
+  for (const [from, to] of orderedRules) {
+    if (from !== to && next.includes(from)) {
+      next = next.replace(from, to);
+    }
+  }
+
+  if (versionName === "\u8f7b\u5fae\u6362\u8bcd\u7248") {
+    if (next.includes("\u522b\u518d\u628a")) next = next.replace("\u522b\u518d\u628a", "\u522b\u8001\u628a");
+    if (next.includes("\u672a\u6765")) next = next.replace("\u672a\u6765", "\u5f80\u540e");
+    if (next.includes("\u53ea\u6709\u4e00\u4e2a")) next = next.replace("\u53ea\u6709\u4e00\u4e2a", "\u5c31\u8fd9\u4e00\u6761");
+  }
+
+  if (versionName === "\u53bb\u91cd\u52a0\u5f3a\u7248") {
+    if (next.includes("\u666e\u901a\u4eba")) next = next.replace("\u666e\u901a\u4eba", "\u5f88\u591a\u4eba");
+    if (next.includes("\u5f88\u591a\u4eba")) next = next.replace("\u5f88\u591a\u4eba", "\u4e0d\u5c11\u4eba");
+    if (next.includes("\u771f\u6b63")) next = next.replace("\u771f\u6b63", "\u8bf4\u5230\u5e95");
+  }
+
+  const paragraphHasNativeAction = VIRAL_ACTION_MARKERS.some((marker) => next.includes(marker));
+
+  if (versionName === "\u53e3\u8bed\u987a\u6ed1\u7248" && splitParagraphSentences(next).length > 1 && paragraphHasNativeAction && !next.startsWith("\u8bf4\u767d\u4e86\uff0c")) {
+    next = `\u8bf4\u767d\u4e86\uff0c${next}`;
+  }
+
+  if (versionName === "\u8bed\u6c14\u5f3a\u5316\u7248" && splitParagraphSentences(next).length > 1 && paragraphHasNativeAction && !next.startsWith("\u4f60\u8981\u77e5\u9053\uff0c")) {
+    next = `\u4f60\u8981\u77e5\u9053\uff0c${next}`;
+  }
+
+  return next;
 }
 
-function buildViralDraftParagraphs(task: TaskForm, skeleton: SkeletonItem, meatPlan: DraftMeatPlan) {
+
+function buildViralDraftParagraphs(task: TaskForm, hook: HookItem, cta: CtaItem, versionName: string) {
   const sourceParagraphs = splitSourceParagraphs(task.sourceText || task.userNote);
   if (sourceParagraphs.length === 0) {
     return [];
   }
 
-  const bodyParagraphs = sourceParagraphs
+  return sourceParagraphs
     .map((paragraph, index) => {
-      const sentences = splitParagraphSentences(paragraph);
-      if (sentences.length === 0) return "";
+      const rewrittenParagraph = lightlyRewriteViralParagraph(paragraph.trim(), index, versionName);
+      const sentences = splitParagraphSentences(rewrittenParagraph).filter(Boolean);
+      if (!sentences.length) return "";
 
       if (index === 0) {
-        return lightlyRewriteViralParagraph(sentences.slice(1).join("").trim(), index);
+        if (sentences.length === 1) {
+          return paragraphContainsText(sentences[0], hook.text) ? ensureSentence(sentences[0]) : appendSentenceToParagraph(hook.text, sentences[0]);
+        }
+        sentences[0] = ensureSentence(hook.text);
+        const shouldBoostSingleParagraph = sourceParagraphs.length > 1 || VIRAL_ACTION_MARKERS.some((marker) => paragraph.includes(marker));
+        if (versionName === "口语顺滑版" && shouldBoostSingleParagraph && sentences[1] && !sentences[1].startsWith("说白了，")) {
+          sentences[1] = ensureSentence(`说白了，${sentences[1].replace(/[\u3002\uFF01\uFF1F!?]$/g, "")}`);
+        }
+        if (versionName === "语气强化版" && shouldBoostSingleParagraph && sentences[1] && !sentences[1].startsWith("你要知道，")) {
+          sentences[1] = ensureSentence(`你要知道，${sentences[1].replace(/[\u3002\uFF01\uFF1F!?]$/g, "")}`);
+        }
+      }
+      if (index === sourceParagraphs.length - 1) {
+        if (sentences.length === 1) {
+          return paragraphContainsText(sentences[0], cta.text) ? ensureSentence(sentences[0]) : appendSentenceToParagraph(sentences[0], cta.text);
+        }
+        const lastParagraph = sentences.map((item) => ensureSentence(item)).join("");
+        return paragraphContainsText(lastParagraph, cta.text) ? lastParagraph : appendSentenceToParagraph(lastParagraph, cta.text);
       }
 
-      return lightlyRewriteViralParagraph(paragraph.trim(), index);
+      return sentences.map((item) => ensureSentence(item)).join("");
     })
+    .map((item) => item.trim())
     .filter(Boolean);
-
-  const cleaned = dedupeDraftLines(
-    bodyParagraphs
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => ensureSentence(item))
-  );
-  return cleaned;
 }
+
 
 function buildDraftAnalysis(task: TaskForm) {
   const theme = inferHookTheme(task);
@@ -3205,7 +3339,9 @@ export function buildMockDrafts(
   meat: MeatItem | null,
   cta: CtaItem
 ): DraftItem[] {
-  const versions = ["标准版", "激进版", "判决版", "更口语版", "更像老板讲话版"] as const;
+  const versions = task.entryType === "viral"
+    ? (["最近原文版", "轻微换词版", "口语顺滑版", "去重加强版", "语气强化版"] as const)
+    : (["标准版", "激进版", "判决版", "更口语版", "更像老板讲话版"] as const);
   const topic = extractCoreTerm(task);
   const closeSummary = buildDraftCloseSummary(task);
 
@@ -3217,9 +3353,9 @@ export function buildMockDrafts(
     const modifier = versionModifier(versionName, task);
     const bodyParagraphs =
       task.entryType === "viral"
-        ? buildViralDraftParagraphs(task, skeleton, meatPlan)
+        ? buildViralDraftParagraphs(task, hook, cta, versionName)
         : buildDraftBodyParagraphs(task, skeleton, topic, modifier, analysis, meatPlan, closeSummary, hook);
-    const script = task.entryType === "viral" ? [hook.text, ...bodyParagraphs, closer].join("\n\n") : [hook.text, ...bodyParagraphs, closer].join("\n\n");
+    const script = task.entryType === "viral" ? bodyParagraphs.join("\n\n") : [hook.text, ...bodyParagraphs, closer].join("\n\n");
 
     return {
       id: createId("draft"),

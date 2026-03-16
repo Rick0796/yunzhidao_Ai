@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   ApiSettings,
   BaseProfile,
   CtaItem,
@@ -54,6 +54,16 @@ interface GenerationHandlersParams {
   showNotice: (tone: "success" | "warning" | "info", text: string) => void;
   clearFrom: (level: "task" | "hook" | "structure") => void;
   saveCurrentHistory: (nextDrafts: DraftItem[], nextSelectedDraftId: string | null, hook: HookItem | null, skeleton: SkeletonItem | null, meat: MeatItem | null, cta: CtaItem | null) => void;
+}
+
+function createViralFallbackSkeleton(): SkeletonItem {
+  return {
+    id: "sk-viral-fallback",
+    name: "原文轻改骨架",
+    scenario: "仿写爆款",
+    summary: "按原文段落顺序逐段轻改，不压缩字数，不改推进。",
+    steps: [{ name: "逐段轻改", purpose: "按原文顺序轻改去重", targetWords: 80 }]
+  };
 }
 
 export function useGenerationHandlers(params: GenerationHandlersParams) {
@@ -159,7 +169,7 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
   async function handleGenerateDrafts(): Promise<void> {
     if (currentWorkbenchMode === "rewrite") {
       if (!selectedHook || !selectedCta || (task.businessMode !== "none" && !selectedMeat)) {
-        showNotice("warning", "先把皮、收口确定下来。");
+        showNotice("warning", "先把皮和收口确定下来。");
         return;
       }
     } else {
@@ -169,34 +179,52 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
       }
     }
 
+    const effectiveSkeleton = selectedSkeleton ?? createViralFallbackSkeleton();
+    const effectiveHook = selectedHook;
+    const effectiveCta = selectedCta;
+
+    if (!effectiveHook || !effectiveCta) {
+      showNotice("warning", "仿写至少需要先确定开头和收口。");
+      return;
+    }
+
     setIsGeneratingDrafts(true);
-    const effectiveSkeleton: SkeletonItem = selectedSkeleton ?? {
-      id: "sk-viral-fallback",
-      name: "原文改写",
-      scenario: "仿写爆款",
-      summary: "按原文段落顺序改写",
-      steps: [{ name: "改写推进", purpose: "按原文顺序改写", targetWords: 80 }]
-    };
     try {
-      const result = await runDraftGeneration(settings, profile, task, selectedHook!, effectiveSkeleton, selectedMeat, selectedCta!);
-      const nextDrafts = normalizeDraftResults(result.data.items, {
+      const result = await runDraftGeneration(settings, profile, task, effectiveHook, effectiveSkeleton, selectedMeat, effectiveCta);
+      const normalizedResult = normalizeDraftResults(result.data.items, {
         task,
         profile,
-        hook: selectedHook!,
+        hook: effectiveHook,
         skeleton: effectiveSkeleton,
         meat: selectedMeat,
-        cta: selectedCta!
+        cta: effectiveCta
       });
+      const nextDrafts = normalizedResult.items;
       const nextSelectedDraftId = nextDrafts[0]?.id ?? null;
+
       setDrafts(nextDrafts);
       setSelectedDraftId(nextSelectedDraftId);
-      setDraftSignature(`${selectedHook!.id}-${effectiveSkeleton.id}-${selectedMeat?.id ?? "none"}-${selectedCta!.id}`);
+      setDraftSignature(`${effectiveHook.id}-${effectiveSkeleton.id}-${selectedMeat?.id ?? "none"}-${effectiveCta.id}`);
       setModuleMeta((prev) => ({
         ...prev,
-        drafts: { source: result.source, updatedAt: new Date().toISOString(), message: result.message }
+        drafts: {
+          source: result.source,
+          updatedAt: new Date().toISOString(),
+          message: normalizedResult.message || result.message
+        }
       }));
-      saveCurrentHistory(nextDrafts, nextSelectedDraftId, selectedHook!, effectiveSkeleton, selectedMeat, selectedCta!);
-      showNotice("success", "完整成品已经生成，并写入历史。");
+      saveCurrentHistory(nextDrafts, nextSelectedDraftId, effectiveHook, effectiveSkeleton, selectedMeat, effectiveCta);
+
+      if (task.entryType === "viral") {
+        showNotice(
+          "success",
+          normalizedResult.message
+            ? `已生成 5 个轻改去重版本。${normalizedResult.message}`
+            : "已生成 5 个轻改去重版本。"
+        );
+      } else {
+        showNotice("success", "完整成品已经生成，并写入历史。");
+      }
     } catch (error: unknown) {
       showNotice("warning", `成品生成失败：${error instanceof Error ? error.message : "未知错误"}`);
     } finally {

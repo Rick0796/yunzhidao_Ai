@@ -154,6 +154,17 @@ function cleanGeneratedSentence(text: string) {
   return next;
 }
 
+function cleanViralSentence(text: string) {
+  let next = text.trim();
+  if (!next) return "";
+
+  next = next.replace(URL_NOISE_PATTERN, "").replace(INLINE_REF_PATTERN, "");
+  next = collapseRepeatedFragments(next);
+  next = next.replace(/\s+/g, "");
+  next = next.replace(/^[\uFF1A:]+/, "").replace(/[\uFF1A:]+$/g, "");
+  return next.trim();
+}
+
 function looksLikeSearchNoiseSentence(text: string) {
   const raw = text.trim();
   const next = cleanGeneratedSentence(raw);
@@ -179,8 +190,8 @@ function looksLikeQuestionPromptSentence(text: string) {
 
 function isHookOrCtaEcho(text: string, hook: HookItem, cta: CtaItem) {
   const key = normalizeSentenceKey(cleanGeneratedSentence(text));
-  const hookKey = normalizeSentenceKey(cleanGeneratedSentence(hook.text));
-  const ctaKey = normalizeSentenceKey(cleanGeneratedSentence(cta.text));
+  const hookKey = normalizeSentenceKey(cleanViralSentence(hook.text));
+  const ctaKey = normalizeSentenceKey(cleanViralSentence(cta.text));
   if (!key) return false;
   if (hookKey && (key === hookKey || (key.length >= 10 && hookKey.includes(key)))) return true;
   if (ctaKey && (key === ctaKey || (key.length >= 10 && ctaKey.includes(key)))) return true;
@@ -453,31 +464,64 @@ function buildBodyParagraphs(text: string, skeleton: SkeletonItem, desiredCount:
   return dedupeParagraphs(groups.map((group) => group.join("").trim()).filter(Boolean));
 }
 function buildViralBodyParagraphs(script: string, skeleton: SkeletonItem, hook: HookItem, cta: CtaItem) {
-  const paragraphs = stripStructureTags(script || "")
-    .split(/\n{2,}/)
-    .map((paragraph) => stripAiNoise(paragraph))
-    .map((paragraph) =>
-      splitIntoSentences(paragraph)
-        .map((line) => cleanGeneratedSentence(stripLeadingMetaLabel(line, skeleton)))
-        .filter((line) => line && !isDraftMetaLine(line) && !looksLikeSearchNoiseSentence(line) && !looksLikeQuestionPromptSentence(line))
-        .join(""),
-    )
-    .map((paragraph) => cleanGeneratedSentence(paragraph))
-    .filter((paragraph) => paragraph && !isHookOrCtaEcho(paragraph, hook, cta));
+  const hookKey = normalizeSentenceKey(cleanViralSentence(hook.text));
+  const ctaKey = normalizeSentenceKey(cleanViralSentence(cta.text));
 
-  return dedupeParagraphs(paragraphs);
+  return stripStructureTags(script || "")
+    .split(/\n{2,}/)
+    .map((paragraph) => stripAiNoise(paragraph).trim())
+    .filter(Boolean)
+    .map((paragraph) => {
+      const normalizedParagraphKey = normalizeSentenceKey(cleanViralSentence(paragraph));
+      if (normalizedParagraphKey && (normalizedParagraphKey === hookKey || normalizedParagraphKey === ctaKey)) {
+        return "";
+      }
+
+      const sentences = paragraph
+        .split(/\n+/)
+        .flatMap((line) => splitIntoSentences(line))
+        .map((line) => cleanViralSentence(stripLeadingMetaLabel(line, skeleton)))
+        .filter((line) => line && !isDraftMetaLine(line));
+
+      return collapseRepeatedFragments(sentences.join("")).trim();
+    })
+    .filter(Boolean);
+}
+
+
+function normalizeViralReferenceParagraph(paragraph: string) {
+  const sentences = stripStructureTags(paragraph || "")
+    .split(/\n+/)
+    .flatMap((line) => splitIntoSentences(line))
+    .map((line) => cleanViralSentence(line))
+    .filter((line) => line);
+
+  return collapseRepeatedFragments(sentences.join("")).trim();
+}
+
+
+function normalizeViralScriptContent(script: string, skeleton: SkeletonItem, hook: HookItem, cta: CtaItem) {
+  const bodyParagraphs = buildViralBodyParagraphs(script, skeleton, hook, cta);
+  return {
+    bodyParagraphs,
+    script: bodyParagraphs.join("\n\n")
+  };
 }
 
 function normalizeDraftScriptContent(script: string, skeleton: SkeletonItem, hook: HookItem, cta: CtaItem, desiredCount: number, task?: TaskForm) {
+  if (task?.entryType === "viral") {
+    return normalizeViralScriptContent(script, skeleton, hook, cta);
+  }
+
   const stripped = stripStructureTags(stripAiNoise(script || ""))
     .split(/\n+/)
     .flatMap((line) => splitIntoSentences(line))
-    .map((line) => cleanGeneratedSentence(stripLeadingMetaLabel(line, skeleton)))
+    .map((line) => cleanViralSentence(stripLeadingMetaLabel(line, skeleton)))
     .filter((line) => line && !isDraftMetaLine(line) && !looksLikeSearchNoiseSentence(line) && !looksLikeQuestionPromptSentence(line))
     .filter((line) => !isHookOrCtaEcho(line, hook, cta))
     .join("\n");
 
-  const bodyParagraphs = task?.entryType === "viral" ? buildViralBodyParagraphs(script, skeleton, hook, cta) : buildBodyParagraphs(stripped, skeleton, desiredCount);
+  const bodyParagraphs = buildBodyParagraphs(stripped, skeleton, desiredCount);
   const scriptText = [hook.text, ...bodyParagraphs, cta.text]
     .map((part) => collapseRepeatedFragments(part.trim()))
     .filter(Boolean)
@@ -515,7 +559,7 @@ function hasMetaInstruction(text: string) {
 }
 
 function hasLowVariety(text: string) {
-  const sentences = splitIntoSentences(text).map((item) => item.replace(/[，。！？!?、\s]/g, ""));
+  const sentences = splitIntoSentences(text).map((item) => item.replace(/[\uFF0C\u3002\uFF01\uFF1F!?\u3001\s]/g, ""));
   if (sentences.length < 3) {
     return false;
   }
@@ -526,7 +570,7 @@ function hasBrokenParagraphShape(paragraphs: string[]) {
   return paragraphs.some((paragraph) => {
     const plain = cleanGeneratedSentence(paragraph);
     if (!plain) return false;
-    const punctuationCount = (plain.match(/[，。！？!?；;]/g) || []).length;
+    const punctuationCount = (plain.match(/[\uFF0C\u3002\uFF01\uFF1F!?\uFF1B;]/g) || []).length;
     if (plain.length > 22 && punctuationCount === 0) return true;
     if (plain.length > 42 && punctuationCount <= 1) return true;
     return false;
@@ -534,74 +578,134 @@ function hasBrokenParagraphShape(paragraphs: string[]) {
 }
 
 function countScriptSentences(text: string) {
-  return (text.match(/[^。！？!?；;\n]+[。！？!?；;]?/g) ?? []).map((item) => item.trim()).filter(Boolean).length;
+  return (text.match(/[^\u3002\uFF01\uFF1F!?\uFF1B;\n]+[\u3002\uFF01\uFF1F!?\uFF1B;]?/g) ?? []).map((item) => item.trim()).filter(Boolean).length;
 }
-
-const VIRAL_HARD_TOKEN_PATTERN = /(?:\d{4}年|\d+(?:\.\d+)?%?|\d+(?:\.\d+)?(?:万|亿|元|块|倍|天|个月|月|年|小时|分钟)|第[一二三四五六七八九十0-9]+(?:个|条|句|样)?|[一二三四五六七八九十百千万两零半]+(?:年|个月|月|天|次|个|条|倍|万|亿|元|块|小时|分钟|成|%))/g;
 
 function buildViralReferenceParagraphs(task?: TaskForm) {
   const sourceText = task?.sourceText || task?.userNote || "";
-  const sourceParagraphs = splitSourceParagraphs(sourceText);
-  return sourceParagraphs
-    .map((paragraph, index) => {
-      const sentences = splitIntoSentences(paragraph);
-      if (!sentences.length) return "";
-      if (index === 0) {
-        return sentences.slice(1).join("").trim();
-      }
-      if (index === sourceParagraphs.length - 1) {
-        return paragraph
-          .replace(/，?趁现在还没划走.*$/g, "")
-          .replace(/，?只要给这条视频.*$/g, "")
-          .replace(/，?评论区.*$/g, "")
-          .replace(/，?按照下方这行小字.*$/g, "")
-          .replace(/，?到我主页.*$/g, "")
-          .trim();
-      }
-      return paragraph.trim();
-    })
-    .map((item) => cleanGeneratedSentence(item))
-    .filter(Boolean);
+  return splitSourceParagraphs(sourceText).map((paragraph) => normalizeViralReferenceParagraph(paragraph)).filter(Boolean);
 }
 
+const VIRAL_HARD_UNITS = ["\u4e07", "\u4ebf", "\u5143", "\u5757", "\u500d", "\u5929", "\u4e2a\u6708", "\u6708", "\u5e74", "\u5c0f\u65f6", "\u5206\u949f"];
+const VIRAL_ORDER_PATTERN = /第[一二三四五六七八九十0-9]+(?:个|条|句|样)?/g;
+
 function extractViralHardTokens(text: string) {
-  const matches = text.match(VIRAL_HARD_TOKEN_PATTERN) ?? [];
+  const matches = [
+    ...(text.match(/20\d{2}年/g) ?? []),
+    ...(text.match(/\d+(?:\.\d+)?%/g) ?? []),
+    ...(text.match(VIRAL_ORDER_PATTERN) ?? []),
+  ];
+
+  for (const unit of VIRAL_HARD_UNITS) {
+    const pattern = new RegExp(`\d+(?:\.\d+)?${unit}`, "g");
+    matches.push(...(text.match(pattern) ?? []));
+  }
+
   return Array.from(new Set(matches.map((item) => item.trim()).filter(Boolean)));
 }
 
-function hasWeakViralAlignment(bodyParagraphs: string[], referenceParagraphs: string[]) {
-  if (!referenceParagraphs.length) return false;
-  if (Math.abs(bodyParagraphs.length - referenceParagraphs.length) > 1) return true;
+function hasDuplicateParagraphs(paragraphs: string[]) {
+  const keys = paragraphs.map((paragraph) => normalizeSentenceKey(cleanViralSentence(paragraph))).filter(Boolean);
+  return new Set(keys).size !== keys.length;
+}
+
+function firstSentence(text: string) {
+  return splitIntoSentences(text)[0]?.trim() || "";
+}
+
+function lastSentence(text: string) {
+  const sentences = splitIntoSentences(text).map((item) => item.trim()).filter(Boolean);
+  return sentences[sentences.length - 1] || "";
+}
+
+function paragraphStartsWithHook(paragraph: string, hook: HookItem) {
+  return normalizeSentenceKey(firstSentence(paragraph)) === normalizeSentenceKey(hook.text);
+}
+
+function paragraphEndsWithCta(paragraph: string, cta: CtaItem) {
+  return normalizeSentenceKey(lastSentence(paragraph)) === normalizeSentenceKey(cta.text);
+}
+
+function stripComparableViralSentence(paragraph: string, mode: "first" | "last") {
+  const sentences = splitIntoSentences(paragraph).map((item) => item.trim()).filter(Boolean);
+  if (!sentences.length) return "";
+  const next = mode === "first" ? sentences.slice(1) : sentences.slice(0, -1);
+  return cleanViralSentence(next.join(""));
+}
+
+function stripComparableSourceParagraph(paragraph: string, index: number, total: number) {
+  let next = paragraph.trim();
+  if (index === 0) {
+    next = stripComparableViralSentence(next, "first") || next;
+  }
+  if (index === total - 1) {
+    const last = lastSentence(next);
+    if (looksLikeCtaSentence(last)) {
+      next = stripComparableViralSentence(next, "last") || next;
+    }
+  }
+  return cleanGeneratedSentence(next);
+}
+
+function stripComparableDraftParagraph(paragraph: string, index: number, total: number, cta: CtaItem) {
+  let next = paragraph.trim();
+  if (index === 0) {
+    next = stripComparableViralSentence(next, "first") || next;
+  }
+  if (index === total - 1 && paragraphEndsWithCta(next, cta)) {
+    next = stripComparableViralSentence(next, "last") || next;
+  }
+  return cleanGeneratedSentence(next);
+}
+
+function isViralParagraphAligned(candidate: string, expected: string) {
+  const normalizedCandidate = cleanViralSentence(candidate);
+  const normalizedExpected = cleanViralSentence(expected);
+  if (!normalizedCandidate || !normalizedExpected) return false;
+
+  const ratio = normalizedCandidate.length / Math.max(1, normalizedExpected.length);
+  if (ratio < 0.8 || ratio > 1.2) return false;
+
+  const sentenceDelta = Math.abs(countScriptSentences(normalizedCandidate) - countScriptSentences(normalizedExpected));
+  if (sentenceDelta > 1) return false;
+
+  const missingTokens = extractViralHardTokens(normalizedExpected).filter((token) => !normalizedCandidate.includes(token));
+  if (missingTokens.length > 0) return false;
+
+  const minimumOverlap = normalizedExpected.length >= 60 ? 3 : normalizedExpected.length >= 28 ? 2 : 1;
+  return overlapScore(normalizedExpected, normalizedCandidate) >= minimumOverlap;
+}
+
+function isWeakViralDraft(text: string, paragraphs: string[], task: TaskForm, hook: HookItem, cta: CtaItem) {
+  const referenceParagraphs = buildViralReferenceParagraphs(task);
+  if (!referenceParagraphs.length) return true;
+  if (paragraphs.length !== referenceParagraphs.length) return true;
+  if (hasDuplicateParagraphs(paragraphs)) return true;
+  if (hasBrokenParagraphShape(paragraphs)) return true;
+  if (!paragraphStartsWithHook(paragraphs[0] || "", hook)) return true;
+  if (!paragraphEndsWithCta(paragraphs[paragraphs.length - 1] || "", cta)) return true;
+
+  const comparableSourceParagraphs = referenceParagraphs.map((paragraph, index) => stripComparableSourceParagraph(paragraph, index, referenceParagraphs.length));
+  const comparableDraftParagraphs = paragraphs.map((paragraph, index) => stripComparableDraftParagraph(paragraph, index, paragraphs.length, cta));
+  const sourcePlain = comparableSourceParagraphs.join("\n\n");
+  const draftPlain = comparableDraftParagraphs.join("\n\n");
+  const lengthRatio = draftPlain.length / Math.max(1, sourcePlain.length);
+  if (lengthRatio < 0.9 || lengthRatio > 1.1) return true;
 
   return referenceParagraphs.some((reference, index) => {
-    const candidate = cleanGeneratedSentence(bodyParagraphs[index] || "");
-    const expected = cleanGeneratedSentence(reference);
-    if (!candidate || !expected) return true;
-
-    const ratio = candidate.length / Math.max(1, expected.length);
-    if (ratio < 0.78 || ratio > 1.22) return true;
-
-    const missingTokens = extractViralHardTokens(expected).filter((token) => !candidate.includes(token));
-    if (missingTokens.length > 0) return true;
-
-    const sentenceDelta = Math.abs(countScriptSentences(candidate) - countScriptSentences(expected));
-    if (sentenceDelta > 2) return true;
-
-    const minimumOverlap = expected.length >= 45 ? 2 : expected.length >= 22 ? 1 : 0;
-    return overlapScore(expected, candidate) < minimumOverlap;
+    const comparableSource = comparableSourceParagraphs[index] || cleanViralSentence(reference);
+    const comparableDraft = comparableDraftParagraphs[index] || cleanViralSentence(paragraphs[index] || "");
+    if (!comparableSource && !comparableDraft) {
+      return false;
+    }
+    return !isViralParagraphAligned(comparableDraft, comparableSource);
   });
 }
+
 
 function isWeakDraft(text: string, bodyParagraphs: string[], task?: TaskForm) {
   const plain = toPlainScript(text);
   const bodyText = bodyParagraphs.join("");
-  const sourceText = task?.sourceText || task?.userNote || "";
-  const sourcePlain = sourceText ? toPlainScript(sourceText) : "";
-  const viralReferenceParagraphs = task?.entryType === "viral" ? buildViralReferenceParagraphs(task) : [];
-  const sourceParagraphCount = task?.entryType === "viral" ? viralReferenceParagraphs.length : 0;
-  const sourceSentenceCount = task?.entryType === "viral" ? countScriptSentences(sourcePlain) : 0;
-  const draftSentenceCount = task?.entryType === "viral" ? countScriptSentences(plain) : 0;
-  const lengthRatio = sourcePlain ? plain.length / Math.max(1, sourcePlain.length) : 1;
 
   return (
     bodyParagraphs.length < 3 ||
@@ -609,14 +713,7 @@ function isWeakDraft(text: string, bodyParagraphs: string[], task?: TaskForm) {
     hasBrokenParagraphShape(bodyParagraphs) ||
     DRAFT_SOFT_PATTERNS.some((pattern) => pattern.test(plain)) ||
     hasMetaInstruction(plain) ||
-    hasLowVariety(plain) ||
-    (task?.entryType === "viral" && (
-      lengthRatio < 0.9 ||
-      lengthRatio > 1.12 ||
-      Math.abs(bodyParagraphs.length - sourceParagraphCount) > 1 ||
-      Math.abs(draftSentenceCount - sourceSentenceCount) > 2 ||
-      hasWeakViralAlignment(bodyParagraphs, viralReferenceParagraphs)
-    ))
+    hasLowVariety(plain)
   );
 }
 
@@ -843,6 +940,12 @@ export function normalizeCtaResults(items: CtaItem[], task: TaskForm, profile: B
   return nextItems.slice(0, 5);
 }
 
+export interface NormalizedDraftResults {
+  items: DraftItem[];
+  usedFallbackCount: number;
+  message?: string;
+}
+
 export function normalizeDraftResults(
   items: DraftItem[],
   {
@@ -860,13 +963,13 @@ export function normalizeDraftResults(
     meat: MeatItem | null;
     cta: CtaItem;
   }
-) {
+): NormalizedDraftResults {
   const fallback = buildMockDrafts(task, profile, hook, skeleton, meat, cta);
   const desiredCount = task.entryType === "viral" ? Math.max(4, Math.min(skeleton.steps.length, 8)) : Math.max(4, Math.min(skeleton.steps.length + 1, 6));
 
   const normalizedFallback = fallback.map((item) => {
     const normalized = normalizeDraftScriptContent(item.script || "", skeleton, hook, cta, desiredCount, task);
-    const nextScript = normalized.script || [hook.text, cta.text].join("\n\n");
+    const nextScript = normalized.script || (task.entryType === "viral" ? item.script : [hook.text, cta.text].join("\n\n"));
     return {
       ...item,
       coverLine: hook.text,
@@ -879,13 +982,25 @@ export function normalizeDraftResults(
     };
   });
 
-  const cleaned = items.map((item, index) => {
+  let usedFallbackCount = 0;
+  const sourceItems = items.length > 0 ? items.slice(0, 5) : normalizedFallback;
+  if (items.length === 0) {
+    usedFallbackCount = normalizedFallback.length;
+  }
+
+  const cleaned = sourceItems.map((item, index) => {
     const fallbackItem = normalizedFallback[index % normalizedFallback.length];
     const normalized = normalizeDraftScriptContent(item.script || "", skeleton, hook, cta, desiredCount, task);
     const bodyParagraphs = normalized.bodyParagraphs;
     const nextScript = normalized.script;
 
-    if (isWeakDraft(nextScript, bodyParagraphs, task)) {
+    const shouldFallback =
+      task.entryType === "viral"
+        ? isWeakViralDraft(nextScript, bodyParagraphs, task, hook, cta)
+        : isWeakDraft(nextScript, bodyParagraphs, task);
+
+    if (shouldFallback) {
+      usedFallbackCount += 1;
       return fallbackItem;
     }
 
@@ -893,7 +1008,7 @@ export function normalizeDraftResults(
       ...fallbackItem,
       ...item,
       id: item.id || fallbackItem.id,
-      versionName: item.versionName || fallbackItem.versionName,
+      versionName: task.entryType === "viral" ? fallbackItem.versionName : item.versionName || fallbackItem.versionName,
       title: stripAiNoise(item.title || "") || fallbackItem.title,
       coverLine: hook.text,
       script: nextScript,
@@ -911,17 +1026,14 @@ export function normalizeDraftResults(
     if (merged.length >= 5) break;
     if (!merged.some((item) => item.versionName === candidate.versionName)) {
       merged.push(candidate);
+      usedFallbackCount += 1;
     }
   }
 
-  return merged.slice(0, 5);
+  const nextItems = merged.slice(0, 5);
+  return {
+    items: nextItems,
+    usedFallbackCount,
+    message: task.entryType === "viral" && usedFallbackCount > 0 ? `已自动使用 ${usedFallbackCount} 个贴原文的保真轻改兜底版本。` : undefined
+  };
 }
-
-
-
-
-
-
-
-
-

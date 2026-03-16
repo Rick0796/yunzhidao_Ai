@@ -461,49 +461,59 @@ function buildViralRewriteInstruction(
 ): string {
   const originalText = (task.sourceText || task.userNote || "").trim();
   const meatGuide = meat
-    ? `如果原文中有业务植入段落，参考以下改写方向（不强制）：\n桥层：${meat.bridgeText || ""}\n服务层：${meat.serviceText || ""}\n动作铺垫：${meat.actionPrepText || ""}`
-    : "如果原文中有业务植入段落，保留其位置和结构，只做措辞改写。";
+    ? `If the source already contains business lines, only use these as optional rewrite hints:
+Bridge: ${meat.bridgeText || ""}
+Service: ${meat.serviceText || ""}
+Action prep: ${meat.actionPrepText || ""}`
+    : "If the source does not contain business lines, do not add new business claims.";
 
   return [
-    "你的任务是对以下原文进行仿写改写，生成5个不同程度的改写版本。",
+    "Rewrite the source script into 5 source-aligned, lightly de-duplicated versions.",
     "",
-    "=== 最高优先级原则 ===",
-    "1. 原文是改写的唯一依据，严格按照原文的段落顺序、层数、推进逻辑来写。",
-    "2. 每个版本的段落数量必须与原文一致，不能删段、合并段、跳段。",
-    "3. 总字数必须在原文的85%到115%之间，不能大幅缩短。",
-    "4. 原文中的爆点、数字、判断句、三点式结构、反问句必须全部保留。",
-    "5. 只做表达层改写：同义换词、句式微调、替换高频重复词、调整语气强度。",
-    "6. 禁止新增原文没有的论证层、人物、事件或结论。",
+    "=== Highest priority rules ===",
+    "1. Rewrite paragraph by paragraph in the same order as the source.",
+    "2. Keep the same paragraph count as the source. Do not remove, merge, or skip paragraphs.",
+    "3. Keep total length between 90% and 110% of the source.",
+    "4. Keep each paragraph between 80% and 120% of the matching source paragraph.",
+    "5. Preserve all hard anchors: years, numbers, ordered points, names, platforms, judgments, CTA actions.",
+    "6. Only do expression-level de-duplication: synonym swaps, tiny syntax shifts, connector changes, tone polish.",
+    "7. Do not add new stories, arguments, examples, characters, business claims, or conclusions.",
     "",
-    "=== 原文 ===",
+    "=== Source ===",
     originalText,
     "",
-    `=== 已选钩子（第一句必须原样使用，一字不改）===\n${hook.text}`,
+    `=== Selected hook (must be the first sentence of paragraph 1, unchanged) ===
+${hook.text}`,
     "",
-    `=== 已选收口（最后一句必须原样使用，一字不改）===\n${cta.text}`,
+    `=== Selected CTA (must be the last sentence of the final paragraph, unchanged) ===
+${cta.text}`,
     "",
     meatGuide,
     "",
-    "=== 五个版本的改写方向 ===",
-    "- 版本1（最近原文版）：改动最小，只换高频重复词和过于直白的广告词，保留所有句式、数字、结构",
-    "- 版本2（换皮版）：只重写第一句钩子换成已选钩子，中段和结尾贴原文走，其余只做轻微调词",
-    "- 版本3（精炼版）：在保留所有爆点的前提下，删掉冗余词、重复句，让每句话更紧凑有力",
-    "- 版本4（口语强化版）：把书面感强的句子改成更口语化的表达，短句断开，节奏感更强，但爆点全保留",
-    "- 版本5（人群切换版）：把'普通人'换成'老板'或'创业者'，把对应的场景和痛点也跟着调整，其余结构不变",
+    "=== The 5 versions ===",
+    "- Version 1: closest-to-source, minimal wording changes",
+    "- Version 2: light synonym swap version",
+    "- Version 3: smoother spoken-language version",
+    "- Version 4: stronger de-duplication version",
+    "- Version 5: stronger tone version",
     "",
-    "=== 严禁 ===",
-    "- 严禁把原文段落压缩成摘要",
-    "- 严禁用骨架逻辑重新组织内容",
-    "- 严禁编造原文没有的人物、故事、数据",
-    "- 严禁在 script 中出现标签或括号注释",
-    "- 严禁5个版本之间只改几个词，每个版本必须体现明显的表达差异",
+    "=== Strictly forbidden ===",
+    "- Compressing the source into a summary",
+    "- Rebuilding the structure into a new article",
+    "- Removing numbers, names, platforms, sequence words, judgments, or CTA actions",
+    "- Switching the target audience unless the source already does so",
+    "- Adding labels, notes, brackets, or explanations in script",
+    "- Returning 5 identical versions",
     "",
-    "=== 输出格式 ===",
-    "1. 必须输出：versionName、title、coverLine、script、subtitleScript",
-    "2. script 只写纯正文，段落之间用空行分隔，不加任何标签或注释",
-    "3. subtitleScript 只写纯字幕分行，不加任何前缀、标签和注释",
+    "=== Output ===",
+    "1. Return items with versionName, title, coverLine, script, subtitleScript",
+    "2. Paragraph 1 sentence 1 must be the selected hook exactly",
+    "3. Final paragraph final sentence must be the selected CTA exactly",
+    "4. script must be pure body text with blank lines between paragraphs and no labels",
+    "5. subtitleScript must be pure subtitle lines with no commentary",
   ].join("\n");
 }
+
 
 export async function runDraftGeneration(
   settings: ApiSettings,
@@ -530,7 +540,7 @@ export async function runDraftGeneration(
           items: [
             {
               id: "string",
-              versionName: "最近原文版 / 换皮版 / 精炼版 / 口语强化版 / 人群切换版",
+              versionName: "closest / synonym / smoother / stronger-dedupe / stronger-tone",
               title: "string",
               coverLine: "string",
               script: "string",

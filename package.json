@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "server": "python backend/main.py",
     "server:node": "node server.js",
-    "server:py": "python backend/main.py"
+    "server:py": "python backend/main.py",
+    "validate:viral": "node ./node_modules/esbuild/bin/esbuild scripts/validate-viral.ts --bundle --platform=node --format=cjs --outfile=runtime/validate-viral.cjs && node runtime/validate-viral.cjs"
   },
   "dependencies": {
     "react": "^19.0.0",
