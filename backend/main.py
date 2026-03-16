@@ -2365,6 +2365,20 @@ async def chat_completions(request: Request) -> JSONResponse:
     model_name = str(body.get("model") or CONFIG["defaultModel"])
     upstream_url = f"{CONFIG['baseUrl']}/chat/completions"
 
+    # 把 system role 转成 user role（Gemini 不支持 system role）
+    messages = body.get("messages", [])
+    normalized_messages = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            normalized_messages.append({"role": "user", "content": msg.get("content", "")})
+        else:
+            normalized_messages.append(msg)
+
+    # 过滤掉 Gemini 不支持的参数
+    clean_body = {k: v for k, v in body.items() if k not in ("response_format", "stream")}
+    clean_body["messages"] = normalized_messages
+    clean_body["model"] = model_name
+
     status_code = 500
     raw_text = ""
     error_message = ""
@@ -2372,10 +2386,7 @@ async def chat_completions(request: Request) -> JSONResponse:
     try:
         status_code, raw_text = await fetch_with_retry(
             upstream_url,
-            {
-                **body,
-                "model": model_name,
-            },
+            clean_body,
             {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {CONFIG['apiKey']}",

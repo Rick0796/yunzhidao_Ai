@@ -73,6 +73,7 @@ interface NoticeState {
 function App() {
   const [enteredWorkbench, setEnteredWorkbench] = useState(false);
   const [workbenchMode, setWorkbenchMode] = useStoredState<WorkbenchMode | null>(STORAGE_KEYS.workbenchMode, null);
+  const [experienceMode, setExperienceMode] = useStoredState<"beginner" | "advanced">(STORAGE_KEYS.experienceMode, "beginner");
   const [settings, setSettings] = useStoredState<ApiSettings>(STORAGE_KEYS.settings, defaultApiSettings);
   const [profile, setProfile] = useStoredState<BaseProfile>(STORAGE_KEYS.profile, defaultBaseProfile);
   const [task, setTask] = useStoredState<TaskForm>(STORAGE_KEYS.task, defaultTask);
@@ -104,13 +105,21 @@ function App() {
   const [isRewriteStructureCollapsed, setIsRewriteStructureCollapsed] = useState(false);
   const [isWorkbenchIntroCollapsed, setIsWorkbenchIntroCollapsed] = useState(true);
   const [composeWorkbenchNonce, setComposeWorkbenchNonce] = useState(0);
+  const [showHotspotHelper, setShowHotspotHelper] = useState(false);
+  const [isHooksCollapsed, setIsHooksCollapsed] = useState(false);
+  const [isStructureCollapsed, setIsStructureCollapsed] = useState(false);
+  const [isDraftsCollapsed, setIsDraftsCollapsed] = useState(false);
+  const [isEntryExpanded, setIsEntryExpanded] = useState(true);
+  const [isBusinessExpanded, setIsBusinessExpanded] = useState(true);
+  const [isCtaExpanded, setIsCtaExpanded] = useState(true);
   const [wizardStep, setWizardStep] = useState<WizardStep>(() =>
     drafts.length > 0 ? 4 : skeletons.length > 0 || ctas.length > 0 || meats.length > 0 ? 3 : hooks.length > 0 ? 2 : 1
   );
   const currentWorkbenchMode = workbenchMode ?? inferWorkbenchMode(task.entryType);
+  const isBeginnerMode = experienceMode === "beginner";
   const normalizedTask = useMemo(() => normalizeTaskState(task), [task]);
-  const canCollapseWorkbenchIntro = true;
   const isWorkbenchIntroHidden = isWorkbenchIntroCollapsed;
+  const canCollapseWorkbenchIntro = true;
   const lastOriginalEntryRef = useRef<{ entryType: OriginalEntryType; chosen: boolean }>({
     entryType: isOriginalEntryType(defaultTask.entryType) ? defaultTask.entryType : DEFAULT_ORIGINAL_ENTRY_TYPE,
     chosen: false
@@ -156,6 +165,23 @@ function App() {
   useEffect(() => {
     setIsWorkbenchIntroCollapsed(true);
   }, [currentWorkbenchMode]);
+  useEffect(() => {
+    if (!isBeginnerMode) return;
+    setShowTaskSettings(true);
+    setShowAdvanced(false);
+    setIsWorkbenchIntroCollapsed(true);
+  }, [isBeginnerMode]);
+
+  useEffect(() => {
+    const shouldOfferHotspotHelper = currentWorkbenchMode === "original" && normalizedTask.entryTypeChosen && task.entryType === "hotspot";
+    if (!shouldOfferHotspotHelper) {
+      setShowHotspotHelper(false);
+      return;
+    }
+    if (!isBeginnerMode) {
+      setShowHotspotHelper(true);
+    }
+  }, [currentWorkbenchMode, normalizedTask.entryTypeChosen, task.entryType, isBeginnerMode]);
   const taskChoiceMissing = useMemo(() => {
     if (currentWorkbenchMode === "compose") {
       return [];
@@ -437,7 +463,8 @@ function App() {
     );
     setWizardStep(workspace?.drafts?.length ? 4 : workspace?.selectedCta ? 3 : workspace?.selectedHook ? 2 : 1);
     setStructureTab("skeleton");
-    setShowTaskSettings(false);
+    setShowHotspotHelper(false);
+    setShowTaskSettings(isBeginnerMode);
     setShowAdvanced(false);
     setShowHistory(false);
     showNotice("success", `已回显历史任务：${getTaskDisplayName(item.snapshot)}`);
@@ -660,7 +687,11 @@ function App() {
   }
 
   function goStep(target: WizardStep) {
-    if (target === 1) return setWizardStep(1);
+    if (target === 1) {
+      // 返回 Step 1 时收起内容输入区，避免误触清空已生成内容
+      setShowTaskSettings(false);
+      return setWizardStep(1);
+    }
     if (target === 2 && !hasRequiredTaskChoices) {
       showNotice("warning", `先完成任务设置：${taskChoiceMissing.join("、")}。`);
       return;
@@ -677,115 +708,164 @@ function App() {
   const stepPanel =
     wizardStep === 1 ? (
       <GlassCard>
-        <StepHeader title={workbenchCopy.step1Title} subtitle={workbenchCopy.step1Subtitle} />
+        <div className="space-y-3">
 
-        <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4">
-          <button className="flex w-full items-start justify-between gap-4 text-left" onClick={() => setShowTaskSettings((prev) => !prev)}>
-            <div>
-              <div className="text-sm font-semibold text-white">任务设置（必选）</div>
-              <div className="mt-1 text-xs leading-6 text-slate-400">
-                {currentWorkbenchMode === "rewrite" ? "本模式固定为爆款仿写，只需要确定挂业务方式和收口方式。" : "点击选择创作入口、挂业务方式和收口方式。"}
-              </div>
-            </div>
-            <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-              {showTaskSettings ? "收起" : "点击选择"}
-            </div>
-          </button>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <SoftBadge>{currentWorkbenchMode === "rewrite" ? "爆款仿写" : normalizedTask.entryTypeChosen ? displayEntryType(task.entryType) : "未选入口"}</SoftBadge>
-            <SoftBadge>{normalizedTask.businessModeChosen ? displayBusinessMode(task.businessMode) : "未选业务"}</SoftBadge>
-            <SoftBadge>{normalizedTask.ctaModeChosen ? displayCtaMode(task.ctaMode) : "未选收口"}</SoftBadge>
-          </div>
-
-          {showTaskSettings ? (
-            <div className="mt-5 space-y-5">
-              {currentWorkbenchMode === "rewrite" ? (
-                <div className="rounded-3xl border border-white/10 bg-[#0a1120]/60 p-4">
-                  <div className="text-sm font-semibold text-white">当前入口</div>
-                  <div className="mt-2 text-sm leading-7 text-slate-300">爆款仿写模式会尽量保留原文推进结构，重点改开头抓力、表达去重和肉的装配位置。</div>
+          {/* ── 任务设置（合并折叠卡片） ── */}
+          {currentWorkbenchMode !== "rewrite" ? (
+            <div className={classNames(
+              "rounded-2xl border-2 transition",
+              (normalizedTask.entryTypeChosen && normalizedTask.businessModeChosen && (normalizedTask.ctaModeChosen || task.businessMode === "none"))
+                ? "border-white/10 bg-white/3"
+                : "border-amber-400/50 bg-amber-400/5"
+            )}>
+              <button
+                className="flex w-full items-center justify-between px-4 py-3 text-left"
+                onClick={() => setIsEntryExpanded((v) => !v)}
+              >
+                <span className="text-sm font-semibold text-white">任务设置</span>
+                <div className="flex items-center gap-2">
+                  {normalizedTask.entryTypeChosen && normalizedTask.businessModeChosen && (normalizedTask.ctaModeChosen || task.businessMode === "none")
+                    ? <span className="flex items-center gap-1 text-xs text-emerald-400"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>已完成</span>
+                    : <span className="animate-pulse text-xs font-medium text-amber-300">← 请选择</span>
+                  }
+                  <svg className={classNames("h-4 w-4 text-slate-500 transition-transform", !isEntryExpanded && "-rotate-90")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                 </div>
-              ) : (
-                <div className={classNames("rounded-3xl border p-4 transition", !normalizedTask.entryTypeChosen ? "border-amber-400/35 bg-amber-400/8" : "border-transparent")}>
-                  <div className="field-label">创作入口</div>
-                  {!normalizedTask.entryTypeChosen ? <div className="mt-2 text-xs text-amber-200">先选一个入口，下面才会切到对应任务面板。</div> : null}
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
-                    {ORIGINAL_ENTRY_OPTIONS.map((item) => (
-                      <ChoiceCard
-                        key={item.value}
-                        active={normalizedTask.entryTypeChosen && task.entryType === item.value}
-                        title={item.label}
-                        description={item.hint}
-                        onClick={() => chooseEntryType(item.value)}
-                      />
-                    ))}
+              </button>
+              {isEntryExpanded && (
+                <div className="border-t border-white/8 px-4 pb-4 pt-3 space-y-4">
+                  {/* 创作入口 */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">创作入口</span>
+                      {normalizedTask.entryTypeChosen && <span className="text-xs text-emerald-400">{displayEntryType(task.entryType)}</span>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                      {ORIGINAL_ENTRY_OPTIONS.map((item) => (
+                        <button
+                          key={item.value}
+                          className={classNames(
+                            "rounded-xl border-2 px-3 py-2.5 text-left transition-all",
+                            normalizedTask.entryTypeChosen && task.entryType === item.value
+                              ? "border-cyan-400 bg-cyan-400/15 shadow-[0_0_12px_rgba(0,212,255,0.25)] text-white"
+                              : "border-white/15 bg-white/5 text-slate-300 hover:border-cyan-400/50 hover:bg-cyan-400/8 hover:text-white"
+                          )}
+                          onClick={() => chooseEntryType(item.value)}
+                        >
+                          <div className="text-sm font-semibold">{item.label}</div>
+                          <div className="mt-0.5 text-[11px] leading-4 text-slate-400">{item.hint}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* 挂业务方式 */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">挂业务方式</span>
+                      {normalizedTask.businessModeChosen && <span className="text-xs text-emerald-400">{displayBusinessMode(task.businessMode)}</span>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {BUSINESS_OPTIONS.map((item) => (
+                        <button
+                          key={item.value}
+                          className={classNames(
+                            "rounded-xl border-2 px-3 py-2.5 text-left transition-all",
+                            normalizedTask.businessModeChosen && task.businessMode === item.value
+                              ? "border-cyan-400 bg-cyan-400/15 shadow-[0_0_12px_rgba(0,212,255,0.25)] text-white"
+                              : "border-white/15 bg-white/5 text-slate-300 hover:border-cyan-400/50 hover:bg-cyan-400/8 hover:text-white"
+                          )}
+                          onClick={() => chooseBusinessMode(item.value)}
+                        >
+                          <div className="text-sm font-semibold">{item.label}</div>
+                          <div className="mt-0.5 text-[11px] leading-4 text-slate-400">{item.hint}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* 收口方式 — 不管业务模式都可选 */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">收口方式</span>
+                      {normalizedTask.ctaModeChosen && <span className="text-xs text-emerald-400">{displayCtaMode(task.ctaMode)}</span>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                      {CTA_OPTIONS.map((item) => (
+                        <button
+                          key={item.value}
+                          className={classNames(
+                            "rounded-xl border-2 px-3 py-2.5 text-left transition-all",
+                            normalizedTask.ctaModeChosen && task.ctaMode === item.value
+                              ? "border-cyan-400 bg-cyan-400/15 shadow-[0_0_12px_rgba(0,212,255,0.25)] text-white"
+                              : "border-white/15 bg-white/5 text-slate-300 hover:border-cyan-400/50 hover:bg-cyan-400/8 hover:text-white"
+                          )}
+                          onClick={() => chooseCtaMode(item.value)}
+                        >
+                          <div className="text-sm font-semibold">{item.label}</div>
+                          <div className="mt-0.5 text-[11px] leading-4 text-slate-400">{item.hint}</div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className={classNames("rounded-3xl border p-4 transition", !normalizedTask.businessModeChosen ? "border-amber-400/35 bg-amber-400/8" : "border-transparent")}>
-                  <div className="field-label">挂业务方式</div>
-                  {!normalizedTask.businessModeChosen ? <div className="mt-2 text-xs text-amber-200">这里必须选，不选就不能往下生成。</div> : null}
-                  <div className="mt-2 grid gap-2">
-                    {BUSINESS_OPTIONS.map((item) => (
-                      <ChoiceRow
-                        key={item.value}
-                        active={normalizedTask.businessModeChosen && task.businessMode === item.value}
-                        title={item.label}
-                        description={item.hint}
-                        onClick={() => chooseBusinessMode(item.value)}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div className={classNames("rounded-3xl border p-4 transition", !normalizedTask.ctaModeChosen ? "border-amber-400/35 bg-amber-400/8" : "border-transparent")}>
-                  <div className="field-label">收口方式</div>
-                  {!normalizedTask.ctaModeChosen ? <div className="mt-2 text-xs text-amber-200">这里也要先选好，系统才允许进入下一步。</div> : null}
-                  <div className="mt-2 grid gap-2">
-                    {CTA_OPTIONS.map((item) => (
-                      <ChoiceRow
-                        key={item.value}
-                        active={normalizedTask.ctaModeChosen && task.ctaMode === item.value}
-                        title={item.label}
-                        description={item.hint}
-                        onClick={() => chooseCtaMode(item.value)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
             </div>
-          ) : null}
-        </div>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-white/4 px-4 py-3">
+              <span className="text-sm text-slate-300">模式：爆款仿写 — 保留原文结构，改开头抓力和表达去重</span>
+            </div>
+          )}
 
+        </div>{/* end space-y-3 */}
+
+        {/* ── 热点中心 ── */}
         {currentWorkbenchMode === "original" && normalizedTask.entryTypeChosen && task.entryType === "hotspot" ? (
-          <div className="mt-6">
+          <div className="mt-3">
             <GlassCard>{renderHotspotCenter()}</GlassCard>
           </div>
         ) : null}
 
-        <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
-          <div className="text-sm font-semibold text-white">内容输入</div>
-          <div className="mt-1 text-xs leading-6 text-slate-400">
-            {currentWorkbenchMode === "rewrite" ? "把参考爆款文案贴进来，系统会先拆原文结构，再往下改写。" : "把热点、主题或故事素材贴进来，系统再往下生成。"}
-          </div>
-          <div className="mt-5 space-y-4">
-            {renderTaskInput()}
-          </div>
+        {/* ── 内容输入（折叠卡片） ── */}
+        <div className={classNames(
+          "mt-3 rounded-2xl border-2 transition",
+          getTaskPrimaryText(task).trim() ? "border-white/10 bg-white/3" : "border-amber-400/50 bg-amber-400/5"
+        )}>
+          <button
+            className="flex w-full items-center justify-between px-4 py-3 text-left"
+            onClick={() => setShowTaskSettings((prev) => !prev)}
+          >
+            <span className="text-sm font-semibold text-white">内容输入</span>
+            <div className="flex items-center gap-2">
+              {getTaskPrimaryText(task).trim()
+                ? <span className="text-xs text-emerald-400">✓ 已填写</span>
+                : <span className="animate-pulse text-xs font-medium text-amber-300">← 必填</span>
+              }
+              <svg className={classNames("h-4 w-4 text-slate-400 transition-transform", showTaskSettings && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+          </button>
+          {showTaskSettings ? (
+            <div className="border-t border-white/8 px-4 pb-4 pt-3 space-y-3">
+              {renderTaskInput()}
+            </div>
+          ) : null}
         </div>
 
-        <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4">
-          <button className="flex w-full items-center justify-between text-left" onClick={() => setShowAdvanced((prev) => !prev)}>
-            <div>
-              <div className="text-sm font-semibold text-white">高级设置</div>
-              <div className="text-xs text-slate-400">补充你的业务背景和 API 配置，生成会更贴业务。</div>
+        {/* ── 高级设置（折叠卡片） ── */}
+        <div className="mt-3 rounded-2xl border border-white/8 bg-white/3">
+          <button
+            className="flex w-full items-center justify-between px-4 py-3 text-left"
+            onClick={() => setShowAdvanced((prev) => !prev)}
+          >
+            <span className="text-sm font-semibold text-white">高级设置</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">业务背景 / API 配置</span>
+              <svg className={classNames("h-4 w-4 text-slate-400 transition-transform", showAdvanced && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
-            <div className="text-sm text-slate-400">{showAdvanced ? "收起" : "展开"}</div>
           </button>
-
           {showAdvanced ? (
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="border-t border-white/8 px-4 pb-4 pt-3 grid gap-3 md:grid-cols-2">
               <div className="md:col-span-2">
                 <FieldLabel text="我是谁 / 做什么" />
                 <Textarea value={profile.selfIntro} onChange={(value) => updateProfileField("selfIntro", value)} />
@@ -798,7 +878,7 @@ function App() {
                 <FieldLabel text="核心关键词" />
                 <Textarea value={profile.coreKeywords} onChange={(value) => updateProfileField("coreKeywords", value)} />
               </div>
-              <div className="md:col-span-2 grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
                 <div>
                   <FieldLabel text="是否启用实时 API" />
                   <Toggle checked={settings.useLiveApi} onChange={(checked) => updateSettingsField("useLiveApi", checked)} label={settings.useLiveApi ? "已开启" : "使用本地兜底"} />
@@ -828,58 +908,43 @@ function App() {
       </GlassCard>
     ) : wizardStep === 2 ? (
       <GlassCard>
-        <StepHeader title={workbenchCopy.step2Title} subtitle={workbenchCopy.step2Subtitle} />
-
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/5 p-4">
-          {currentWorkbenchMode === "rewrite" ? (
-            <div>
-              <div className="text-sm font-semibold text-white">仿写开头生成</div>
-              <div className="mt-1 text-xs leading-6 text-slate-400">这里不再重复展示原文，直接根据下面的结构版去改更抓人的皮。</div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+              {currentWorkbenchMode === "rewrite" ? "仿写开头生成" : "开头（皮）"}
             </div>
-          ) : (
-            <div>
-              <div className="text-sm font-semibold text-white">当前内容</div>
-              <div className="mt-2 text-sm leading-7 text-slate-300">{getTaskPrimaryText(task) || "还没填写"}</div>
-            </div>
-          )}
-          <div className="flex items-center gap-3">
+            {currentWorkbenchMode !== "rewrite" && (
+              <div className="mt-1 text-sm text-slate-300 truncate max-w-xs md:max-w-md">{getTaskPrimaryText(task) || "还没填写"}</div>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.hooks ? <SourceBadge meta={moduleMeta.hooks} /> : null}
             <button className="brand-btn" onClick={() => void handleGenerateHooks()} disabled={isGeneratingHooks}>
-              {isGeneratingHooks ? "正在生成皮..." : hooks.length > 0 ? "重新生成皮" : "生成皮"}
+              {isGeneratingHooks ? "生成中..." : hooks.length > 0 ? "重新生成" : "生成开头"}
             </button>
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.hooks} />
 
         {currentWorkbenchMode === "rewrite" ? (
-          <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-white">原文结构版</div>
-                <div className="mt-1 text-xs leading-6 text-slate-400">
-                  先把原文按抓停、立题、展开、深化、塑品、植入、动作拆开，再判断这一条皮怎么改更稳。
-                  {hooks.length > 0 ? " 皮出来后这里会自动收起，避免往下翻太久。" : ""}
-                </div>
-              </div>
+          <div className="mt-4 rounded-2xl border border-white/10 bg-white/4 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="text-sm font-semibold text-white">原文结构版</div>
               <div className="flex items-center gap-2">
-                <div className="rounded-full border border-white/10 bg-[#0a1120]/60 px-3 py-1 text-xs text-slate-300">
-                  {rewriteSourceStructure.length} 段
-                </div>
+                <span className="text-xs text-slate-400">{rewriteSourceStructure.length} 段</span>
                 <button
                   type="button"
-                  className="rounded-full border border-white/10 bg-[#0a1120]/60 px-3 py-1 text-xs text-slate-200 transition hover:border-cyan-400/40 hover:text-white"
+                  className="text-xs text-slate-400 hover:text-white transition"
                   onClick={() => setIsRewriteStructureCollapsed((value) => !value)}
                 >
-                  {isRewriteStructureCollapsed ? "展开结构" : "收起结构"}
+                  {isRewriteStructureCollapsed ? "展开" : "收起"}
                 </button>
               </div>
             </div>
             {isRewriteStructureCollapsed ? (
-              <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-[#0a1120]/40 px-4 py-3 text-sm text-slate-300">
-                原文结构已收起，当前共 {rewriteSourceStructure.length} 段。需要对照时点“展开结构”即可。
-              </div>
+              <div className="mt-2 text-xs text-slate-500">原文结构已收起，需要对照时点「展开」。</div>
             ) : (
-              <div className="mt-4 grid gap-3">
+              <div className="mt-3 grid gap-2">
                 {rewriteSourceStructure.length === 0 ? (
                   <EmptyBlock text="原文还不够完整，贴入原文后这里会自动拆出结构。" />
                 ) : (
@@ -892,87 +957,123 @@ function App() {
           </div>
         ) : null}
 
-        <div className="mt-5 grid gap-3">
-          {hooks.length === 0 ? (
-            <EmptyBlock text="还没生成皮。点上面的按钮先出一批开头。" />
-          ) : (
-            hooks.map((item, index) => (
-              <SelectableResultCard
-                key={item.id}
-                active={item.id === selectedHook?.id}
-                badge={`皮 ${index + 1}`}
-                title={item.text}
-                meta={`${item.type} · ${item.riskLevel}风险 · ${item.score}分`}
-                copyText={item.text}
-                onCopy={(text) => handleCopy(text, "皮已复制。")}
-                onClick={() => handleHookSelect(item.id)}
-              />
-            ))
+        <div className="mt-4">
+          <button
+            className="flex w-full items-center justify-between text-left"
+            onClick={() => setIsHooksCollapsed((v) => !v)}
+          >
+            <span className="text-xs font-semibold text-slate-400">开头列表 {hooks.length > 0 ? `· ${hooks.length} 条` : ""}</span>
+            <svg className={classNames("h-4 w-4 text-slate-500 transition-transform", isHooksCollapsed && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          </button>
+          {!isHooksCollapsed && (
+            <div className="mt-2 grid gap-2">
+              {hooks.length === 0 ? (
+                <EmptyBlock text="还没生成开头，点上面的按钮先出一批。" />
+              ) : (
+                hooks.map((item) => (
+                  <button
+                    key={item.id}
+                    className={classNames("result-card-v2", item.id === selectedHook?.id && "result-card-v2-active")}
+                    onClick={() => handleHookSelect(item.id)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold leading-6 text-white">{item.text}</div>
+                        <div className="mt-1 text-xs text-slate-400">{item.type} · {item.riskLevel}风险 · {item.score}分</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          role="button" tabIndex={0}
+                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 hover:text-white"
+                          onClick={(e) => { e.stopPropagation(); handleCopy(item.text, "开头已复制。"); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleCopy(item.text, "开头已复制。"); } }}
+                        >复制</span>
+                        <div className={classNames("h-4 w-4 rounded-full border", item.id === selectedHook?.id ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
           )}
         </div>
 
         <StepFooter>
-          <button className="ghost-btn" onClick={() => goStep(1)}>
-            返回上一步
-          </button>
+          <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(1)}>返回上一步</button>
           <button className="brand-btn" onClick={() => goStep(3)} disabled={!selectedHook}>
-            {currentWorkbenchMode === "rewrite" ? "确定这个皮，进入装配骨肉" : "确定这个皮，进入骨肉收口"}
+            {currentWorkbenchMode === "rewrite" ? "确定开头，进入装配" : "确定开头，进入结构"}
           </button>
         </StepFooter>
       </GlassCard>
     ) : wizardStep === 3 ? (
       <GlassCard>
-        <StepHeader title={workbenchCopy.step3Title} subtitle={workbenchCopy.step3Subtitle} />
-
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/5 p-4">
-          <div>
-            <div className="text-sm font-semibold text-white">已选皮</div>
-            <div className="mt-2 text-sm leading-7 text-slate-300">{selectedHook?.text ?? "还没选"}</div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">骨架 / 业务植入 / 收口</div>
+            <div className="mt-1 text-sm text-slate-300 truncate max-w-xs md:max-w-md">{selectedHook?.text ?? "还没选开头"}</div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.structure ? <SourceBadge meta={moduleMeta.structure} /> : null}
             <button className="brand-btn" onClick={() => void handleGenerateStructure()} disabled={!selectedHook || isGeneratingStructure}>
-              {isGeneratingStructure ? "正在生成结构..." : skeletons.length > 0 || ctas.length > 0 ? "重新生成结构" : "生成骨 / 肉 / 收口"}
+              {isGeneratingStructure ? "生成中..." : skeletons.length > 0 || ctas.length > 0 ? "重新生成" : "生成结构"}
             </button>
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.structure} />
 
-        <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-4">
-          <div className="flex flex-wrap gap-2">
-            <button className={classNames("tab-chip", structureTab === "skeleton" && "tab-chip-active")} onClick={() => setStructureTab("skeleton")}>
-              骨架
+        <div className="mt-4">
+          <button
+            className="flex w-full items-center justify-between text-left mb-2"
+            onClick={() => setIsStructureCollapsed((v) => !v)}
+          >
+            <span className="text-xs font-semibold text-slate-400">结构列表</span>
+            <svg className={classNames("h-4 w-4 text-slate-500 transition-transform", isStructureCollapsed && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          </button>
+          {!isStructureCollapsed && (
+            <>
+          <div className="seg-ctrl">
+            <button className={classNames("seg-ctrl-item", structureTab === "skeleton" && "seg-ctrl-item-active")} onClick={() => setStructureTab("skeleton")}>
+              骨架（推进）
             </button>
             {task.businessMode !== "none" ? (
-              <button className={classNames("tab-chip", structureTab === "meat" && "tab-chip-active")} onClick={() => setStructureTab("meat")}>
-                肉
+              <button className={classNames("seg-ctrl-item", structureTab === "meat" && "seg-ctrl-item-active")} onClick={() => setStructureTab("meat")}>
+                业务植入
               </button>
             ) : null}
-            <button className={classNames("tab-chip", structureTab === "cta" && "tab-chip-active")} onClick={() => setStructureTab("cta")}>
-              收口
+            <button className={classNames("seg-ctrl-item", structureTab === "cta" && "seg-ctrl-item-active")} onClick={() => setStructureTab("cta")}>
+              {task.businessMode === "none" ? "收口（已跳过）" : "收口"}
             </button>
           </div>
 
-          <div className="mt-4">
+          <div className="mt-3 grid gap-2">
             {structureTab === "skeleton" ? (
               skeletons.length === 0 ? (
-                <EmptyBlock text="还没生成骨架。" />
+                <EmptyBlock text="还没生成骨架，点上面生成按钮。" />
               ) : (
-                <div className="grid gap-3">
-                  {skeletons.map((item) => (
-                    <SelectableResultCard
-                      key={item.id}
-                      active={item.id === selectedSkeleton?.id}
-                      badge="骨"
-                      title={item.name}
-                      meta={formatSkeletonPreview(item.name, item.steps.map((step) => step.name))}
-                      description={formatSkeletonCardDescription(item)}
-                      copyText={`${item.name}\n${item.steps.map((step) => step.name).join(" → ")}\n${formatSkeletonExecutionLines(item).join("\n")}\n${item.summary}`}
-                      onCopy={(text) => handleCopy(text, "骨架已复制。")}
-                      onClick={() => handleStructureSelect("skeleton", item.id)}
-                    />
-                  ))}
-                </div>
+                skeletons.map((item) => (
+                  <button
+                    key={item.id}
+                    className={classNames("result-card-v2", item.id === selectedSkeleton?.id && "result-card-v2-active")}
+                    onClick={() => handleStructureSelect("skeleton", item.id)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-white">{item.name}</div>
+                        <div className="mt-1 text-xs text-slate-400">{formatSkeletonPreview(item.name, item.steps.map((s) => s.name))}</div>
+                        <div className="mt-1 text-xs text-slate-500">{formatSkeletonCardDescription(item)}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          role="button" tabIndex={0}
+                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 hover:text-white"
+                          onClick={(e) => { e.stopPropagation(); handleCopy(`${item.name}\n${item.steps.map((s) => s.name).join(" → ")}\n${formatSkeletonExecutionLines(item).join("\n")}\n${item.summary}`, "骨架已复制。"); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleCopy(item.name, "骨架已复制。"); } }}
+                        >复制</span>
+                        <div className={classNames("h-4 w-4 rounded-full border", item.id === selectedSkeleton?.id ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
+                      </div>
+                    </div>
+                  </button>
+                ))
               )
             ) : null}
 
@@ -980,557 +1081,446 @@ function App() {
               task.businessMode === "none" ? (
                 <EmptyBlock text="当前不挂业务。" />
               ) : meats.length === 0 ? (
-                <EmptyBlock text="还没生成肉。" />
+                <EmptyBlock text="还没生成业务植入，点上面生成按钮。" />
               ) : (
-                <div className="grid gap-3">
-                  {meats.map((item) => (
-                    <SelectableResultCard
-                      key={item.id}
-                      active={item.id === selectedMeat?.id}
-                      badge="肉"
-                      title={item.type}
-                      meta={`${displayBusinessMode(item.intensity)} · 丝滑度 ${item.smoothnessScore}`}
-                      description={item.text}
-                      copyText={item.text}
-                      onCopy={(text) => handleCopy(text, "肉已复制。")}
-                      onClick={() => handleStructureSelect("meat", item.id)}
-                    />
-                  ))}
-                </div>
+                meats.map((item) => (
+                  <button
+                    key={item.id}
+                    className={classNames("result-card-v2", item.id === selectedMeat?.id && "result-card-v2-active")}
+                    onClick={() => handleStructureSelect("meat", item.id)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-white">{item.type}</div>
+                        <div className="mt-1 text-xs text-slate-400">{displayBusinessMode(item.intensity)} · 丝滑度 {item.smoothnessScore}</div>
+                        <div className="mt-1 text-xs text-slate-300">{item.text}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          role="button" tabIndex={0}
+                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 hover:text-white"
+                          onClick={(e) => { e.stopPropagation(); handleCopy(item.text, "已复制。"); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleCopy(item.text, "已复制。"); } }}
+                        >复制</span>
+                        <div className={classNames("h-4 w-4 rounded-full border", item.id === selectedMeat?.id ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
+                      </div>
+                    </div>
+                  </button>
+                ))
               )
             ) : null}
 
             {structureTab === "cta" ? (
-              ctas.length === 0 ? (
-                <EmptyBlock text="还没生成收口。" />
-              ) : (
-                <div className="grid gap-3">
-                  {ctas.map((item) => (
-                    <SelectableResultCard
-                      key={item.id}
-                      active={item.id === selectedCta?.id}
-                      badge="收口"
-                      title={item.text}
-                      meta={`${item.type} · ${item.scenario}`}
-                      copyText={item.text}
-                      onCopy={(text) => handleCopy(text, "收口已复制。")}
-                      onClick={() => handleStructureSelect("cta", item.id)}
-                    />
-                  ))}
+              task.businessMode === "none" ? (
+                <div className="rounded-2xl border border-white/10 bg-white/4 px-4 py-4 text-sm text-slate-400">
+                  已选择不挂业务，系统不会生成收口内容。
                 </div>
+              ) : ctas.length === 0 ? (
+                <EmptyBlock text="还没生成收口，点上面生成按钮。" />
+              ) : (
+                ctas.map((item) => (
+                  <button
+                    key={item.id}
+                    className={classNames("result-card-v2", item.id === selectedCta?.id && "result-card-v2-active")}
+                    onClick={() => handleStructureSelect("cta", item.id)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-white">{item.text}</div>
+                        <div className="mt-1 text-xs text-slate-400">{item.type} · {item.scenario}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          role="button" tabIndex={0}
+                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 hover:text-white"
+                          onClick={(e) => { e.stopPropagation(); handleCopy(item.text, "收口已复制。"); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleCopy(item.text, "收口已复制。"); } }}
+                        >复制</span>
+                        <div className={classNames("h-4 w-4 rounded-full border", item.id === selectedCta?.id ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
+                      </div>
+                    </div>
+                  </button>
+                ))
               )
             ) : null}
           </div>
+            </>
+          )}
         </div>
 
         <StepFooter>
-          <button className="ghost-btn" onClick={() => goStep(2)}>
-            返回上一步
-          </button>
+          <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(2)}>返回上一步</button>
           <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>
-            确定骨肉收口，进入成品
+            确定结构，进入成品
           </button>
         </StepFooter>
       </GlassCard>
     ) : (
       <GlassCard>
-        <StepHeader title={workbenchCopy.step4Title} subtitle={workbenchCopy.step4Subtitle} />
-
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/5 p-4">
-          <div>
-            <div className="text-sm font-semibold text-white">当前组合</div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <SoftBadge>{selectedHook?.text ?? "未选皮"}</SoftBadge>
-              <SoftBadge>{selectedSkeleton?.name ?? "未选骨"}</SoftBadge>
-              <SoftBadge>{selectedMeat?.type ?? (task.businessMode === "none" ? "不挂业务" : "未选肉")}</SoftBadge>
+        {/* 顶部：组合摘要 + 生成按钮 */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">完整成品</div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              <SoftBadge>{selectedHook?.text.slice(0, 20) ?? "未选开头"}{(selectedHook?.text.length ?? 0) > 20 ? "..." : ""}</SoftBadge>
+              <SoftBadge>{selectedSkeleton?.name ?? "未选骨架"}</SoftBadge>
+              {task.businessMode !== "none" && <SoftBadge>{selectedMeat?.type ?? "未选植入"}</SoftBadge>}
               <SoftBadge>{selectedCta?.type ?? "未选收口"}</SoftBadge>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.drafts ? <SourceBadge meta={moduleMeta.drafts} /> : null}
             <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
-              {isGeneratingDrafts ? "正在生成成品..." : drafts.length > 0 ? "重新生成成品" : "生成完整成品"}
+              {isGeneratingDrafts ? "生成中..." : drafts.length > 0 ? "重新生成" : "生成成品"}
             </button>
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.drafts} />
 
-        <div className="mt-5 grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <div className="space-y-4">
-            <div className="text-sm font-semibold text-white">成品版本</div>
-            {drafts.length === 0 ? (
-              <EmptyBlock text="还没出成品。点击上面的按钮生成。" />
-            ) : (
-              drafts.map((item, index) => (
-                <SelectableResultCard
-                  key={item.id}
-                  active={item.id === selectedDraft?.id}
-                  badge={`V${index + 1}`}
-                  title={item.versionName}
-                  meta={item.title}
-                  description={item.coverLine}
-                  onClick={() => setSelectedDraftId(item.id)}
-                />
-              ))
-            )}
-          </div>
-
-          <div>
-            {selectedDraft ? (
-              <div className="grid gap-4 lg:grid-cols-2">
-                <ContentPanel
-                  title={selectedDraft.title}
-                  subtitle="完整文案"
-                  content={selectedDraft.script}
-                  copyLabel="复制文案"
-                  onCopy={() => handleCopy(selectedDraft.script, "完整文案已复制。")}
-                />
-                <ContentPanel
-                  title={selectedDraft.coverLine}
-                  subtitle="字幕稿"
-                  content={selectedDraft.subtitleScript}
-                  copyLabel="复制字幕稿"
-                  onCopy={() => handleCopy(selectedDraft.subtitleScript, "字幕稿已复制。")}
-                />
+        {/* 桌面端：两列布局；手机端：tab 切换 */}
+        {drafts.length > 0 ? (
+          <>
+            {/* 手机端 tab */}
+            <div className="mt-4 md:hidden">
+              <MobileDraftTabs
+                drafts={drafts}
+                selectedDraft={selectedDraft}
+                onSelect={(id) => setSelectedDraftId(id)}
+                onCopyScript={(text) => handleCopy(text, "完整文案已复制。")}
+                onCopySubtitle={(text) => handleCopy(text, "字幕稿已复制。")}
+              />
+            </div>
+            {/* 桌面端两列 */}
+            <div className="mt-4 hidden md:grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">版本</div>
+                {drafts.map((item, index) => (
+                  <button
+                    key={item.id}
+                    className={classNames("result-card-v2", item.id === selectedDraft?.id && "result-card-v2-active")}
+                    onClick={() => setSelectedDraftId(item.id)}
+                  >
+                    <div className="text-sm font-semibold text-white">V{index + 1} · {item.versionName}</div>
+                    <div className="mt-1 text-xs text-slate-400">{item.title}</div>
+                  </button>
+                ))}
               </div>
-            ) : (
-              <EmptyBlock text="这里会展示你当前选中的完整成品和字幕稿。" />
-            )}
+              <div>
+                {selectedDraft ? (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <ContentPanel
+                      title={selectedDraft.title}
+                      subtitle="完整文案"
+                      content={selectedDraft.script}
+                      copyLabel="复制文案"
+                      onCopy={() => handleCopy(selectedDraft.script, "完整文案已复制。")}
+                    />
+                    <ContentPanel
+                      title={selectedDraft.coverLine}
+                      subtitle="字幕稿"
+                      content={selectedDraft.subtitleScript}
+                      copyLabel="复制字幕稿"
+                      onCopy={() => handleCopy(selectedDraft.subtitleScript, "字幕稿已复制。")}
+                    />
+                  </div>
+                ) : (
+                  <EmptyBlock text="选左侧版本查看完整成品和字幕稿。" />
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="mt-4">
+            <EmptyBlock text="点上面按钮生成完整成品。" />
           </div>
-        </div>
+        )}
 
         <StepFooter>
-          <button className="ghost-btn" onClick={() => goStep(3)}>
-            返回上一步
-          </button>
+          <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(3)}>返回上一步</button>
         </StepFooter>
       </GlassCard>
     );
 
+  // 手机底部操作栏按钮
+  const mobileActionBtn = enteredWorkbench && currentWorkbenchMode !== "compose" ? (
+    wizardStep === 1 ? (
+      <button className="brand-btn" onClick={() => goStep(2)} disabled={!canGoStep2}>
+        {currentWorkbenchMode === "rewrite" ? "确定，进入选开头" : "确定任务"}
+      </button>
+    ) : wizardStep === 2 ? (
+      <button className="brand-btn" onClick={() => goStep(3)} disabled={!selectedHook}>确定开头</button>
+    ) : wizardStep === 3 ? (
+      <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>确定结构</button>
+    ) : (
+      <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
+        {isGeneratingDrafts ? "生成中..." : drafts.length > 0 ? "重新生成" : "生成成品"}
+      </button>
+    )
+  ) : null;
+
   return (
-    <div className="min-h-screen text-white">
+    <div className="flex min-h-screen flex-col text-white">
       <ParticleBackground />
       <div className="app-overlay" />
 
-      <header className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[#070b16]/70 backdrop-blur-xl">
-        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-6">
-          <button className="flex items-center gap-3" onClick={() => setEnteredWorkbench(false)}>
-            <div className="bg-gradient-to-r from-[#00D4FF] to-[#8B5CF6] bg-clip-text text-2xl font-bold text-transparent">云智道AI</div>
+      <header className="fixed inset-x-0 top-0 z-40 bg-[#070b16]/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 md:px-6 border-b border-white/10">
+          <button className="flex items-center gap-2" onClick={() => setEnteredWorkbench(false)}>
+            <div className="bg-gradient-to-r from-[#00D4FF] to-[#8B5CF6] bg-clip-text text-lg font-bold text-transparent">云智道AI</div>
           </button>
 
-          <div className="flex items-center gap-3">
-            <button className="ghost-btn" onClick={() => setShowHistory(true)}>
-              历史记录 {history.length}
+          <div className="flex items-center gap-2">
+            <button
+              className="ghost-btn !min-h-8 !px-3 !text-xs"
+              onClick={() => setShowHistory(true)}
+              title="历史记录"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="hidden sm:inline">历史</span>
             </button>
             {enteredWorkbench ? (
-              <button className="ghost-btn" onClick={() => startNewTask()}>
-                新任务
+              <button className="ghost-btn !min-h-8 !px-3 !text-xs" onClick={() => startNewTask()}>
+                + 新任务
               </button>
             ) : null}
           </div>
         </div>
+
+        {enteredWorkbench && currentWorkbenchMode !== "compose" ? (
+          <div className="step-bar">
+            {stepConfig.map((item) => {
+              const available = item.step === 1 ? true : item.step === 2 ? canGoStep2 : item.step === 3 ? canGoStep3 : canGoStep4 || drafts.length > 0;
+              const done = item.step < wizardStep || (item.step === 4 && drafts.length > 0);
+              const active = wizardStep === item.step;
+              return (
+                <button
+                  key={item.step}
+                  className={`step-bar-item${active ? " step-bar-item-active" : done ? " step-bar-item-done" : ""}`}
+                  onClick={() => goStep(item.step)}
+                  disabled={!available}
+                >
+                  <span className="font-semibold">{item.step}</span>
+                  <span className="hidden sm:inline">{item.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
       </header>
 
       <HistoryDrawer open={showHistory} history={history} onClose={() => setShowHistory(false)} onRestore={restoreHistory} onDelete={deleteHistory} />
       {notice ? <Notice toast={notice} /> : null}
 
-      <main className="relative z-10 px-4 pb-20 pt-20 md:px-6 md:pt-24">
+      <main className="relative z-10 flex-1 px-4 pb-24 md:pb-10" style={{paddingTop: enteredWorkbench && currentWorkbenchMode !== "compose" ? "96px" : "56px"}}>
         {!enteredWorkbench ? (
           <Landing onSelectMode={openWorkbench} />
         ) : currentWorkbenchMode === "compose" ? (
           <div className="mx-auto max-w-7xl">
-            <ComposeWorkbench key={composeWorkbenchNonce} settings={settings} />
+            <div className="glass-panel rounded-[28px] overflow-hidden">
+              <button
+                className="flex w-full items-center justify-between px-6 py-4 text-left"
+                onClick={() => setIsWorkbenchIntroCollapsed((v) => !v)}
+              >
+                <div>
+                  <div className="text-sm font-semibold text-white">文案组合工作台</div>
+                  <div className="mt-0.5 text-xs text-slate-400">按固定结构自动组装，再逐块替换、插入和去重</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">{isWorkbenchIntroCollapsed ? "点击展开" : "点击收起"}</span>
+                  <svg className={classNames("h-4 w-4 text-slate-400 transition-transform", !isWorkbenchIntroCollapsed && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </div>
+              </button>
+              {!isWorkbenchIntroCollapsed && (
+                <div className="border-t border-white/8">
+                  <ComposeWorkbench key={composeWorkbenchNonce} settings={settings} />
+                </div>
+              )}
+            </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-7xl space-y-6">
-            <GlassCard>
-              {isWorkbenchIntroHidden ? (
-                <button
-                  type="button"
-                  className="w-full text-left"
-                  onClick={() => setIsWorkbenchIntroCollapsed(false)}
-                >
-                  <div className="flex flex-col gap-4 rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4 transition hover:border-cyan-400/20 hover:bg-white/[0.05] sm:px-5">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="section-eyebrow">{workbenchCopy.eyebrow}</div>
-                        <h1 className="mt-3 text-2xl font-bold text-white md:text-3xl">{workbenchCopy.title}</h1>
-                        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
-                          工作台默认收起。点击展开后查看完整四步流程、当前阶段和操作面板。
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-                          已完成 <span className="font-semibold text-white">{progress}</span> / 4 步
-                        </div>
-                        <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100">
-                          展开工作台
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              ) : (
-                <>
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="section-eyebrow">{workbenchCopy.eyebrow}</div>
-                      <h1 className="mt-3 text-3xl font-bold text-white md:text-4xl">{workbenchCopy.title}</h1>
-                      <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">{workbenchCopy.description}</p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                      <div className="rounded-3xl border border-white/10 bg-white/5 px-5 py-4 text-sm text-slate-300">
-                        已完成 <span className="font-semibold text-white">{progress}</span> / 4 步
-                      </div>
-                      {canCollapseWorkbenchIntro ? (
-                        <button
-                          type="button"
-                          className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
-                          onClick={() => setIsWorkbenchIntroCollapsed(true)}
-                        >
-                          收起工作台
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="mt-6 grid gap-3 md:grid-cols-4">
-                    {stepConfig.map((item) => {
-                      const available =
-                        item.step === 1 ? true : item.step === 2 ? canGoStep2 : item.step === 3 ? canGoStep3 : canGoStep4 || drafts.length > 0;
-                      const done = item.step < wizardStep || (item.step === 4 && drafts.length > 0);
-                      return (
-                        <StepPill
-                          key={item.step}
-                          active={wizardStep === item.step}
-                          done={done}
-                          disabled={!available}
-                          step={item.step}
-                          title={item.title}
-                          hint={item.hint}
-                          onClick={() => goStep(item.step)}
-                        />
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </GlassCard>
-
-            <SelectionSummaryBar
-              task={task}
-              selectedHook={selectedHook}
-              selectedSkeleton={selectedSkeleton}
-              selectedMeat={selectedMeat}
-              selectedCta={selectedCta}
-            />
-
+          <div className="mx-auto max-w-7xl space-y-4">
             <div>{stepPanel}</div>
           </div>
         )}
       </main>
+
+      {/* 手机端底部操作栏 */}
+      {mobileActionBtn ? (
+        <div className="mobile-action-bar md:hidden">
+          <div className="text-xs text-slate-400">步骤 {wizardStep} / 4 · {stepConfig[wizardStep - 1]?.title}</div>
+          {mobileActionBtn}
+        </div>
+      ) : null}
+
+      {/* 底部版权栏 */}
+      <footer className="relative z-10 bg-[#070b16]/80 py-4 pb-20 md:pb-4">
+        <div className="mx-auto flex max-w-7xl flex-col items-center gap-4 px-4">
+          <div className="flex items-center gap-4">
+            <a href="#" aria-label="微信" onClick={(e) => e.preventDefault()} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-400 transition hover:border-green-400/40 hover:text-green-400">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.295.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.601-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178 1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18zm5.34 2.867c-1.797-.052-3.746.512-5.28 1.786-1.72 1.428-2.687 3.72-1.78 6.22.942 2.453 3.666 4.229 6.884 4.229.826 0 1.622-.12 2.361-.336a.722.722 0 0 1 .598.082l1.584.926a.272.272 0 0 0 .14.047c.134 0 .246-.11.246-.247 0-.06-.023-.12-.04-.177l-.327-1.233a.582.582 0 0 1-.023-.156.49.49 0 0 1 .201-.398C23.024 18.48 24 16.82 24 14.98c0-3.21-2.931-5.837-7.062-6.122zm-3.18 3.199c.54 0 .977.445.977.993a.99.99 0 0 1-.977.995.99.99 0 0 1-.977-.995c0-.548.437-.993.977-.993zm4.864 0c.54 0 .977.445.977.993a.99.99 0 0 1-.977.995.99.99 0 0 1-.977-.995c0-.548.437-.993.977-.993z"/></svg>
+            </a>
+            <a href="#" aria-label="抖音" onClick={(e) => e.preventDefault()} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-400 transition hover:border-slate-300/40 hover:text-white">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.75a4.85 4.85 0 0 1-1.01-.06z"/></svg>
+            </a>
+            <a href="#" aria-label="Telegram" onClick={(e) => e.preventDefault()} className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-400 transition hover:border-sky-400/40 hover:text-sky-400">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+            </a>
+          </div>
+          <div className="text-xs text-slate-500">Version 1.1 &nbsp;|&nbsp; © 2026 Yunzhidao Ai. All rights reserved.</div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function MobileDraftTabs(props: {
+  drafts: DraftItem[];
+  selectedDraft: DraftItem | null;
+  onSelect: (id: string) => void;
+  onCopyScript: (text: string) => void;
+  onCopySubtitle: (text: string) => void;
+}) {
+  const { drafts, selectedDraft, onSelect, onCopyScript, onCopySubtitle } = props;
+  const [tab, setTab] = useState<"versions" | "content">("versions");
+  return (
+    <div>
+      <div className="seg-ctrl">
+        <button className={classNames("seg-ctrl-item", tab === "versions" && "seg-ctrl-item-active")} onClick={() => setTab("versions")}>版本</button>
+        <button className={classNames("seg-ctrl-item", tab === "content" && "seg-ctrl-item-active")} onClick={() => setTab("content")}>内容</button>
+      </div>
+      {tab === "versions" ? (
+        <div className="mt-3 grid gap-2">
+          {drafts.map((item, index) => (
+            <button
+              key={item.id}
+              className={classNames("result-card-v2", item.id === selectedDraft?.id && "result-card-v2-active")}
+              onClick={() => { onSelect(item.id); setTab("content"); }}
+            >
+              <div className="text-sm font-semibold text-white">V{index + 1} · {item.versionName}</div>
+              <div className="mt-1 text-xs text-slate-400">{item.title}</div>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {selectedDraft ? (
+            <>
+              <ContentPanel
+                title={selectedDraft.title}
+                subtitle="完整文案"
+                content={selectedDraft.script}
+                copyLabel="复制文案"
+                onCopy={() => onCopyScript(selectedDraft.script)}
+              />
+              <ContentPanel
+                title={selectedDraft.coverLine}
+                subtitle="字幕稿"
+                content={selectedDraft.subtitleScript}
+                copyLabel="复制字幕稿"
+                onCopy={() => onCopySubtitle(selectedDraft.subtitleScript)}
+              />
+            </>
+          ) : (
+            <EmptyBlock text="先在「版本」tab 选一个版本。" />
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function Landing({ onSelectMode }: { onSelectMode: (mode: WorkbenchMode) => void }) {
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-120px)] max-w-7xl flex-col justify-center px-2">
+    <div className="mx-auto flex min-h-[calc(100vh-120px)] max-w-2xl flex-col justify-center px-4">
+      {/* 标题区 */}
       <div className="text-center">
-        <h1 className="mx-auto max-w-5xl text-5xl font-bold leading-tight text-white md:text-6xl">
+        {/* 科技感装饰点 */}
+        <div className="mb-6 flex justify-center gap-1.5">
+          <span className="h-1 w-8 rounded-full bg-gradient-to-r from-cyan-400 to-transparent" />
+          <span className="h-1 w-1 rounded-full bg-cyan-400/60" />
+          <span className="h-1 w-1 rounded-full bg-purple-400/60" />
+          <span className="h-1 w-8 rounded-full bg-gradient-to-l from-purple-400 to-transparent" />
+        </div>
+        <h1 className="text-4xl font-bold leading-tight text-white md:text-6xl">
           爆款文案
           <br />
           <span className="bg-gradient-to-r from-[#00D4FF] to-[#8B5CF6] bg-clip-text text-transparent">工作生成台</span>
         </h1>
-        <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-300">云智道团队专用短视频内容生成器</p>
+        <p className="mt-4 text-sm text-slate-400">云智道团队专用短视频内容生成器</p>
+        {/* 分割线 */}
+        <div className="mx-auto mt-6 h-px w-24 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
       </div>
 
-      <div className="mx-auto mt-14 flex w-full max-w-4xl flex-col gap-5">
-        <LandingModeCard
-          title="文案组合"
-          subtitle="自动匹配 · 逐块替换 · 分块去重"
+      {/* 功能卡片 */}
+      <div className="mt-8 grid gap-2.5">
+        <button
+          type="button"
           onClick={() => onSelectMode("compose")}
-          icon={
-            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 text-left transition hover:border-cyan-400/40 hover:bg-white/[0.09] hover:shadow-[0_0_20px_rgba(0,212,255,0.08)]"
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cyan-400/10 text-cyan-400 transition group-hover:bg-cyan-400/20">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h10" />
             </svg>
-          }
-        />
-        <div className="grid w-full gap-5 md:grid-cols-2">
-          <LandingModeCard
-            title="爆款仿写"
-            subtitle="拆文案 · 改开头 · 出成稿"
-            onClick={() => onSelectMode("rewrite")}
-            icon={
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            }
-          />
-          <LandingModeCard
-            title="热点 / 主题原创"
-            subtitle="抓热点 · 组结构 · 生成稿"
-            onClick={() => onSelectMode("original")}
-            icon={
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            }
-          />
-        </div>
-      </div>
+          </div>
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-white">文案组合</div>
+            <div className="mt-0.5 text-xs text-slate-400">自动匹配 · 逐块替换 · 分块去重</div>
+          </div>
+          <svg className="h-4 w-4 shrink-0 text-slate-600 transition group-hover:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </button>
 
-      <div className="mx-auto mt-16 grid w-full max-w-7xl grid-cols-1 gap-6 md:grid-cols-3">
-        <LandingFeatureCard
-          icon={
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          }
-          title="全网热点雷达"
-          description="自动汇总今日热榜、AI行业热榜和手动搜索结果，把碎片信息压成可直接写稿的事实包。"
-        />
-        <LandingFeatureCard
-          icon={
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          }
-          title="推进职责引擎"
-          description="不是简单套模板，而是把皮、骨、肉、收口拆成一条可控的脚本装配链，确保每一步都能追踪。"
-        />
-        <LandingFeatureCard
-          icon={
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-          }
-          title="数字人交付层"
-          description="完整文案、字幕稿一步到位，直接进入数字人口播、人工审核、剪辑发布和后续复盘链路。"
-        />
-      </div>
-    </div>
-  );
-}
-
-function LegacyLanding({ onSelectMode }: { onSelectMode: (mode: WorkbenchMode) => void }) {
-  return (
-    <div className="mx-auto flex min-h-[calc(100vh-120px)] max-w-7xl flex-col justify-center px-2">
-      <div className="text-center">
-        <h1 className="mx-auto max-w-5xl text-5xl font-bold leading-tight text-white md:text-6xl">
-          爆款文案
-          <br />
-          <span className="bg-gradient-to-r from-[#00D4FF] to-[#8B5CF6] bg-clip-text text-transparent">工作生成台</span>
-        </h1>
-        <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-300">云智道团队专用短视频内容生成器</p>
-      </div>
-
-      <div className="mx-auto mt-14 grid w-full max-w-4xl gap-5 md:grid-cols-2">
-        <LandingModeCard
-          title="爆款仿写"
-          subtitle="拆文案 · 改开头 · 出成稿"
+        <button
+          type="button"
           onClick={() => onSelectMode("rewrite")}
-          icon={
-            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 text-left transition hover:border-purple-400/40 hover:bg-white/[0.09] hover:shadow-[0_0_20px_rgba(139,92,246,0.08)]"
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-purple-400/10 text-purple-400 transition group-hover:bg-purple-400/20">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-          }
-        />
-        <LandingModeCard
-          title="热点 / 主题原创"
-          subtitle="抓热点 · 组结构 · 生成稿"
+          </div>
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-white">爆款仿写</div>
+            <div className="mt-0.5 text-xs text-slate-400">拆文案 · 改开头 · 出成稿</div>
+          </div>
+          <svg className="h-4 w-4 shrink-0 text-slate-600 transition group-hover:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </button>
+
+        <button
+          type="button"
           onClick={() => onSelectMode("original")}
-          icon={
-            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 text-left transition hover:border-amber-400/40 hover:bg-white/[0.09] hover:shadow-[0_0_20px_rgba(245,158,11,0.08)]"
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-400/10 text-amber-400 transition group-hover:bg-amber-400/20">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-          }
-        />
+          </div>
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-white">热点 / 主题原创</div>
+            <div className="mt-0.5 text-xs text-slate-400">抓热点 · 组结构 · 生成稿</div>
+          </div>
+          <svg className="h-4 w-4 shrink-0 text-slate-600 transition group-hover:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </button>
       </div>
 
-      <div className="mx-auto mt-16 grid w-full max-w-7xl grid-cols-1 gap-6 md:grid-cols-3">
-        <LandingFeatureCard
-          icon={
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          }
-          title="全网热点雷达"
-          description="自动汇总今日热榜、AI行业热榜和手动搜索结果，把碎片信息压成可直接写稿的事实包。"
-        />
-        <LandingFeatureCard
-          icon={
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          }
-          title="推进职责引擎"
-          description="不是简单套模板，而是把皮、骨、肉、收口拆成一条可控的脚本装配链，确保每一步都能追踪。"
-        />
-        <LandingFeatureCard
-          icon={
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-          }
-          title="数字人交付层"
-          description="完整文案、字幕稿一步到位，直接进入数字人口播、人工审核、剪辑发布和后续复盘链路。"
-        />
+      {/* 底部小字说明 */}
+      <div className="mt-8 flex items-center justify-center gap-4 text-[11px] text-slate-600">
+        <span>皮 · 骨 · 肉 · 收口</span>
+        <span className="h-3 w-px bg-white/10" />
+        <span>全链路装配</span>
+        <span className="h-3 w-px bg-white/10" />
+        <span>一键出稿</span>
       </div>
     </div>
-  );
-}
-
-function LandingModeCard(props: { title: string; subtitle: string; icon: ReactNode; onClick: () => void }) {
-  const { title, subtitle, icon, onClick } = props;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="landing-action-btn group relative mx-auto flex h-[142px] w-full max-w-[430px] items-center justify-center overflow-hidden rounded-[30px] border border-white/10 bg-[linear-gradient(135deg,rgba(67,31,120,0.55),rgba(6,85,123,0.5))] px-6 py-5 text-center shadow-[0_20px_80px_rgba(0,0,0,0.28)] transition-all duration-300 hover:-translate-y-1 hover:border-[#00D4FF]/45 hover:shadow-[0_0_30px_rgba(0,212,255,0.12)]"
-    >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.16),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(139,92,246,0.18),transparent_42%)] opacity-90" />
-      <div className="relative flex items-center justify-center gap-5">
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[20px] border border-white/8 bg-[#151c37]/80 text-[#00D4FF] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-transform duration-300 group-hover:scale-105">
-          {icon}
-        </div>
-        <div className="text-left">
-          <div className="text-[25px] font-bold tracking-[0.02em] text-white">{title}</div>
-          <div className="mt-2 text-sm text-slate-300">{subtitle}</div>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function LandingFeatureCard({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
-  return (
-    <div className="glass-panel rounded-2xl border border-white/5 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-[#00D4FF]/30 hover:shadow-[0_0_20px_rgba(0,212,255,0.1)] group">
-      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-[#00D4FF]/20 to-[#8B5CF6]/20 text-[#00D4FF] transition-transform group-hover:scale-110">
-        {icon}
-      </div>
-      <div className="text-lg font-semibold text-white">{title}</div>
-      <div className="mt-2 text-sm leading-relaxed text-slate-400">{description}</div>
-    </div>
-  );
-}
-
-function StepHeader({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div>
-      <div className="section-eyebrow">{title}</div>
-      <div className="mt-3 text-lg font-semibold text-white">{subtitle}</div>
-    </div>
-  );
-}
-
-function StepPill(props: {
-  active: boolean;
-  done: boolean;
-  disabled: boolean;
-  step: number;
-  title: string;
-  hint: string;
-  onClick: () => void;
-}) {
-  const { active, done, disabled, step, title, hint, onClick } = props;
-  return (
-    <button
-      className={classNames(
-        "rounded-3xl border px-4 py-4 text-left transition-all",
-        active && "border-cyan-400/35 bg-cyan-400/10",
-        !active && !disabled && "border-white/10 bg-white/5 hover:border-cyan-400/20 hover:bg-white/8",
-        disabled && "cursor-not-allowed border-white/8 bg-white/3 opacity-45"
-      )}
-      onClick={onClick}
-      disabled={disabled}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold tracking-[0.18em] text-cyan-200">STEP {step}</span>
-        {done ? <span className="text-xs text-emerald-300">已完成</span> : null}
-      </div>
-      <div className="mt-3 text-sm font-semibold text-white">{title}</div>
-      <div className="mt-1 text-xs leading-5 text-slate-400">{hint}</div>
-    </button>
   );
 }
 
 function GlassCard({ children }: { children: ReactNode }) {
   return <div className="glass-panel rounded-[28px] p-4 sm:p-6 md:p-7">{children}</div>;
-}
-
-function ChoiceCard(props: { active: boolean; title: string; description: string; onClick: () => void }) {
-  const { active, title, description, onClick } = props;
-  return (
-    <button className={classNames("choice-card", active && "choice-card-active")} onClick={onClick}>
-      <div className="text-base font-semibold text-white">{title}</div>
-      <div className="mt-2 text-sm leading-6 text-slate-300">{description}</div>
-    </button>
-  );
-}
-
-function ChoiceRow(props: { active: boolean; title: string; description: string; onClick: () => void }) {
-  const { active, title, description, onClick } = props;
-  return (
-    <button className={classNames("choice-row", active && "choice-row-active")} onClick={onClick}>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold text-white">{title}</div>
-        <div className="mt-1 text-xs leading-5 text-slate-400">{description}</div>
-      </div>
-      <div className={classNames("mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border", active ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
-    </button>
-  );
-}
-
-function SelectableResultCard(props: {
-  active: boolean;
-  badge: string;
-  title: string;
-  meta: string;
-  description?: string;
-  copyText?: string;
-  onCopy?: (text: string) => void;
-  onClick: () => void;
-}) {
-  const { active, badge, title, meta, description, copyText, onCopy, onClick } = props;
-  return (
-    <button className={classNames("result-card text-left", active && "result-card-active")} onClick={onClick}>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="inline-flex rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold text-cyan-200">
-            {badge}
-          </div>
-          <div className="mt-3 break-words text-sm font-semibold leading-6 text-white sm:leading-7">{title}</div>
-          <div className="mt-2 break-words text-xs leading-5 text-slate-400">{meta}</div>
-          {description ? <div className="mt-3 break-words text-sm leading-7 text-slate-300">{description}</div> : null}
-        </div>
-        <div className="flex shrink-0 items-center justify-end gap-3 self-end sm:self-auto">
-          {copyText && onCopy ? (
-            <span
-              role="button"
-              tabIndex={0}
-              className="whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300 hover:border-cyan-400/25 hover:text-white"
-              onClick={(event) => {
-                event.stopPropagation();
-                onCopy(copyText);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onCopy(copyText);
-                }
-              }}
-            >
-              复制
-            </span>
-          ) : null}
-          <div className={classNames("mt-1 h-4 w-4 rounded-full border", active ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
-        </div>
-      </div>
-    </button>
-  );
 }
 
 function SourceStructureCard(props: { item: SourceStructureItem; index: number; onCopy: (text: string) => void }) {
@@ -1556,103 +1546,10 @@ function SourceStructureCard(props: { item: SourceStructureItem; index: number; 
   );
 }
 
-function StepBlock({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-      <div className="text-sm font-semibold text-white">{title}</div>
-      <div className="mt-3">{children}</div>
-    </div>
-  );
-}
-
 function StepFooter({ children }: { children: ReactNode }) {
   return (
     <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between [&>.brand-btn]:w-full [&>.ghost-btn]:w-full sm:[&>.brand-btn]:w-auto sm:[&>.ghost-btn]:w-auto">
       {children}
-    </div>
-  );
-}
-
-function SelectionSummaryBar(props: {
-  task: TaskForm;
-  selectedHook: HookItem | null;
-  selectedSkeleton: SkeletonItem | null;
-  selectedMeat: MeatItem | null;
-  selectedCta: CtaItem | null;
-}) {
-  const { task, selectedHook, selectedSkeleton, selectedMeat, selectedCta } = props;
-  const [open, setOpen] = useState(false);
-  const completed = [selectedHook, selectedSkeleton, selectedCta, task.businessMode === "none" ? true : selectedMeat].filter(Boolean).length;
-
-  return (
-    <>
-      <div className="flex justify-end">
-        <button className="ghost-btn" onClick={() => setOpen(true)}>
-          任务状态 {completed}/4
-        </button>
-      </div>
-      <TaskStatusDrawer
-        open={open}
-        task={task}
-        selectedHook={selectedHook}
-        selectedSkeleton={selectedSkeleton}
-        selectedMeat={selectedMeat}
-        selectedCta={selectedCta}
-        onClose={() => setOpen(false)}
-      />
-    </>
-  );
-}
-
-function TaskStatusDrawer(props: {
-  open: boolean;
-  task: TaskForm;
-  selectedHook: HookItem | null;
-  selectedSkeleton: SkeletonItem | null;
-  selectedMeat: MeatItem | null;
-  selectedCta: CtaItem | null;
-  onClose: () => void;
-}) {
-  const { open, task, selectedHook, selectedSkeleton, selectedMeat, selectedCta, onClose } = props;
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex">
-      <button className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative ml-auto h-full w-full max-w-lg border-l border-white/10 bg-[#070b16]/96 p-6 shadow-[0_0_80px_rgba(0,0,0,0.45)]">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-xl font-semibold text-white">任务状态</div>
-            <div className="mt-1 text-sm text-slate-400">查看当前任务里已经确定的皮、骨、肉和收口。</div>
-          </div>
-          <button className="ghost-btn" onClick={onClose}>
-            关闭
-          </button>
-        </div>
-
-        <div className="mt-6 space-y-3">
-          <StatusRow label="皮" status={selectedHook ? "已完成" : "未完成"} value={selectedHook?.text ?? "还没选"} />
-          <StatusRow label="骨" status={selectedSkeleton ? "已完成" : "未完成"} value={selectedSkeleton?.name ?? "还没选"} />
-          <StatusRow
-            label="肉"
-            status={task.businessMode === "none" ? "不挂业务" : selectedMeat ? "已完成" : "未完成"}
-            value={task.businessMode === "none" ? "当前不挂业务" : selectedMeat?.type ?? "还没选"}
-          />
-          <StatusRow label="收口" status={selectedCta ? "已完成" : "未完成"} value={selectedCta?.type ?? "还没选"} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatusRow({ label, status, value }: { label: string; status: string; value: string }) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-white">{label}</div>
-        <div className="rounded-full border border-white/10 bg-[#0a1120]/70 px-3 py-1 text-xs text-slate-300">{status}</div>
-      </div>
-      <div className="mt-3 text-sm leading-7 text-slate-300">{value}</div>
     </div>
   );
 }
@@ -1682,21 +1579,6 @@ function ModuleMetaHint({ meta }: { meta: ModuleMeta | null }) {
 
 function SoftBadge({ children }: { children: ReactNode }) {
   return <span className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-300 sm:px-3 sm:text-xs">{children}</span>;
-}
-
-function ResultTabChip(props: { active: boolean; label: string; count: number; onClick: () => void }) {
-  const { active, label, count, onClick } = props;
-  return (
-    <button
-      className={classNames(
-        "shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] transition-all sm:px-3 sm:text-xs",
-        active ? "border-cyan-400/35 bg-cyan-400/12 text-cyan-100" : "border-white/10 bg-white/5 text-slate-300 hover:border-cyan-400/20 hover:text-white"
-      )}
-      onClick={onClick}
-    >
-      {label} · {count}
-    </button>
-  );
 }
 
 function EmptyBlock({ text }: { text: string }) {

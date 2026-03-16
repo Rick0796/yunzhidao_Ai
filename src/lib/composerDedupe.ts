@@ -134,7 +134,7 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
   }
 
   const { minLength, maxLength } = getLengthBounds(block, beforeLength);
-  if (afterLength < minLength || afterLength > maxLength) {
+  if (afterLength < minLength * 0.7 || afterLength > maxLength * 1.4) {
     return {
       accepted: false,
       verdict: "watch",
@@ -216,7 +216,7 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
     };
   }
 
-  const minOverlap = beforeLength >= 48 ? 2 : beforeLength >= 20 ? 1 : 0;
+  const minOverlap = beforeLength >= 48 ? 1 : 0;
   if (similarityScore < minOverlap) {
     return {
       accepted: false,
@@ -364,22 +364,27 @@ async function dedupeSingleBlock(options: {
   try {
     return await callChatCompletion(options.baseUrl, options.settings, {
       model: settingsModel(options.settings),
-      temperature: 0.22,
+      temperature: 0.7,
       messages: [
         {
           role: "system",
           content:
-            "你是短视频文案单段去重助手。只重写这一段。要保留爆点、结构、结论、事实和长度感，不要解释，不要 JSON，只输出重写后的正文。",
+            "你是短视频文案改写专家。任务是对给定段落进行真正的去重改写——用全新的句式和表达重写，而不是只改几个字。保留核心命题、关键数字和逻辑顺序，但句子结构、用词、语序都要有明显变化。字数保持相近。只输出改写后的正文，不要解释。",
         },
         {
           role: "user",
           content: [
             `主题：${options.theme}`,
-            `板块：${options.block.sectionType}`,
+            `板块类型：${options.block.sectionType}`,
             ...buildBlockConstraintLines(options.block),
-            options.guardNote ? `上一次改写被打回的原因：${options.guardNote}` : "",
-            "要求：尽量接近原文句式和长度，中文自然顺滑，不能把核心爆点写软，不能换掉核心结论。",
-            `原文：${options.block.content}`,
+            options.guardNote ? `上次改写被打回原因：${options.guardNote}` : "",
+            "改写要求：",
+            "1. 至少60%的句子必须用全新的表达方式重写",
+            "2. 保留原文核心命题、数字、人名、平台名等关键事实",
+            "3. 不能只改连接词或同义词替换，要真正重构句子",
+            "4. 口播感优先，每句12-28字",
+            `原文：
+${options.block.content}`,
           ]
             .filter(Boolean)
             .join("\n"),

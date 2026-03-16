@@ -460,58 +460,50 @@ function buildViralRewriteInstruction(
   cta: CtaItem
 ): string {
   const originalText = (task.sourceText || task.userNote || "").trim();
+  const userNote = task.userNote?.trim() || "";
   const meatGuide = meat
-    ? `If the source already contains business lines, only use these as optional rewrite hints:
-Bridge: ${meat.bridgeText || ""}
-Service: ${meat.serviceText || ""}
-Action prep: ${meat.actionPrepText || ""}`
-    : "If the source does not contain business lines, do not add new business claims.";
+    ? `业务植入方向（仅中后段自然融入，不抢主线）：
+桥接层：${meat.bridgeText || ""}
+服务层：${meat.serviceText || ""}
+行动铺垫：${meat.actionPrepText || ""}`
+    : "本次不挂业务，全程不提产品和服务。";
 
   return [
-    "Rewrite the source script into 5 source-aligned, lightly de-duplicated versions.",
+    "你是一位顶级短视频文案改写专家。请基于原文命题，生成5个高质量的全新版本文案。",
     "",
-    "=== Highest priority rules ===",
-    "1. Rewrite paragraph by paragraph in the same order as the source.",
-    "2. Keep the same paragraph count as the source. Do not remove, merge, or skip paragraphs.",
-    "3. Keep total length between 90% and 110% of the source.",
-    "4. Keep each paragraph between 80% and 120% of the matching source paragraph.",
-    "5. Preserve all hard anchors: years, numbers, ordered points, names, platforms, judgments, CTA actions.",
-    "6. Only do expression-level de-duplication: synonym swaps, tiny syntax shifts, connector changes, tone polish.",
-    "7. Do not add new stories, arguments, examples, characters, business claims, or conclusions.",
+    "【核心任务】",
+    "不是复制原文改几个字，而是在保留核心命题和推进逻辑的基础上，用全新的表达方式重新创作。",
+    "字数必须与原文相近（±15%以内），每个版本都必须有明显的差异化特征。",
     "",
-    "=== Source ===",
+    "【原文（仅作为命题和逻辑参考，不能直接复制）】",
     originalText,
     "",
-    `=== Selected hook (must be the first sentence of paragraph 1, unchanged) ===
+    `【指定开头（第一句必须完全一致）】
 ${hook.text}`,
     "",
-    `=== Selected CTA (must be the last sentence of the final paragraph, unchanged) ===
+    `【指定结尾（最后一句必须完全一致）】
 ${cta.text}`,
     "",
+    userNote ? `【用户补充要求】
+${userNote}
+` : "",
     meatGuide,
     "",
-    "=== The 5 versions ===",
-    "- Version 1: closest-to-source, minimal wording changes",
-    "- Version 2: light synonym swap version",
-    "- Version 3: smoother spoken-language version",
-    "- Version 4: stronger de-duplication version",
-    "- Version 5: stronger tone version",
+    "【5个版本的差异化方向】",
+    "版本1（换角度）：换一个切入人群或切入视角，但保持同一核心命题",
+    "版本2（换情绪）：升级情绪强度，让语气更紧迫、更有冲击力",
+    "版本3（换结构）：调整中段推进顺序，先讲结果再讲原因，或先讲代价再讲方法",
+    "版本4（换表达）：所有关键句换成完全不同的表达方式，但意思相同",
+    "版本5（升质量）：在上述基础上，综合提升，写出比原文更有爆款潜力的版本",
     "",
-    "=== Strictly forbidden ===",
-    "- Compressing the source into a summary",
-    "- Rebuilding the structure into a new article",
-    "- Removing numbers, names, platforms, sequence words, judgments, or CTA actions",
-    "- Switching the target audience unless the source already does so",
-    "- Adding labels, notes, brackets, or explanations in script",
-    "- Returning 5 identical versions",
-    "",
-    "=== Output ===",
-    "1. Return items with versionName, title, coverLine, script, subtitleScript",
-    "2. Paragraph 1 sentence 1 must be the selected hook exactly",
-    "3. Final paragraph final sentence must be the selected CTA exactly",
-    "4. script must be pure body text with blank lines between paragraphs and no labels",
-    "5. subtitleScript must be pure subtitle lines with no commentary",
-  ].join("\n");
+    "【硬性规则】",
+    "1. 每个版本之间相似度不超过30%，严禁5个版本几乎一样",
+    "2. 不能只改动几个词，必须重新组织大部分句子",
+    "3. 保留原文的核心数据、人物、平台、时间节点等关键事实",
+    "4. 口播感优先，每句控制在12-28字，超过30字主动断句",
+    "5. 不写括号注释、镜头词、标签",
+    "6. script只写纯正文，subtitleScript只写字幕分行",
+  ].filter(Boolean).join("\n");
 }
 
 

@@ -116,6 +116,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [busyBlockId, setBusyBlockId] = useState<string | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const [comparisons, setComparisons] = useState<DedupeComparisonItem[]>([]);
 
   const resolvedTheme = (theme.trim() || customOpening.trim()).trim();
@@ -316,46 +317,60 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
 
   return (
     <section className="space-y-5">
-      <div className="compose-shell p-5 shadow-[0_24px_80px_rgba(2,6,23,0.45)] backdrop-blur sm:p-6">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-          <div className="max-w-3xl space-y-4">
+      <div className="compose-shell shadow-[0_24px_80px_rgba(2,6,23,0.45)] backdrop-blur">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between px-5 py-4 sm:px-6 text-left"
+          onClick={() => setIsHeaderCollapsed((v) => !v)}
+        >
+          <div>
             <div className="section-eyebrow">文案组合</div>
-            <div className="space-y-3">
-              <h2 className="text-3xl font-semibold tracking-[0.01em] text-white sm:text-4xl">组合稿工作台</h2>
-              <p className="text-sm leading-7 text-slate-300 sm:text-[15px]">
-                这版把整稿预览、自动诊断、替换建议和逐块编辑放进同一套界面。桌面端先看右侧预览台，手机端先看结果再改细节，不用再反复翻到底部找整稿。
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="compose-chip compose-chip-cyan">自动组装</span>
-              <span className="compose-chip compose-chip-emerald">逐块替换</span>
-              <span className="compose-chip compose-chip-amber">保真去重</span>
-              <span className="compose-chip compose-chip-slate">移动端优先</span>
+            <h2 className="mt-1 text-xl font-semibold text-white sm:text-2xl">组合稿工作台</h2>
+          </div>
+          <span className="compose-toolbar-btn shrink-0">{isHeaderCollapsed ? "展开" : "收起"}</span>
+        </button>
+
+        {!isHeaderCollapsed && (
+          <div className="border-t border-white/8 px-5 pb-5 pt-4 sm:px-6 sm:pb-6">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+              <div className="max-w-3xl space-y-4">
+                <div className="space-y-3">
+                  <p className="text-sm leading-7 text-slate-300 sm:text-[15px]">
+                    这版把整稿预览、自动诊断、替换建议和逐块编辑放进同一套界面。桌面端先看右侧预览台，手机端先看结果再改细节，不用再反复翻到底部找整稿。
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="compose-chip compose-chip-cyan">自动组装</span>
+                  <span className="compose-chip compose-chip-emerald">逐块替换</span>
+                  <span className="compose-chip compose-chip-amber">保真去重</span>
+                  <span className="compose-chip compose-chip-slate">移动端优先</span>
+                </div>
+              </div>
+              <div className="grid min-w-[240px] gap-3 sm:grid-cols-2 xl:w-[360px]">
+                <div className="compose-stat-card">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">当前方向</div>
+                  <div className="mt-3 text-lg font-semibold text-white">{primaryDirection}</div>
+                </div>
+                <div className="compose-stat-card">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">建议方向</div>
+                  <div className="mt-3 text-lg font-semibold text-white">{directionSuggestion}</div>
+                </div>
+                <div className="compose-stat-card">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">已装配片段</div>
+                  <div className="mt-3 text-lg font-semibold text-white">{blocks.length} 段</div>
+                </div>
+                <div className="compose-stat-card">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">整稿长度</div>
+                  <div className="mt-3 text-lg font-semibold text-white">{fullText.length || 0} 字</div>
+                  <div className="mt-2 text-xs text-slate-400">已选去重 {selectedIds.length} 段</div>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="grid min-w-[240px] gap-3 sm:grid-cols-2 xl:w-[360px]">
-            <div className="compose-stat-card">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">当前方向</div>
-              <div className="mt-3 text-lg font-semibold text-white">{primaryDirection}</div>
-            </div>
-            <div className="compose-stat-card">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">建议方向</div>
-              <div className="mt-3 text-lg font-semibold text-white">{directionSuggestion}</div>
-            </div>
-            <div className="compose-stat-card">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">已装配片段</div>
-              <div className="mt-3 text-lg font-semibold text-white">{blocks.length} 段</div>
-            </div>
-            <div className="compose-stat-card">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">整稿长度</div>
-              <div className="mt-3 text-lg font-semibold text-white">{fullText.length || 0} 字</div>
-              <div className="mt-2 text-xs text-slate-400">已选去重 {selectedIds.length} 段</div>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] xl:items-start">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] xl:items-start min-w-0 overflow-hidden">
         <div className="space-y-5">
           <div className="compose-panel p-5 sm:p-6">
           <div className="space-y-4">

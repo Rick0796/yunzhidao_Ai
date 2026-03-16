@@ -1,6 +1,7 @@
 export const STORAGE_KEYS = {
   enteredWorkbench: "yzd.copy.entered-workbench",
   workbenchMode: "yzd.copy.workbench-mode",
+  experienceMode: "yzd.copy.experience-mode",
   settings: "yzd.copy.settings",
   profile: "yzd.copy.profile",
   task: "yzd.copy.task",

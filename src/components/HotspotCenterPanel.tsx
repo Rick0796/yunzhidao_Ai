@@ -1,8 +1,11 @@
 ﻿import type { Dispatch, ReactNode, SetStateAction } from "react";
-import { COMPACT_HOTSPOT_COLLAPSED_COUNT, HOTSPOT_PLATFORM_META } from "../lib/workbenchConfig";
+import { useState } from "react";
+import { HOTSPOT_PLATFORM_META } from "../lib/workbenchConfig";
 import { classNames, getHotspotPreviewTitle } from "../lib/workbenchHelpers";
 import type { HotspotExpandState, HotspotPanelTab } from "../hooks/useHotspotCenter";
 import type { BusinessHotItem, HotRankItem, HotRankResponse, ManualSearchResponse } from "../lib/workflows";
+
+const PAGE_SIZE = 5;
 
 interface HotspotCenterPanelProps {
   allHotItems: HotRankResponse["allHotList"];
@@ -77,38 +80,24 @@ export default function HotspotCenterPanel(props: HotspotCenterPanelProps) {
       keyPrefix: string;
     }
   ) => {
-    const expanded = hotspotListExpanded[options.expandKey];
-    const hasMoreRows = items.length > COMPACT_HOTSPOT_COLLAPSED_COUNT;
-    const visibleItems = expanded ? items : items.slice(0, COMPACT_HOTSPOT_COLLAPSED_COUNT);
+    const [page, setPage] = useState(0);
+    const totalPages = Math.ceil(items.length / PAGE_SIZE);
+    const visibleItems = items.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
     if (items.length === 0) {
       return <HotspotEmptyBlock text={options.emptyText} />;
     }
 
     return (
-      <div className="grid max-w-full gap-3 overflow-hidden">
-        {hasMoreRows ? (
-          <div className="flex min-w-0 flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 text-xs text-slate-400">
-              {expanded ? `已展开 ${items.length} 条热点` : `当前显示前 ${visibleItems.length} 条，共 ${items.length} 条`}
-            </div>
-            <button
-              type="button"
-              className="self-start whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
-              onClick={() => onSetHotspotListExpanded((prev) => ({ ...prev, [options.expandKey]: !prev[options.expandKey] }))}
-            >
-              {expanded ? "收起列表" : `展开全部 ${items.length} 条`}
-            </button>
-          </div>
-        ) : null}
-
-        <div className="grid max-w-full gap-2 overflow-hidden">
+      <div className="grid max-w-full gap-2 overflow-hidden">
+        <div className="grid gap-1">
           {visibleItems.map((item, index) => {
-            const rankIndex = items.findIndex((candidate) => candidate.hot_id === item.hot_id && candidate.title === item.title);
-            const itemKey = item.hot_id || `${options.keyPrefix}-${rankIndex >= 0 ? rankIndex : index}`;
+            const rankIndex = page * PAGE_SIZE + index;
+            const itemKey = item.hot_id || `${options.keyPrefix}-${rankIndex}`;
             return (
               <CompactHotspotListRow
                 key={itemKey}
-                rank={(rankIndex >= 0 ? rankIndex : index) + 1}
+                rank={rankIndex + 1}
                 active={selectedHotspotKey === itemKey}
                 loading={loadingHotspotKey === itemKey}
                 title={getHotspotPreviewTitle(item as HotRankItem & BusinessHotItem, options.fallbackTitle)}
@@ -118,15 +107,27 @@ export default function HotspotCenterPanel(props: HotspotCenterPanelProps) {
             );
           })}
         </div>
-        {hasMoreRows && expanded ? (
-          <div className="flex justify-center sm:justify-end">
+        {totalPages > 1 ? (
+          <div className="flex items-center justify-between pt-1">
             <button
               type="button"
-              className="whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 transition hover:border-cyan-400/20 hover:text-white"
-              onClick={() => onSetHotspotListExpanded((prev) => ({ ...prev, [options.expandKey]: false }))}
-            >
-              收起列表
-            </button>
+              className={classNames(
+                "rounded-full border px-3 py-1.5 text-xs transition",
+                page === 0 ? "cursor-not-allowed border-white/5 text-slate-600" : "border-white/10 text-slate-300 hover:border-cyan-400/30 hover:text-white"
+              )}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+            >← 上一页</button>
+            <span className="text-xs text-slate-500">{page + 1} / {totalPages} · 共 {items.length} 条</span>
+            <button
+              type="button"
+              className={classNames(
+                "rounded-full border px-3 py-1.5 text-xs transition",
+                page >= totalPages - 1 ? "cursor-not-allowed border-white/5 text-slate-600" : "border-white/10 text-slate-300 hover:border-cyan-400/30 hover:text-white"
+              )}
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+            >下一页 →</button>
           </div>
         ) : null}
       </div>
@@ -314,22 +315,28 @@ function CompactHotspotListRow(props: {
   onUse: () => void;
 }) {
   const { rank, active, loading = false, title, leadOnly = false, onUse } = props;
+  const rankStyle =
+    rank === 1 ? "bg-gradient-to-br from-yellow-400 to-amber-500 text-black font-bold border-yellow-400/50" :
+    rank === 2 ? "bg-gradient-to-br from-slate-300 to-slate-400 text-black font-bold border-slate-300/50" :
+    rank === 3 ? "bg-gradient-to-br from-orange-400 to-amber-600 text-black font-bold border-orange-400/50" :
+    "border-white/10 bg-white/5 text-slate-300";
   return (
     <button
       className={classNames(
-        "group flex items-center gap-3 rounded-2xl border p-3 text-left transition-all",
-        active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/10 bg-white/5 hover:border-cyan-400/20 hover:bg-white/8",
+        "group flex w-full min-w-0 items-center gap-2 rounded-xl border p-2 text-left transition-all",
+        active ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/8 bg-white/4 hover:border-cyan-400/20 hover:bg-white/7",
         loading && "cursor-wait opacity-80"
       )}
       onClick={onUse}
       disabled={loading}
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-sm font-semibold text-slate-200">{rank}</div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-white">{title}</div>
-        <div className="mt-1 text-xs text-slate-400">{leadOnly ? "正文仍在补全，先按线索取用" : "点击后回填到内容输入区"}</div>
+      <div className={classNames("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs", rankStyle)}>{rank}</div>
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <div className="truncate text-sm font-medium text-white">{title}</div>
       </div>
-      <div className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">{loading ? "提取中" : active ? "已选用" : "选用"}</div>
+      <div className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-400">
+        {loading ? "提取中" : active ? "已选" : "选用"}
+      </div>
     </button>
   );
 }
