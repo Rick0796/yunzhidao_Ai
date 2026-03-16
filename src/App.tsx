@@ -4,6 +4,7 @@ import { useHotspotCenter } from "./hooks/useHotspotCenter";
 import ParticleBackground from "./components/ParticleBackground";
 import ComposeWorkbench from "./components/ComposeWorkbench";
 import HotspotCenterPanel from "./components/HotspotCenterPanel";
+import VideoAnalysisPanel from "./components/VideoAnalysisPanel";
 import {
   buildMockSourceStructure
 } from "./lib/mock";
@@ -103,7 +104,8 @@ function App() {
   const [draftSignature, setDraftSignature] = useState("");
   const [structureTab, setStructureTab] = useState<"skeleton" | "meat" | "cta">("skeleton");
   const [isRewriteStructureCollapsed, setIsRewriteStructureCollapsed] = useState(false);
-  const [isWorkbenchIntroCollapsed, setIsWorkbenchIntroCollapsed] = useState(true);
+  const [isWorkbenchIntroHidden, setIsWorkbenchIntroHidden] = useState(false);
+  const canCollapseWorkbenchIntro = false;
   const [composeWorkbenchNonce, setComposeWorkbenchNonce] = useState(0);
   const [showHotspotHelper, setShowHotspotHelper] = useState(false);
   const [isHooksCollapsed, setIsHooksCollapsed] = useState(false);
@@ -118,8 +120,6 @@ function App() {
   const currentWorkbenchMode = workbenchMode ?? inferWorkbenchMode(task.entryType);
   const isBeginnerMode = experienceMode === "beginner";
   const normalizedTask = useMemo(() => normalizeTaskState(task), [task]);
-  const isWorkbenchIntroHidden = isWorkbenchIntroCollapsed;
-  const canCollapseWorkbenchIntro = true;
   const lastOriginalEntryRef = useRef<{ entryType: OriginalEntryType; chosen: boolean }>({
     entryType: isOriginalEntryType(defaultTask.entryType) ? defaultTask.entryType : DEFAULT_ORIGINAL_ENTRY_TYPE,
     chosen: false
@@ -163,13 +163,13 @@ function App() {
   });
 
   useEffect(() => {
-    setIsWorkbenchIntroCollapsed(true);
+    setIsWorkbenchIntroHidden(true);
   }, [currentWorkbenchMode]);
   useEffect(() => {
     if (!isBeginnerMode) return;
     setShowTaskSettings(true);
     setShowAdvanced(false);
-    setIsWorkbenchIntroCollapsed(true);
+    setIsWorkbenchIntroHidden(true);
   }, [isBeginnerMode]);
 
   useEffect(() => {
@@ -895,6 +895,10 @@ function App() {
                   <FieldLabel text="模型名" />
                   <Input value={settings.mainModel} onChange={(value) => updateSettingsField("mainModel", value)} placeholder="gemini-3-flash" />
                 </div>
+                <div>
+                  <FieldLabel text="视觉模型名（视频分析）" />
+                  <Input value={settings.imageModel} onChange={(value) => updateSettingsField("imageModel", value)} placeholder="gemini-3-pro-image" />
+                </div>
               </div>
             </div>
           ) : null}
@@ -1242,7 +1246,7 @@ function App() {
     );
 
   // 手机底部操作栏按钮
-  const mobileActionBtn = enteredWorkbench && currentWorkbenchMode !== "compose" ? (
+  const mobileActionBtn = enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" ? (
     wizardStep === 1 ? (
       <button className="brand-btn" onClick={() => goStep(2)} disabled={!canGoStep2}>
         {currentWorkbenchMode === "rewrite" ? "确定，进入选开头" : "确定任务"}
@@ -1288,7 +1292,7 @@ function App() {
           </div>
         </div>
 
-        {enteredWorkbench && currentWorkbenchMode !== "compose" ? (
+        {enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" ? (
           <div className="step-bar">
             {stepConfig.map((item) => {
               const available = item.step === 1 ? true : item.step === 2 ? canGoStep2 : item.step === 3 ? canGoStep3 : canGoStep4 || drafts.length > 0;
@@ -1313,31 +1317,24 @@ function App() {
       <HistoryDrawer open={showHistory} history={history} onClose={() => setShowHistory(false)} onRestore={restoreHistory} onDelete={deleteHistory} />
       {notice ? <Notice toast={notice} /> : null}
 
-      <main className="relative z-10 flex-1 px-4 pb-24 md:pb-10" style={{paddingTop: enteredWorkbench && currentWorkbenchMode !== "compose" ? "96px" : "56px"}}>
+      <main className="relative z-10 flex-1 px-4 pb-24 md:pb-10" style={{paddingTop: enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" ? "96px" : "56px"}}>
         {!enteredWorkbench ? (
           <Landing onSelectMode={openWorkbench} />
         ) : currentWorkbenchMode === "compose" ? (
           <div className="mx-auto max-w-7xl">
-            <div className="glass-panel rounded-[28px] overflow-hidden">
-              <button
-                className="flex w-full items-center justify-between px-6 py-4 text-left"
-                onClick={() => setIsWorkbenchIntroCollapsed((v) => !v)}
-              >
-                <div>
-                  <div className="text-sm font-semibold text-white">文案组合工作台</div>
-                  <div className="mt-0.5 text-xs text-slate-400">按固定结构自动组装，再逐块替换、插入和去重</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">{isWorkbenchIntroCollapsed ? "点击展开" : "点击收起"}</span>
-                  <svg className={classNames("h-4 w-4 text-slate-400 transition-transform", !isWorkbenchIntroCollapsed && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                </div>
-              </button>
-              {!isWorkbenchIntroCollapsed && (
-                <div className="border-t border-white/8">
-                  <ComposeWorkbench key={composeWorkbenchNonce} settings={settings} />
-                </div>
-              )}
-            </div>
+            <ComposeWorkbench key={composeWorkbenchNonce} settings={settings} />
+          </div>
+        ) : currentWorkbenchMode === "video" ? (
+          <div className="mx-auto max-w-2xl">
+            <VideoAnalysisPanel
+              settings={settings}
+              onImportToRewrite={(script) => {
+                openWorkbench("rewrite");
+                setTask((prev) => ({ ...prev, sourceText: script }));
+                showNotice("success", "脚本已导入到仿写工作台。");
+              }}
+              showNotice={showNotice}
+            />
           </div>
         ) : (
           <div className="mx-auto max-w-7xl space-y-4">
@@ -1502,6 +1499,23 @@ function Landing({ onSelectMode }: { onSelectMode: (mode: WorkbenchMode) => void
           <div className="flex-1">
             <div className="text-sm font-semibold text-white">热点 / 主题原创</div>
             <div className="mt-0.5 text-xs text-slate-400">抓热点 · 组结构 · 生成稿</div>
+          </div>
+          <svg className="h-4 w-4 shrink-0 text-slate-600 transition group-hover:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onSelectMode("video")}
+          className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 text-left transition hover:border-blue-400/40 hover:bg-white/[0.09] hover:shadow-[0_0_20px_rgba(59,130,246,0.08)]"
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-400/10 text-blue-400 transition group-hover:bg-blue-400/20">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.723v6.554a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-white">视频分析</div>
+            <div className="mt-0.5 text-xs text-slate-400">上传视频 · 提取脚本 · 结构分析</div>
           </div>
           <svg className="h-4 w-4 shrink-0 text-slate-600 transition group-hover:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </button>

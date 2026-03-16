@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>三栏 + 流水线布局原型</title>
+    <style>
+      :root {
+        --bg: #0b1120;
+        --panel: rgba(255, 255, 255, 0.06);
+        --panel-strong: rgba(255, 255, 255, 0.1);
+        --border: rgba(255, 255, 255, 0.12);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #8b5cf6;
+        --accent-2: #00d4ff;
+        --success: #22c55e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        background: radial-gradient(1200px 600px at 20% -10%, rgba(0, 212, 255, 0.2), transparent 60%),
+          radial-gradient(900px 500px at 80% 0%, rgba(139, 92, 246, 0.25), transparent 55%),
+          var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 28px;
+        border-bottom: 1px solid var(--border);
+        backdrop-filter: blur(16px);
+        position: sticky;
+        top: 0;
+        background: rgba(11, 17, 32, 0.7);
+        z-index: 10;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 700;
+        font-size: 18px;
+      }
+      .tabs {
+        display: flex;
+        gap: 10px;
+      }
+      .tab {
+        padding: 8px 16px;
+        border-radius: 999px;
+        background: var(--panel);
+        border: 1px solid transparent;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .tab.active {
+        color: white;
+        border-color: rgba(139, 92, 246, 0.8);
+        background: rgba(139, 92, 246, 0.18);
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        font-size: 13px;
+      }
+      .actions button {
+        padding: 8px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+      }
+      main {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr) 360px;
+        gap: 20px;
+        padding: 22px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      }
+      .panel h3 {
+        margin: 0 0 12px;
+        font-size: 14px;
+        color: #f8fafc;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .hot-item {
+        padding: 10px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid transparent;
+        margin-bottom: 10px;
+      }
+      .hot-item button {
+        margin-top: 8px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.08);
+        color: white;
+        font-size: 12px;
+      }
+      .pipeline {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .step {
+        background: var(--panel-strong);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 14px;
+      }
+      .step h4 {
+        margin: 0 0 8px;
+        font-size: 13px;
+      }
+      .input {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        padding: 10px 12px;
+        background: rgba(15, 23, 42, 0.6);
+        color: var(--text);
+        font-size: 13px;
+      }
+      .pill-group {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .pill {
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .pill.active {
+        color: white;
+        border-color: rgba(0, 212, 255, 0.7);
+        background: rgba(0, 212, 255, 0.16);
+      }
+      .primary-btn {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: none;
+        background: linear-gradient(90deg, var(--accent-2), var(--accent));
+        color: #0b1120;
+        font-weight: 700;
+        font-size: 14px;
+      }
+      .result-card {
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        margin-bottom: 12px;
+      }
+      .result-card h5 {
+        margin: 0 0 6px;
+        font-size: 13px;
+      }
+      .tag {
+        display: inline-flex;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(34, 197, 94, 0.18);
+        color: #86efac;
+        font-size: 11px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .toolbar button {
+        flex: 1;
+        padding: 8px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        font-size: 12px;
+      }
+      .progress {
+        height: 6px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .progress span {
+        display: block;
+        height: 100%;
+        width: 55%;
+        background: linear-gradient(90deg, var(--accent-2), var(--accent));
+      }
+      @media (max-width: 1100px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <div style="width: 10px; height: 10px; border-radius: 999px; background: linear-gradient(90deg, var(--accent-2), var(--accent));"></div>
+        云智道 · 文案工作台
+      </div>
+      <div class="tabs">
+        <div class="tab">爆款仿写</div>
+        <div class="tab active">热点原创</div>
+        <div class="tab">主题创作</div>
+        <div class="tab">我的故事</div>
+      </div>
+      <div class="actions">
+        <button>历史</button>
+        <button>设置</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Left: Hotspot Center -->
+      <section class="panel">
+        <h3>热点雷达</h3>
+        <div class="hot-item">
+          <div>微信入口再调整</div>
+          <div class="muted">平台新入口 · 流量重排</div>
+          <button>用这条</button>
+        </div>
+        <div class="hot-item">
+          <div>AI工具成本下探</div>
+          <div class="muted">行业变化 · 经营影响</div>
+          <button>用这条</button>
+        </div>
+        <div class="hot-item">
+          <div>短视频推荐逻辑更新</div>
+          <div class="muted">内容策略 · 权重变化</div>
+          <button>用这条</button>
+        </div>
+        <div class="muted">支持搜索 / 切换平台 / 事实包注入</div>
+      </section>
+
+      <!-- Center: Pipeline -->
+      <section class="pipeline">
+        <div class="panel">
+          <h3>任务输入</h3>
+          <div class="step">
+            <h4>素材输入</h4>
+            <textarea class="input" rows="4" placeholder="粘贴热点素材或写清楚事件事实..."></textarea>
+          </div>
+          <div class="step">
+            <h4>创作入口</h4>
+            <div class="pill-group">
+              <div class="pill active">热点借势</div>
+              <div class="pill">主题原创</div>
+              <div class="pill">我的故事</div>
+            </div>
+          </div>
+          <div class="step">
+            <h4>挂业务方式</h4>
+            <div class="pill-group">
+              <div class="pill active">轻挂</div>
+              <div class="pill">不挂</div>
+              <div class="pill">重挂</div>
+            </div>
+          </div>
+          <div class="step">
+            <h4>收口方式</h4>
+            <div class="pill-group">
+              <div class="pill active">评论</div>
+              <div class="pill">关键词</div>
+              <div class="pill">主页</div>
+            </div>
+          </div>
+          <div class="step">
+            <h4>生成进度</h4>
+            <div class="progress"><span></span></div>
+          </div>
+          <button class="primary-btn">一键生成全套</button>
+        </div>
+      </section>
+
+      <!-- Right: Results -->
+      <section class="panel">
+        <h3>生成结果</h3>
+        <div class="result-card">
+          <h5>皮候选</h5>
+          <div class="muted">「这次入口换了，老板最先掉队」</div>
+          <div class="toolbar"><button>选中</button><button>替换</button></div>
+        </div>
+        <div class="result-card">
+          <h5>骨架</h5>
+          <div class="muted">事件冲击 → 现实映射 → 风险升级 → 认知桥 → 落点</div>
+          <div class="tag">AI 生成</div>
+        </div>
+        <div class="result-card">
+          <h5>肉</h5>
+          <div class="muted">「把流量接成自己的客户承接」</div>
+          <div class="toolbar"><button>选中</button><button>替换</button></div>
+        </div>
+        <div class="result-card">
+          <h5>成品草稿</h5>
+          <div class="muted">完整文案显示在这里...</div>
+          <div class="toolbar"><button>复制</button><button>字幕稿</button></div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

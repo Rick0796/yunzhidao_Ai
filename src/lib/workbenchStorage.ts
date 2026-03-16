@@ -2,7 +2,7 @@ export const STORAGE_KEYS = {
   enteredWorkbench: "yzd.copy.entered-workbench",
   workbenchMode: "yzd.copy.workbench-mode",
   experienceMode: "yzd.copy.experience-mode",
-  settings: "yzd.copy.settings",
+  settings: "yzd.copy.settings.v2",
   profile: "yzd.copy.profile",
   task: "yzd.copy.task",
   hooks: "yzd.copy.hooks",
@@ -17,5 +17,6 @@ export const STORAGE_KEYS = {
   selectedSkeletonId: "yzd.copy.selected-skeleton-id",
   selectedMeatId: "yzd.copy.selected-meat-id",
   selectedCtaId: "yzd.copy.selected-cta-id",
-  selectedDraftId: "yzd.copy.selected-draft-id"
+  selectedDraftId: "yzd.copy.selected-draft-id",
+  videoHistory: "yzd.copy.video-analysis-history.v1",
 } as const;

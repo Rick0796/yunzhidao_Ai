@@ -1,6 +1,6 @@
 ﻿import type { ApiSettings, BaseProfile, BusinessMode, CtaMode, EntryType, TaskForm } from "../types";
 
-export type WorkbenchMode = "rewrite" | "original" | "compose";
+export type WorkbenchMode = "rewrite" | "original" | "compose" | "video";
 export type OriginalEntryType = Exclude<EntryType, "viral">;
 export type HotspotPlatformKey = "douyin" | "weibo" | "zhihu" | "baidu";
 export type WorkbenchStep = 1 | 2 | 3 | 4;
@@ -71,6 +71,10 @@ export const ORIGINAL_ENTRY_OPTIONS: Array<WorkbenchOption<OriginalEntryType>> =
 );
 
 export function getStepConfig(mode: WorkbenchMode): StepConfigItem[] {
+  if (mode === "video") {
+    return [];
+  }
+
   if (mode === "compose") {
     return [
       { step: 1, title: "主题与爆点", hint: "先定主题或先抽一个开头，再开始自动匹配。" },
@@ -98,6 +102,18 @@ export function getStepConfig(mode: WorkbenchMode): StepConfigItem[] {
 }
 
 export function getWorkbenchCopy(mode: WorkbenchMode): WorkbenchCopy {
+  if (mode === "video") {
+    return {
+      eyebrow: "视频分析",
+      title: "视频分析工作台",
+      description: "上传短视频，AI 自动提取脚本，一键导入爆款仿写工作台。",
+      step1Title: "", step1Subtitle: "",
+      step2Title: "", step2Subtitle: "",
+      step3Title: "", step3Subtitle: "",
+      step4Title: "", step4Subtitle: "",
+    };
+  }
+
   if (mode === "compose") {
     return {
       eyebrow: "文案组合",
@@ -180,11 +196,12 @@ export function displayCtaMode(mode: CtaMode): string {
 
 export const defaultApiSettings: ApiSettings = {
   useLiveApi: true,
-  baseUrl: "/api",
-  apiKey: "",
+  baseUrl: "https://llm.xiaochisaas.com/v1",
+  apiKey: "sk-ZUl7JB6pCYDywsuMnAH5tcewOxfqPYYv8WYKCgeOcKWoMQB9",
   mainModel: "gemini-3-flash",
   batchModel: "gemini-3-flash",
   polishModel: "gemini-3-flash",
+  imageModel: "claude-sonnet-4-5",
   requestTimeoutMs: 120000
 };
 

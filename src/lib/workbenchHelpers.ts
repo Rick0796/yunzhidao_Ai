@@ -29,10 +29,11 @@ export function normalizeApiSettings(value: Partial<ApiSettings> | null | undefi
     ...(value || {}),
     useLiveApi: typeof value?.useLiveApi === "boolean" ? value.useLiveApi : defaultApiSettings.useLiveApi,
     baseUrl: typeof value?.baseUrl === "string" && value.baseUrl.trim() ? value.baseUrl : defaultApiSettings.baseUrl,
-    apiKey: typeof value?.apiKey === "string" ? value.apiKey : defaultApiSettings.apiKey,
+    apiKey: typeof value?.apiKey === "string" && value.apiKey.trim() ? value.apiKey : defaultApiSettings.apiKey,
     mainModel: typeof value?.mainModel === "string" && value.mainModel.trim() ? value.mainModel : defaultApiSettings.mainModel,
     batchModel: typeof value?.batchModel === "string" && value.batchModel.trim() ? value.batchModel : defaultApiSettings.batchModel,
     polishModel: typeof value?.polishModel === "string" && value.polishModel.trim() ? value.polishModel : defaultApiSettings.polishModel,
+    imageModel: typeof value?.imageModel === "string" && value.imageModel.trim() ? value.imageModel : defaultApiSettings.imageModel,
     requestTimeoutMs:
       Math.max(
         90000,
@@ -51,6 +52,7 @@ export function sameApiSettings(left: ApiSettings, right: ApiSettings) {
     left.mainModel === right.mainModel &&
     left.batchModel === right.batchModel &&
     left.polishModel === right.polishModel &&
+    left.imageModel === right.imageModel &&
     left.requestTimeoutMs === right.requestTimeoutMs
   );
 }
@@ -202,6 +204,7 @@ export function createTaskForMode(
 export function getWorkbenchLabel(mode: WorkbenchMode) {
   if (mode === "rewrite") return "爆款仿写";
   if (mode === "original") return "热点 / 主题创作";
+  if (mode === "video") return "视频分析";
   return "文案组合";
 }
 

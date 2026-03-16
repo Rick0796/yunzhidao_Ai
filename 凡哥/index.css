@@ -1,0 +1,7 @@
+/* 基础全局样式 */
+body {
+  background-color: #0F0F23;
+  color: #ffffff;
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+}

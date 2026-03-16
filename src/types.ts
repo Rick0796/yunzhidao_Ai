@@ -22,6 +22,7 @@ export interface ApiSettings {
   mainModel: string;
   batchModel: string;
   polishModel: string;
+  imageModel: string;
   requestTimeoutMs: number;
 }
 
@@ -244,4 +245,47 @@ export interface ModuleMeta {
   source: "api" | "local" | "mock";
   updatedAt: string;
   message?: string;
+}
+
+// ─── 视频分析 ───────────────────────────────────────────────
+
+export type VideoAnalysisMode = "FAST" | "DEEP";
+
+export interface VideoTimestamp {
+  time: string;
+  seconds: number;
+  description: string;
+}
+
+export interface VideoVisualFeature {
+  feature: string;
+  description: string;
+}
+
+export interface VideoStructure {
+  coreProposition: string;
+  openingType: string;
+  conflictStructure: string;
+  progressionLogic: string;
+  psychologicalHook: string;
+  climaxSentence: string;
+  languageFeatures: string;
+  emotionalCurve: string;
+  viewerReward: string;
+}
+
+export interface VideoAnalysisResult {
+  summary: string;
+  script: string;
+  visualFeatures: VideoVisualFeature[];
+  videoStructure: VideoStructure;
+  timestamps: VideoTimestamp[];
+}
+
+export interface VideoHistoryItem {
+  id: string;
+  createdAt: string;
+  fileName: string;
+  mode: VideoAnalysisMode;
+  result: VideoAnalysisResult;
 }
