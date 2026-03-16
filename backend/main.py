@@ -3501,6 +3501,146 @@ if (DIST_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
 
 
+@app.post("/api/analyze-video")
+async def analyze_video(request: Request) -> JSONResponse:
+    """接收视频关键帧（base64），调用视觉模型分析，返回结构化结果。"""
+    if not CONFIG["apiKey"] or not CONFIG["baseUrl"]:
+        raise HTTPException(status_code=500, detail="后端未配置 API Key 或 Base URL")
+
+    body = await read_request_json(request)
+    frames = body.get("frames", [])  # list of base64 JPEG strings
+    mode = str(body.get("mode", "FAST"))
+    image_model = str(body.get("model") or CONFIG["defaultModel"])
+    is_deep = mode == "DEEP"
+
+    if not frames:
+        raise HTTPException(status_code=400, detail="未收到视频帧数据")
+
+    deep_part = (
+        "\n额外要求（深度模式）：\n1. 必须返回 5-8 个 timestamps（time格式MM:SS, seconds数字, description描述）。\n2. 对视频结构给出完整营销拆解。"
+        if is_deep else ""
+    )
+    prompt_lines = [
+        "你是一名短视频内容分析专家，请只输出 JSON，不要输出任何解释文字。",
+        f"以下是从视频中按时间顺序抽取的 {len(frames)} 帧关键画面，请根据画面内容进行分析。",
+        "",
+        "字段要求：",
+        "1. summary: 视频摘要（中文）。",
+        "2. script: 根据画面中出现的文字、字幕、人物口型和动作，尽可能完整推断还原视频口播或旁白内容（中文）。不要说无法确定，要根据画面主题和风格给出合理推断，至少200字。",
+        "3. visualFeatures: 数组，每项包含 feature 和 description。",
+        "4. videoStructure: 对象，包含 coreProposition/openingType/conflictStructure/progressionLogic/psychologicalHook/climaxSentence/languageFeatures/emotionalCurve/viewerReward。",
+        "5. timestamps: 关键时间点数组。" if is_deep else "5. timestamps 可省略。",
+        "",
+        "输出质量要求：",
+        "1. 仅使用简体中文。",
+        "2. 不要使用未提取、未知等占位语，信息不足时给出合理推断。",
+        "3. 结果必须是合法 JSON 对象。",
+        deep_part,
+    ]
+    prompt = "\n".join(line for line in prompt_lines if line is not None)
+
+    content_parts: list[Any] = [{"type": "text", "text": prompt}]
+    for frame in frames:
+        content_parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{frame}", "detail": "low"},
+        })
+
+    upstream_url = f"{CONFIG['baseUrl']}/chat/completions"
+    request_body = {
+        "model": image_model,
+        "temperature": 0.3,
+        "max_tokens": 4096,
+        "messages": [{"role": "user", "content": content_parts}],
+    }
+
+    try:
+        status_code, raw_text = await fetch_with_retry(
+            upstream_url,
+            request_body,
+            {"Content-Type": "application/json", "Authorization": f"Bearer {CONFIG['apiKey']}"},
+            CONFIG["retries"],
+        )
+        if status_code >= 400:
+            try:
+                err = json.loads(raw_text)
+                msg = err.get("error", {}).get("message") or raw_text[:200]
+            except Exception:
+                msg = raw_text[:200]
+            return JSONResponse(content={"error": {"message": msg}}, status_code=status_code)
+
+        payload = json.loads(raw_text)
+        content = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            return JSONResponse(content={"error": {"message": "模型未返回内容"}}, status_code=502)
+
+        # 服务端稳健解析 JSON
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
+            cleaned = re.sub(r"\n?```$", "", cleaned)
+        cleaned = cleaned.strip()
+
+        # 尝试直接解析
+        parsed = None
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError:
+            # 提取 { ... } 块
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start >= 0 and end > start:
+                try:
+                    parsed = json.loads(cleaned[start:end + 1])
+                except json.JSONDecodeError:
+                    pass
+
+        if parsed is None:
+            return JSONResponse(
+                content={"error": {"message": f"模型返回内容无法解析为 JSON。原始内容（前400字）：{content[:400]}"}},
+                status_code=502,
+            )
+
+        # 归一化结构
+        def norm_str(v: Any) -> str:
+            return str(v) if v else ""
+
+        vs_raw = parsed.get("videoStructure") or {}
+        result = {
+            "summary": norm_str(parsed.get("summary")),
+            "script": norm_str(parsed.get("script")),
+            "visualFeatures": [
+                {"feature": str(f.get("feature", "")), "description": str(f.get("description", ""))}
+                for f in (parsed.get("visualFeatures") or [])
+                if isinstance(f, dict)
+            ],
+            "videoStructure": {
+                "coreProposition": norm_str(vs_raw.get("coreProposition")),
+                "openingType": norm_str(vs_raw.get("openingType")),
+                "conflictStructure": norm_str(vs_raw.get("conflictStructure")),
+                "progressionLogic": norm_str(vs_raw.get("progressionLogic")),
+                "psychologicalHook": norm_str(vs_raw.get("psychologicalHook")),
+                "climaxSentence": norm_str(vs_raw.get("climaxSentence")),
+                "languageFeatures": norm_str(vs_raw.get("languageFeatures")),
+                "emotionalCurve": norm_str(vs_raw.get("emotionalCurve")),
+                "viewerReward": norm_str(vs_raw.get("viewerReward")),
+            },
+            "timestamps": [
+                {
+                    "time": str(t.get("time", "00:00")),
+                    "seconds": float(t.get("seconds", 0)),
+                    "description": str(t.get("description", "")),
+                }
+                for t in (parsed.get("timestamps") or [])
+                if isinstance(t, dict)
+            ] if is_deep else [],
+        }
+        return JSONResponse(content=result)
+
+    except Exception as exc:
+        return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
+
+
 # SPA fallback 必须在所有 API 路由之后
 @app.get("/{full_path:path}", response_model=None, include_in_schema=False)
 async def spa_fallback(full_path: str):

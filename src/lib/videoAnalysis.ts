@@ -104,7 +104,7 @@ function safeParseJson(text: string): Record<string, unknown> | null {
 }
 
 /**
- * 发送视频关键帧到图像模型，返回结构化分析结果。
+ * 发送视频关键帧到后端 /api/analyze-video，由服务端调用视觉模型并稳健解析 JSON。
  */
 export async function analyzeVideoFrames(
   settings: ApiSettings,
@@ -114,10 +114,6 @@ export async function analyzeVideoFrames(
 ): Promise<VideoAnalysisResult> {
   if (!settings.useLiveApi) {
     throw new Error("未开启实时 API，无法进行视频分析。请在设置中开启实时 API 并配置 API Key。");
-  }
-
-  if (!settings.apiKey) {
-    throw new Error("未配置 API Key，无法进行视频分析。");
   }
 
   if (frames.length === 0) {
@@ -137,36 +133,17 @@ export async function analyzeVideoFrames(
       : controller.signal;
 
     try {
-      const prompt = buildAnalysisPrompt(mode, frames.length);
-
-      const contentParts: Array<{ type: string; text?: string; image_url?: { url: string; detail: string } }> = [
-        { type: "text", text: prompt },
-        ...frames.map((frame) => ({
-          type: "image_url",
-          image_url: {
-            url: `data:image/jpeg;base64,${frame}`,
-            detail: "low",
-          },
-        })),
-      ];
-
-      const response = await fetch(
-        `${normalizeBaseUrl(settings.baseUrl)}/chat/completions`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${settings.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: settings.imageModel || "gpt-4o",
-            temperature: 0.3,
-            max_tokens: 4096,
-            messages: [{ role: "user", content: contentParts }],
-          }),
-          signal: combinedSignal,
-        }
-      );
+      // 优先走后端端点，服务端负责 JSON 解析和归一化
+      const response = await fetch("/api/analyze-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          frames,
+          mode,
+          model: settings.imageModel || "gpt-4o",
+        }),
+        signal: combinedSignal,
+      });
 
       const rawText = await response.text();
 
@@ -176,16 +153,9 @@ export async function analyzeVideoFrames(
         throw new Error(errMsg);
       }
 
-      const payload = safeParseJson(rawText) as { choices?: Array<{ message?: { content?: string } }> } | null;
-      const content = payload?.choices?.[0]?.message?.content;
-
-      if (!content) {
-        throw new Error("模型未返回可解析的内容，请重试。");
-      }
-
-      const parsed = safeParseJson(content);
+      const parsed = safeParseJson(rawText);
       if (!parsed) {
-        throw new Error("模型返回的内容无法解析为 JSON，请重试。");
+        throw new Error("服务端返回内容无法解析，请重试。");
       }
 
       return normalizeResult(parsed);
