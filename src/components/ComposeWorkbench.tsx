@@ -176,7 +176,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
   }
 
   async function loadSections(direction = primaryDirection, currentTheme = resolvedTheme || direction) {
-    const response = await fetchComposeCandidates(settings.baseUrl || "/api", {
+    const response = await fetchComposeCandidates("/api", {
       theme: currentTheme,
       primaryDirection: direction,
       limitPerSlot: 18,
@@ -189,7 +189,7 @@ export default function ComposeWorkbench({ settings }: { settings: ApiSettings }
     setBusyAction("random-opening");
     setMessage({ tone: "info", text: "正在随机抽取开头..." });
     try {
-      const response = await fetchScriptSections(settings.baseUrl || "/api", {
+      const response = await fetchScriptSections("/api", {
         primaryDirection,
         sectionType: "A",
         limit: 60,
