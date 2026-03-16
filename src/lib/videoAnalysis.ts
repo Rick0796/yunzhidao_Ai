@@ -5,7 +5,7 @@
  * 独立实现，不耦合 generateJson（后者需要 task/profile 参数，与视频分析场景无关）。
  */
 
-import type { ApiSettings, VideoAnalysisMode, VideoAnalysisResult, VideoStructure } from "../types";
+import type { ApiSettings, SoraPrompt, VideoAnalysisMode, VideoAnalysisResult, VideoStructure } from "../types";
 import { normalizeBaseUrl } from "./http";
 
 const DEFAULT_TIMEOUT_MS = 120000;
@@ -24,32 +24,27 @@ export const DEFAULT_VIDEO_STRUCTURE: VideoStructure = {
 
 function buildAnalysisPrompt(mode: VideoAnalysisMode, frameCount: number): string {
   const isDeep = mode === "DEEP";
-  const timestampsField = isDeep
-    ? `
-8. timestamps: 关键时间点数组，每项包含 time（格式"MM:SS"）、seconds（数字）、description（描述）。提供 5-8 个。`
+  const deepPart = isDeep
+    ? "\n额外要求（深度模式）：\n1. 必须返回 5-8 个 timestamps（time格式MM:SS, seconds数字, description描述）。\n2. 对视频结构给出完整营销拆解。"
     : "";
 
-  return `你是一名短视频内容分析专家。以下是从一个短视频中按时间顺序抽取的 ${frameCount} 帧关键画面。
-请仔细分析这些画面，提取视频的完整信息。
-
-只输出合法 JSON，不要任何解释文字，不要 markdown 代码块。
-
-JSON 字段说明：
-1. summary: 视频内容摘要（中文，200字以内）
-2. script: 尽可能还原视频的口播或旁白文字（中文）
-3. visualFeatures: 视觉特征数组，每项含 feature（特征名）和 description（描述）
-4. videoStructure: 对象，包含以下9个字段（均为中文字符串）：
-   - coreProposition: 核心主张（这条视频在说什么）
-   - openingType: 开场类型（如悬念型、判决型、故事型等）
-   - conflictStructure: 冲突结构（视频中的矛盾和张力）
-   - progressionLogic: 推进逻辑（内容如何层层递进）
-   - psychologicalHook: 心理钩子（抓住观众的心理机制）
-   - climaxSentence: 高潮句（最有力的一句话）
-   - languageFeatures: 语言风格（口语化程度、节奏、用词特点）
-   - emotionalCurve: 情绪曲线（情绪如何变化）
-   - viewerReward: 观看回报（观众看完能获得什么）${timestampsField}
-
-要求：仅使用简体中文，不使用「未知」「未提取」等占位语，信息不足时给出合理推断。`;
+  return [
+    "你是一名短视频内容分析专家，请只输出 JSON，不要输出任何解释文字。",
+    `以下是从视频中按时间顺序抽取的 ${frameCount} 帧关键画面，请根据画面内容进行分析。`,
+    "",
+    "字段要求：",
+    "1. summary: 视频摘要（中文）。",
+    "2. script: 根据画面中出现的文字、字幕、人物口型和动作，尽可能完整推断还原视频口播或旁白内容（中文）。不要说无法确定，要根据画面主题和风格给出合理推断，至少200字。",
+    "3. visualFeatures: 数组，每项包含 feature 和 description。",
+    "4. videoStructure: 对象，包含 coreProposition/openingType/conflictStructure/progressionLogic/psychologicalHook/climaxSentence/languageFeatures/emotionalCurve/viewerReward。",
+    isDeep ? "5. timestamps: 关键时间点数组。" : "5. timestamps 可省略。",
+    "",
+    "输出质量要求：",
+    "1. 仅使用简体中文。",
+    "2. 不要使用未提取、未知等占位语，信息不足时给出合理推断。",
+    "3. 结果必须是合法 JSON。",
+    deepPart,
+  ].join("\n");
 }
 
 function normalizeResult(raw: Record<string, unknown>): VideoAnalysisResult {
@@ -89,14 +84,12 @@ function normalizeResult(raw: Record<string, unknown>): VideoAnalysisResult {
 
 function safeParseJson(text: string): Record<string, unknown> | null {
   let cleaned = text.trim();
-  // 去掉 markdown 代码块
   if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
   }
   try {
     return JSON.parse(cleaned) as Record<string, unknown>;
   } catch {
-    // 尝试提取第一个 { ... } 块
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
     if (start !== -1 && end > start) {
@@ -112,10 +105,6 @@ function safeParseJson(text: string): Record<string, unknown> | null {
 
 /**
  * 发送视频关键帧到图像模型，返回结构化分析结果。
- * @param settings  ApiSettings（使用 baseUrl / apiKey / imageModel）
- * @param frames    base64 JPEG 字符串数组（不含 data: 前缀）
- * @param mode      FAST（5帧）或 DEEP（10帧）
- * @param signal    可选 AbortSignal 用于取消
  */
 export async function analyzeVideoFrames(
   settings: ApiSettings,
@@ -172,12 +161,8 @@ export async function analyzeVideoFrames(
           body: JSON.stringify({
             model: settings.imageModel || "gpt-4o",
             temperature: 0.3,
-            messages: [
-              {
-                role: "user",
-                content: contentParts,
-              },
-            ],
+            max_tokens: 4096,
+            messages: [{ role: "user", content: contentParts }],
           }),
           signal: combinedSignal,
         }
@@ -211,7 +196,6 @@ export async function analyzeVideoFrames(
       }
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < MAX_RETRIES) {
-        // 等待后重试（第1次等1s，第2次等2s）
         await new Promise((resolve) => window.setTimeout(resolve, 1000 * (attempt + 1)));
         continue;
       }
@@ -225,6 +209,7 @@ export async function analyzeVideoFrames(
 
 /**
  * 生成 Sora 视频提示词（基于视频关键帧 + 摘要）
+ * 1:1 复制凡哥方案：全中文，明确镜头、人物动作、场景、光线、节奏、画面比例
  */
 export async function generateSoraPrompts(
   settings: ApiSettings,
@@ -232,23 +217,24 @@ export async function generateSoraPrompts(
   summary: string,
   count: number,
   signal?: AbortSignal
-): Promise<import("../types").SoraPrompt[]> {
+): Promise<SoraPrompt[]> {
   if (!settings.useLiveApi || !settings.apiKey) {
     throw new Error("请开启实时 API 并配置 API Key。");
   }
 
-  const prompt = `你是一位专业的 AI 视频生成提示词工程师。
-基于以下视频摘要和关键帧，生成 ${count} 条高质量的 Sora / 视频生成 AI 提示词。
-
-视频摘要：${summary}
-
-要求：
-- 每条提示词用英文撰写，描述镜头语言、画面构图、色调风格、动态效果
-- 只输出合法 JSON 数组，格式：[{"title":"提示词标题（中文）","fullPrompt":"English prompt here"}]
-- 不要任何解释文字，不要 markdown 代码块`;
+  const promptLines = [
+    `你是一名 AIGC 导演，请基于视频内容输出 ${count} 条可直接用于生成数字人短视频的提示词。`,
+    "输出 JSON 数组，每项格式为：",
+    '{"title":"提示词标题","fullPrompt":"完整提示词"}',
+    "要求：",
+    "1. 仅使用简体中文。",
+    "2. 明确镜头、人物动作、场景、光线、节奏、画面比例。",
+    "3. 不要输出 markdown。",
+    summary ? `参考视频摘要：${summary}` : "",
+  ].filter(Boolean).join("\n");
 
   const contentParts: Array<{ type: string; text?: string; image_url?: { url: string; detail: string } }> = [
-    { type: "text", text: prompt },
+    { type: "text", text: promptLines },
     ...frames.slice(0, 3).map((frame) => ({
       type: "image_url" as const,
       image_url: { url: `data:image/jpeg;base64,${frame}`, detail: "low" },
@@ -261,7 +247,7 @@ export async function generateSoraPrompts(
     body: JSON.stringify({
       model: settings.imageModel || "gpt-4o",
       temperature: 0.7,
-      max_tokens: 2000,
+      max_tokens: 3000,
       messages: [{ role: "user", content: contentParts }],
     }),
     signal,
@@ -274,19 +260,36 @@ export async function generateSoraPrompts(
   }
 
   const payload = safeParseJson(rawText) as { choices?: Array<{ message?: { content?: string } }> } | null;
-  const content = payload?.choices?.[0]?.message?.content || "";
-  const parsed = safeParseJson(content);
-  if (Array.isArray(parsed)) {
-    return (parsed as Array<{ title?: string; fullPrompt?: string }>).map((p) => ({
-      title: p.title || "Sora 提示词",
-      fullPrompt: p.fullPrompt || "",
-    }));
+  const content = (payload?.choices?.[0]?.message?.content || "").trim();
+
+  // Try to parse array from content
+  let jsonText = content;
+  if (jsonText.startsWith("```")) {
+    jsonText = jsonText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  }
+  const firstBracket = jsonText.indexOf("[");
+  const lastBracket = jsonText.lastIndexOf("]");
+  if (firstBracket >= 0 && lastBracket > firstBracket) {
+    jsonText = jsonText.slice(firstBracket, lastBracket + 1);
+  }
+
+  try {
+    const parsed = JSON.parse(jsonText) as Array<{ title?: string; fullPrompt?: string }>;
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((p, idx) => ({
+        title: p.title || `提示词 ${idx + 1}`,
+        fullPrompt: p.fullPrompt || "",
+      }));
+    }
+  } catch {
+    // ignore
   }
   throw new Error("Sora 提示词生成失败，请重试。");
 }
 
 /**
  * 基于视频脚本生成爆款文案
+ * 1:1 复制凡哥方案
  */
 export async function generateViralCopies(
   settings: ApiSettings,
@@ -297,17 +300,19 @@ export async function generateViralCopies(
     throw new Error("请开启实时 API 并配置 API Key。");
   }
 
-  const prompt = `你是一位短视频爆款文案专家。
-基于以下视频脚本，生成 3 条不同风格的爆款短视频文案（适合抖音/小红书/视频号）。
-
-原始脚本：
-${script}
-
-要求：
-- 每条文案包含吸引眼球的开头钩子、核心价值点、明确的行动召唤
-- 风格各异：情绪型、干货型、故事型
-- 只输出合法 JSON 数组，格式：["文案1全文","文案2全文","文案3全文"]
-- 不要任何解释，不要 markdown 代码块`;
+  const prompt = [
+    "你是一名短视频增长文案专家。",
+    "请基于以下原始脚本，输出 3 条不同风格的爆款文案。",
+    "原始脚本：",
+    script,
+    "",
+    "返回 JSON 数组，格式：",
+    '[{"text":"文案1"}, {"text":"文案2"}, {"text":"文案3"}]',
+    "要求：",
+    "1. 仅简体中文。",
+    "2. 适合抖音/视频号，每条100-300字，包含开头钩子、核心价值、行动召唤。",
+    "3. 不要表情符号，不要 markdown。",
+  ].join("\n");
 
   const response = await fetch(`${normalizeBaseUrl(settings.baseUrl)}/chat/completions`, {
     method: "POST",
@@ -328,8 +333,27 @@ ${script}
   }
 
   const payload = safeParseJson(rawText) as { choices?: Array<{ message?: { content?: string } }> } | null;
-  const content = payload?.choices?.[0]?.message?.content || "";
-  const parsed = safeParseJson(content);
-  if (Array.isArray(parsed)) return parsed as string[];
+  const content = (payload?.choices?.[0]?.message?.content || "").trim();
+
+  let jsonText = content;
+  if (jsonText.startsWith("```")) {
+    jsonText = jsonText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  }
+  const firstBracket = jsonText.indexOf("[");
+  const lastBracket = jsonText.lastIndexOf("]");
+  if (firstBracket >= 0 && lastBracket > firstBracket) {
+    jsonText = jsonText.slice(firstBracket, lastBracket + 1);
+  }
+
+  try {
+    const parsed = JSON.parse(jsonText) as Array<{ text?: string } | string>;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((item) => (typeof item === "string" ? item : item?.text || ""))
+        .filter(Boolean);
+    }
+  } catch {
+    // ignore
+  }
   throw new Error("爆款文案生成失败，请重试。");
 }

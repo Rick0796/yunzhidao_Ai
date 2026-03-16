@@ -4,19 +4,28 @@
     return codeFenceMatch[1].trim();
   }
 
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return text.slice(firstBrace, lastBrace + 1);
+  const trimmed = text.trim();
+
+  // Detect whether this looks like an array or object response
+  const firstBrace = trimmed.indexOf("{");
+  const firstBracket = trimmed.indexOf("[");
+
+  // If array starts before object (or no object), extract array first
+  if (firstBracket >= 0 && (firstBrace < 0 || firstBracket < firstBrace)) {
+    const lastBracket = trimmed.lastIndexOf("]");
+    if (lastBracket > firstBracket) {
+      return trimmed.slice(firstBracket, lastBracket + 1);
+    }
   }
 
-  const firstBracket = text.indexOf("[");
-  const lastBracket = text.lastIndexOf("]");
-  if (firstBracket >= 0 && lastBracket > firstBracket) {
-    return text.slice(firstBracket, lastBracket + 1);
+  if (firstBrace >= 0) {
+    const lastBrace = trimmed.lastIndexOf("}");
+    if (lastBrace > firstBrace) {
+      return trimmed.slice(firstBrace, lastBrace + 1);
+    }
   }
 
-  return text.trim();
+  return trimmed;
 }
 
 export function normalizeMessageContent(content: unknown) {
