@@ -266,32 +266,14 @@ export async function generateViralCopies(
   script: string,
   signal?: AbortSignal
 ): Promise<string[]> {
-  if (!settings.useLiveApi || !settings.apiKey) {
-    throw new Error("请开启实时 API 并配置 API Key。");
-  }
+  if (!script.trim()) throw new Error("脚本内容为空，无法生成文案。");
 
-  const prompt = [
-    "你是一名短视频增长文案专家。",
-    "请基于以下原始脚本，输出 3 条不同风格的爆款文案。",
-    "原始脚本：",
-    script,
-    "",
-    "返回 JSON 数组，格式：",
-    '[{"text":"文案1"}, {"text":"文案2"}, {"text":"文案3"}]',
-    "要求：",
-    "1. 仅简体中文。",
-    "2. 适合抖音/视频号，每条100-300字，包含开头钩子、核心价值、行动召唤。",
-    "3. 不要表情符号，不要 markdown。",
-  ].join("\n");
-
-  const response = await fetch(`${normalizeBaseUrl(settings.baseUrl)}/chat/completions`, {
+  const response = await fetch("/api/generate-viral-copies", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      script,
       model: settings.mainModel || "gemini-3-flash",
-      temperature: 0.85,
-      max_tokens: 3000,
-      messages: [{ role: "user", content: prompt }],
     }),
     signal,
   });
@@ -302,28 +284,7 @@ export async function generateViralCopies(
     throw new Error(err?.error?.message || `请求失败（${response.status}）`);
   }
 
-  const payload = safeParseJson(rawText) as { choices?: Array<{ message?: { content?: string } }> } | null;
-  const content = (payload?.choices?.[0]?.message?.content || "").trim();
-
-  let jsonText = content;
-  if (jsonText.startsWith("```")) {
-    jsonText = jsonText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-  }
-  const firstBracket = jsonText.indexOf("[");
-  const lastBracket = jsonText.lastIndexOf("]");
-  if (firstBracket >= 0 && lastBracket > firstBracket) {
-    jsonText = jsonText.slice(firstBracket, lastBracket + 1);
-  }
-
-  try {
-    const parsed = JSON.parse(jsonText) as Array<{ text?: string } | string>;
-    if (Array.isArray(parsed)) {
-      return parsed
-        .map((item) => (typeof item === "string" ? item : item?.text || ""))
-        .filter(Boolean);
-    }
-  } catch {
-    // ignore
-  }
-  throw new Error("爆款文案生成失败，请重试。");
+  const payload = safeParseJson(rawText) as { copies?: string[] } | null;
+  if (!payload?.copies?.length) throw new Error("爆款文案生成失败，请重试。");
+  return payload.copies;
 }

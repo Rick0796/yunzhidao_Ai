@@ -3641,6 +3641,90 @@ async def analyze_video(request: Request) -> JSONResponse:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 
 
+@app.post("/api/generate-viral-copies")
+async def generate_viral_copies(request: Request) -> JSONResponse:
+    """基于视频脚本生成3条不同风格爆款文案。"""
+    if not CONFIG["apiKey"] or not CONFIG["baseUrl"]:
+        raise HTTPException(status_code=500, detail="后端未配置 API Key 或 Base URL")
+
+    body = await read_request_json(request)
+    script = str(body.get("script", "")).strip()
+    if not script:
+        raise HTTPException(status_code=400, detail="script 不能为空")
+
+    prompt = "\n".join([
+        "你是一名短视频增长文案专家。",
+        "请基于以下原始脚本，创作 3 条风格完全不同的爆款短视频文案。",
+        "",
+        "【严格要求】",
+        "1. 禁止直接复制或改写原始脚本，必须重新创作全新文案。",
+        "2. 三条文案必须采用完全不同的切入角度和叙事风格：",
+        "   - 第1条：情绪共鸣型（从用户痛点/情绪出发，引发强烈共鸣）",
+        "   - 第2条：干货价值型（直接给出3-5个具体可执行的方法/技巧）",
+        "   - 第3条：故事悬念型（用反转或悬念开头，讲一个有结论的故事）",
+        "3. 每条文案100-300字，包含：开头钩子（前3秒抓住注意力）、核心价值点、行动召唤。",
+        "4. 仅简体中文，不要表情符号，不要markdown。",
+        "",
+        "原始脚本（仅用于理解主题，禁止复制）：",
+        script,
+        "",
+        "返回合法 JSON 数组，格式：",
+        '[{"text":"文案1完整内容"},{"text":"文案2完整内容"},{"text":"文案3完整内容"}]',
+        "只返回 JSON，不要任何解释。",
+    ])
+
+    upstream_url = f"{CONFIG['baseUrl']}/chat/completions"
+    req_body = {
+        "model": str(body.get("model") or CONFIG["defaultModel"]),
+        "temperature": 0.9,
+        "max_tokens": 3000,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+
+    try:
+        status_code, raw_text = await fetch_with_retry(
+            upstream_url,
+            req_body,
+            {"Content-Type": "application/json", "Authorization": f"Bearer {CONFIG['apiKey']}"},
+            CONFIG["retries"],
+        )
+        if status_code >= 400:
+            try:
+                err = json.loads(raw_text)
+                msg = err.get("error", {}).get("message") or raw_text[:200]
+            except Exception:
+                msg = raw_text[:200]
+            return JSONResponse(content={"error": {"message": msg}}, status_code=status_code)
+
+        payload = json.loads(raw_text)
+        content = (payload.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+
+        # 提取 JSON 数组
+        cleaned = content
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
+            cleaned = re.sub(r"\n?```$", "", cleaned)
+        cleaned = cleaned.strip()
+        first_bracket = cleaned.find("[")
+        last_bracket = cleaned.rfind("]")
+        if first_bracket >= 0 and last_bracket > first_bracket:
+            cleaned = cleaned[first_bracket:last_bracket + 1]
+
+        parsed = json.loads(cleaned)
+        if not isinstance(parsed, list):
+            raise ValueError("返回格式不是数组")
+
+        copies = [str(item.get("text", "") if isinstance(item, dict) else item) for item in parsed]
+        copies = [c for c in copies if c.strip()]
+        if not copies:
+            raise ValueError("未生成有效文案")
+
+        return JSONResponse(content={"copies": copies})
+
+    except Exception as exc:
+        return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
+
+
 # SPA fallback 必须在所有 API 路由之后
 @app.get("/{full_path:path}", response_model=None, include_in_schema=False)
 async def spa_fallback(full_path: str):
