@@ -289,3 +289,8 @@ export interface VideoHistoryItem {
   mode: VideoAnalysisMode;
   result: VideoAnalysisResult;
 }
+
+export interface SoraPrompt {
+  title: string;
+  fullPrompt: string;
+}

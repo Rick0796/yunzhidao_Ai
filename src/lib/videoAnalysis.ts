@@ -222,3 +222,114 @@ export async function analyzeVideoFrames(
 
   throw lastError;
 }
+
+/**
+ * 生成 Sora 视频提示词（基于视频关键帧 + 摘要）
+ */
+export async function generateSoraPrompts(
+  settings: ApiSettings,
+  frames: string[],
+  summary: string,
+  count: number,
+  signal?: AbortSignal
+): Promise<import("../types").SoraPrompt[]> {
+  if (!settings.useLiveApi || !settings.apiKey) {
+    throw new Error("请开启实时 API 并配置 API Key。");
+  }
+
+  const prompt = `你是一位专业的 AI 视频生成提示词工程师。
+基于以下视频摘要和关键帧，生成 ${count} 条高质量的 Sora / 视频生成 AI 提示词。
+
+视频摘要：${summary}
+
+要求：
+- 每条提示词用英文撰写，描述镜头语言、画面构图、色调风格、动态效果
+- 只输出合法 JSON 数组，格式：[{"title":"提示词标题（中文）","fullPrompt":"English prompt here"}]
+- 不要任何解释文字，不要 markdown 代码块`;
+
+  const contentParts: Array<{ type: string; text?: string; image_url?: { url: string; detail: string } }> = [
+    { type: "text", text: prompt },
+    ...frames.slice(0, 3).map((frame) => ({
+      type: "image_url" as const,
+      image_url: { url: `data:image/jpeg;base64,${frame}`, detail: "low" },
+    })),
+  ];
+
+  const response = await fetch(`${normalizeBaseUrl(settings.baseUrl)}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+    body: JSON.stringify({
+      model: settings.imageModel || "gpt-4o",
+      temperature: 0.7,
+      max_tokens: 2000,
+      messages: [{ role: "user", content: contentParts }],
+    }),
+    signal,
+  });
+
+  const rawText = await response.text();
+  if (!response.ok) {
+    const err = safeParseJson(rawText) as { error?: { message?: string } } | null;
+    throw new Error(err?.error?.message || `请求失败（${response.status}）`);
+  }
+
+  const payload = safeParseJson(rawText) as { choices?: Array<{ message?: { content?: string } }> } | null;
+  const content = payload?.choices?.[0]?.message?.content || "";
+  const parsed = safeParseJson(content);
+  if (Array.isArray(parsed)) {
+    return (parsed as Array<{ title?: string; fullPrompt?: string }>).map((p) => ({
+      title: p.title || "Sora 提示词",
+      fullPrompt: p.fullPrompt || "",
+    }));
+  }
+  throw new Error("Sora 提示词生成失败，请重试。");
+}
+
+/**
+ * 基于视频脚本生成爆款文案
+ */
+export async function generateViralCopies(
+  settings: ApiSettings,
+  script: string,
+  signal?: AbortSignal
+): Promise<string[]> {
+  if (!settings.useLiveApi || !settings.apiKey) {
+    throw new Error("请开启实时 API 并配置 API Key。");
+  }
+
+  const prompt = `你是一位短视频爆款文案专家。
+基于以下视频脚本，生成 3 条不同风格的爆款短视频文案（适合抖音/小红书/视频号）。
+
+原始脚本：
+${script}
+
+要求：
+- 每条文案包含吸引眼球的开头钩子、核心价值点、明确的行动召唤
+- 风格各异：情绪型、干货型、故事型
+- 只输出合法 JSON 数组，格式：["文案1全文","文案2全文","文案3全文"]
+- 不要任何解释，不要 markdown 代码块`;
+
+  const response = await fetch(`${normalizeBaseUrl(settings.baseUrl)}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+    body: JSON.stringify({
+      model: settings.mainModel || "gemini-3-flash",
+      temperature: 0.85,
+      max_tokens: 3000,
+      messages: [{ role: "user", content: prompt }],
+    }),
+    signal,
+  });
+
+  const rawText = await response.text();
+  if (!response.ok) {
+    const err = safeParseJson(rawText) as { error?: { message?: string } } | null;
+    throw new Error(err?.error?.message || `请求失败（${response.status}）`);
+  }
+
+  const payload = safeParseJson(rawText) as { choices?: Array<{ message?: { content?: string } }> } | null;
+  const content = payload?.choices?.[0]?.message?.content || "";
+  const parsed = safeParseJson(content);
+  if (Array.isArray(parsed)) return parsed as string[];
+  throw new Error("爆款文案生成失败，请重试。");
+}
