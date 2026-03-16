@@ -13,6 +13,10 @@
   },
   "rewrites": [
     {
+      "source": "/ai-api/:path*",
+      "destination": "http://proxy.fakestcode.xin/back/:path*"
+    },
+    {
       "source": "/api/workflows/hot-rank",
       "destination": "/api/workflows/hot_rank"
     },

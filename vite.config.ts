@@ -10,6 +10,11 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:8787",
         changeOrigin: true
+      },
+      "/ai-api": {
+        target: "http://proxy.fakestcode.xin",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ai-api/, "/back")
       }
     }
   }

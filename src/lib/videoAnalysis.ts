@@ -135,76 +135,90 @@ export async function analyzeVideoFrames(
     throw new Error("未能提取到视频帧，请确认视频文件格式正确。");
   }
 
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-  const combinedSignal = signal
-    ? (AbortSignal as unknown as { any: (signals: AbortSignal[]) => AbortSignal }).any?.([signal, controller.signal]) ?? controller.signal
-    : controller.signal;
+  const MAX_RETRIES = 2;
+  let lastError: Error = new Error("未知错误");
 
-  try {
-    const prompt = buildAnalysisPrompt(mode, frames.length);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (signal?.aborted) throw new Error("视频分析已取消。");
 
-    // 构建 content 数组：先放文字 prompt，再依次放每帧图片
-    const contentParts: Array<{ type: string; text?: string; image_url?: { url: string; detail: string } }> = [
-      { type: "text", text: prompt },
-      ...frames.map((frame) => ({
-        type: "image_url",
-        image_url: {
-          url: `data:image/jpeg;base64,${frame}`,
-          detail: "low",
-        },
-      })),
-    ];
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    const combinedSignal = signal
+      ? (AbortSignal as unknown as { any: (signals: AbortSignal[]) => AbortSignal }).any?.([signal, controller.signal]) ?? controller.signal
+      : controller.signal;
 
-    const response = await fetch(
-      `${normalizeBaseUrl(settings.baseUrl)}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${settings.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: settings.imageModel || "gemini-3-pro-image",
-          temperature: 0.3,
-          messages: [
-            {
-              role: "user",
-              content: contentParts,
-            },
-          ],
-        }),
-        signal: combinedSignal,
+    try {
+      const prompt = buildAnalysisPrompt(mode, frames.length);
+
+      const contentParts: Array<{ type: string; text?: string; image_url?: { url: string; detail: string } }> = [
+        { type: "text", text: prompt },
+        ...frames.map((frame) => ({
+          type: "image_url",
+          image_url: {
+            url: `data:image/jpeg;base64,${frame}`,
+            detail: "low",
+          },
+        })),
+      ];
+
+      const response = await fetch(
+        `${normalizeBaseUrl(settings.baseUrl)}/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${settings.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: settings.imageModel || "gpt-4o",
+            temperature: 0.3,
+            messages: [
+              {
+                role: "user",
+                content: contentParts,
+              },
+            ],
+          }),
+          signal: combinedSignal,
+        }
+      );
+
+      const rawText = await response.text();
+
+      if (!response.ok) {
+        const errPayload = safeParseJson(rawText) as { error?: { message?: string } } | null;
+        const errMsg = errPayload?.error?.message || rawText.slice(0, 200) || `请求失败（${response.status}）`;
+        throw new Error(errMsg);
       }
-    );
 
-    const rawText = await response.text();
+      const payload = safeParseJson(rawText) as { choices?: Array<{ message?: { content?: string } }> } | null;
+      const content = payload?.choices?.[0]?.message?.content;
 
-    if (!response.ok) {
-      const errPayload = safeParseJson(rawText) as { error?: { message?: string } } | null;
-      const errMsg = errPayload?.error?.message || rawText.slice(0, 200) || `请求失败（${response.status}）`;
-      throw new Error(errMsg);
+      if (!content) {
+        throw new Error("模型未返回可解析的内容，请重试。");
+      }
+
+      const parsed = safeParseJson(content);
+      if (!parsed) {
+        throw new Error("模型返回的内容无法解析为 JSON，请重试。");
+      }
+
+      return normalizeResult(parsed);
+    } catch (error) {
+      window.clearTimeout(timeoutId);
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error("视频分析已取消。");
+      }
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < MAX_RETRIES) {
+        // 等待后重试（第1次等1s，第2次等2s）
+        await new Promise((resolve) => window.setTimeout(resolve, 1000 * (attempt + 1)));
+        continue;
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
     }
-
-    const payload = safeParseJson(rawText) as { choices?: Array<{ message?: { content?: string } }> } | null;
-    const content = payload?.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error("模型未返回可解析的内容，请重试。");
-    }
-
-    const parsed = safeParseJson(content);
-    if (!parsed) {
-      throw new Error("模型返回的内容无法解析为 JSON，请重试。");
-    }
-
-    return normalizeResult(parsed);
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("视频分析已取消。");
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
   }
+
+  throw lastError;
 }
