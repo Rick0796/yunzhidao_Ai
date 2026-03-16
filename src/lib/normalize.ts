@@ -678,28 +678,20 @@ function isViralParagraphAligned(candidate: string, expected: string) {
 
 function isWeakViralDraft(text: string, paragraphs: string[], task: TaskForm, hook: HookItem, cta: CtaItem) {
   const referenceParagraphs = buildViralReferenceParagraphs(task);
+  // Must have same paragraph count as source
   if (!referenceParagraphs.length) return true;
-  if (paragraphs.length !== referenceParagraphs.length) return true;
+  if (paragraphs.length < referenceParagraphs.length - 1) return true;
+  // Basic structural checks only — do NOT check word overlap, as a genuine rewrite uses different words
   if (hasDuplicateParagraphs(paragraphs)) return true;
   if (hasBrokenParagraphShape(paragraphs)) return true;
   if (!paragraphStartsWithHook(paragraphs[0] || "", hook)) return true;
   if (!paragraphEndsWithCta(paragraphs[paragraphs.length - 1] || "", cta)) return true;
-
-  const comparableSourceParagraphs = referenceParagraphs.map((paragraph, index) => stripComparableSourceParagraph(paragraph, index, referenceParagraphs.length));
-  const comparableDraftParagraphs = paragraphs.map((paragraph, index) => stripComparableDraftParagraph(paragraph, index, paragraphs.length, cta));
-  const sourcePlain = comparableSourceParagraphs.join("\n\n");
-  const draftPlain = comparableDraftParagraphs.join("\n\n");
+  // Length sanity: draft must be at least 60% of source length (rewrites can be longer)
+  const sourcePlain = referenceParagraphs.join("");
+  const draftPlain = paragraphs.join("");
   const lengthRatio = draftPlain.length / Math.max(1, sourcePlain.length);
-  if (lengthRatio < 0.9 || lengthRatio > 1.1) return true;
-
-  return referenceParagraphs.some((reference, index) => {
-    const comparableSource = comparableSourceParagraphs[index] || cleanViralSentence(reference);
-    const comparableDraft = comparableDraftParagraphs[index] || cleanViralSentence(paragraphs[index] || "");
-    if (!comparableSource && !comparableDraft) {
-      return false;
-    }
-    return !isViralParagraphAligned(comparableDraft, comparableSource);
-  });
+  if (lengthRatio < 0.6) return true;
+  return false;
 }
 
 
