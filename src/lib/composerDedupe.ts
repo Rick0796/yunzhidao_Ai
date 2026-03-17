@@ -82,6 +82,10 @@ function extractPresentTerms(text: string, terms: readonly string[]) {
   return terms.filter((term) => normalized.includes(term.toLowerCase()));
 }
 
+function normalizeRewriteBaseline(text: string) {
+  return normalizeText(text).replace(/[\u3002\uff0c\uff1f\uff01!?\uff1b;\u3001,:\uff1a"'\u201c\u201d\u2018\u2019()\uff08\uff09\u3010\u3011\u300a\u300b<>]/g, "");
+}
+
 function getLengthBounds(block: ComposeBlock, beforeLength: number) {
   const tightBlock = ["A", "B", "C", "K", "L"].includes(block.sectionType);
   const ratioMin = tightBlock ? 0.84 : 0.76;
@@ -125,7 +129,19 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
     return {
       accepted: false,
       verdict: "watch",
-      note: "去重结果为空，已保留原文。",
+      note: "\u53bb\u91cd\u7ed3\u679c\u4e3a\u7a7a\uff0c\u5df2\u4fdd\u7559\u539f\u6587\u3002",
+      beforeLength,
+      afterLength,
+      lengthDelta,
+      similarityScore,
+    };
+  }
+
+  if (normalizeRewriteBaseline(before) === normalizeRewriteBaseline(after)) {
+    return {
+      accepted: false,
+      verdict: "watch",
+      note: "\u6539\u5199\u548c\u539f\u6587\u51e0\u4e4e\u4e00\u6837\uff0c\u7b49\u4e8e\u6ca1\u53bb\u91cd\u3002",
       beforeLength,
       afterLength,
       lengthDelta,
@@ -138,7 +154,7 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
     return {
       accepted: false,
       verdict: "watch",
-      note: `字数变化过大，原文约 ${beforeLength} 字，当前约 ${afterLength} 字。`,
+      note: `\u5b57\u6570\u53d8\u5316\u8fc7\u5927\uff0c\u539f\u6587\u7ea6 ${beforeLength} \u5b57\uff0c\u5f53\u524d\u7ea6 ${afterLength} \u5b57\u3002`,
       beforeLength,
       afterLength,
       lengthDelta,
@@ -152,7 +168,7 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
     return {
       accepted: false,
       verdict: "watch",
-      note: `关键数字或硬信息丢了：${missingHardTokens.slice(0, 3).join("、")}。`,
+      note: `\u5173\u952e\u6570\u5b57\u6216\u786c\u4fe1\u606f\u4e22\u4e86\uff1a${missingHardTokens.slice(0, 3).join("\u3001")}\u3002`,
       beforeLength,
       afterLength,
       lengthDelta,
@@ -167,7 +183,7 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
     return {
       accepted: false,
       verdict: "watch",
-      note: `改写里新塞进了业务词：${injectedBusinessTerms.slice(0, 3).join("、")}。`,
+      note: `\u6539\u5199\u91cc\u65b0\u585e\u8fdb\u4e86\u4e1a\u52a1\u8bcd\uff1a${injectedBusinessTerms.slice(0, 3).join("\u3001")}\u3002`,
       beforeLength,
       afterLength,
       lengthDelta,
@@ -181,7 +197,7 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
     return {
       accepted: false,
       verdict: "watch",
-      note: `关键动作或入口丢了：${missingActionTerms.slice(0, 3).join("、")}。`,
+      note: `\u5173\u952e\u52a8\u4f5c\u6216\u5165\u53e3\u4e22\u4e86\uff1a${missingActionTerms.slice(0, 3).join("\u3001")}\u3002`,
       beforeLength,
       afterLength,
       lengthDelta,
@@ -196,7 +212,7 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
     return {
       accepted: false,
       verdict: "watch",
-      note: `句数变化太大，原文约 ${beforeSentenceCount} 句，当前约 ${afterSentenceCount} 句。`,
+      note: `\u53e5\u6570\u53d8\u5316\u592a\u5927\uff0c\u539f\u6587\u7ea6 ${beforeSentenceCount} \u53e5\uff0c\u5f53\u524d\u7ea6 ${afterSentenceCount} \u53e5\u3002`,
       beforeLength,
       afterLength,
       lengthDelta,
@@ -204,11 +220,11 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
     };
   }
 
-  if (/[？?]/.test(before) && !/[？?]/.test(after) && ["A", "B", "C"].includes(block.sectionType)) {
+  if (/[\uff1f?]/.test(before) && !/[\uff1f?]/.test(after) && ["A", "B", "C"].includes(block.sectionType)) {
     return {
       accepted: false,
       verdict: "watch",
-      note: "原文是疑问式抓停，改写后把问感洗掉了。",
+      note: "\u539f\u6587\u662f\u7591\u95ee\u5f0f\u6293\u505c\uff0c\u6539\u5199\u540e\u628a\u95ee\u611f\u6d17\u6389\u4e86\u3002",
       beforeLength,
       afterLength,
       lengthDelta,
@@ -221,7 +237,7 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
     return {
       accepted: false,
       verdict: "watch",
-      note: "改写偏离原文过大，核心爆点或论证方向不够像。",
+      note: "\u6539\u5199\u504f\u79bb\u539f\u6587\u8fc7\u5927\uff0c\u6838\u5fc3\u7206\u70b9\u6216\u8bba\u8bc1\u65b9\u5411\u4e0d\u591f\u50cf\u3002",
       beforeLength,
       afterLength,
       lengthDelta,
@@ -233,7 +249,7 @@ function evaluateRewriteCandidate(block: ComposeBlock, candidate: string): Rewri
   return {
     accepted: true,
     verdict: stable ? "stable" : "watch",
-    note: stable ? "核心爆点、长度感和句式节奏基本保住了。" : "核心点还在，但字数或句式变化稍大，建议对照原文复核。",
+    note: stable ? "\u6838\u5fc3\u7206\u70b9\u3001\u957f\u5ea6\u611f\u548c\u53e5\u5f0f\u8282\u594f\u57fa\u672c\u4fdd\u4f4f\u4e86\u3002" : "\u6838\u5fc3\u70b9\u8fd8\u5728\uff0c\u4f46\u5b57\u6570\u6216\u53e5\u5f0f\u53d8\u5316\u7a0d\u5927\uff0c\u5efa\u8bae\u5bf9\u7167\u539f\u6587\u590d\u6838\u3002",
     beforeLength,
     afterLength,
     lengthDelta,
@@ -404,19 +420,19 @@ async function dedupeSingleBlock(options: {
   guardNote?: string;
 }) {
   const prompt = [
-    "你是短视频文案改写专家。任务是对给定段落进行真正的去重改写——用全新的句式和表达重写，而不是只改几个字。保留核心命题、关键数字和逻辑顺序，但句子结构、用词、语序都要有明显变化。字数保持相近。",
+    "\u4f60\u662f\u77ed\u89c6\u9891\u6587\u6848\u6539\u5199\u4e13\u5bb6\u3002\u4efb\u52a1\u662f\u5bf9\u7ed9\u5b9a\u6bb5\u843d\u8fdb\u884c\u771f\u6b63\u7684\u53bb\u91cd\u6539\u5199\u2014\u2014\u7528\u5168\u65b0\u7684\u53e5\u5f0f\u548c\u8868\u8fbe\u91cd\u5199\uff0c\u800c\u4e0d\u662f\u53ea\u6539\u51e0\u4e2a\u5b57\u3002\u4fdd\u7559\u6838\u5fc3\u547d\u9898\u3001\u5173\u952e\u6570\u5b57\u548c\u903b\u8f91\u987a\u5e8f\uff0c\u4f46\u53e5\u5b50\u7ed3\u6784\u3001\u7528\u8bcd\u3001\u8bed\u5e8f\u90fd\u8981\u6709\u660e\u663e\u53d8\u5316\u3002\u5b57\u6570\u4fdd\u6301\u76f8\u8fd1\u3002",
     "",
-    `主题：${options.theme}`,
-    `板块类型：${options.block.sectionType}`,
+    `\u4e3b\u9898\uff1a${options.theme}`,
+    `\u677f\u5757\u7c7b\u578b\uff1a${options.block.sectionType}`,
     ...buildBlockConstraintLines(options.block),
-    options.guardNote ? `上次改写被打回原因：${options.guardNote}` : "",
-    "改写要求：",
-    "1. 至少60%的句子必须用全新的表达方式重写",
-    "2. 保留原文核心命题、数字、人名、平台名等关键事实",
-    "3. 不能只改连接词或同义词替换，要真正重构句子",
-    "4. 口播感优先，每句12-28字",
-    `原文：
-${options.block.content}`,
+    options.guardNote ? `\u4e0a\u6b21\u6539\u5199\u88ab\u6253\u56de\u539f\u56e0\uff1a${options.guardNote}` : "",
+    "\u6539\u5199\u8981\u6c42\uff1a",
+    "1. \u81f3\u5c1160%\u7684\u53e5\u5b50\u5fc5\u987b\u7528\u5168\u65b0\u7684\u8868\u8fbe\u65b9\u5f0f\u91cd\u5199",
+    "2. \u4fdd\u7559\u539f\u6587\u6838\u5fc3\u547d\u9898\u3001\u6570\u5b57\u3001\u4eba\u540d\u3001\u5e73\u53f0\u540d\u7b49\u5173\u952e\u4e8b\u5b9e",
+    "3. \u4e0d\u80fd\u53ea\u6539\u8fde\u63a5\u8bcd\u6216\u540c\u4e49\u8bcd\u66ff\u6362\uff0c\u8981\u771f\u6b63\u91cd\u6784\u53e5\u5b50",
+    "4. \u5982\u679c\u6539\u5199\u540e\u548c\u539f\u6587\u4e00\u6837\uff0c\u6216\u53ea\u6539\u4e00\u4e24\u4e2a\u5b57\uff0c\u7b97\u5931\u8d25\uff0c\u5fc5\u987b\u7ee7\u7eed\u91cd\u5199",
+    "5. \u53e3\u64ad\u611f\u4f18\u5148\uff0c\u6bcf\u53e512-28\u5b57",
+    `\u539f\u6587\uff1a\n${options.block.content}`,
   ].filter(Boolean).join("\n");
 
   return callTextRewrite(options.baseUrl, options.settings, prompt);
@@ -436,18 +452,6 @@ async function resolveValidatedRewrite(options: {
   let localRewritten = false;
 
   if (!candidate || !audit?.accepted) {
-    const localCandidate = buildLocalRewrite(options.block);
-    if (localCandidate && localCandidate !== originalContent) {
-      const localAudit = evaluateRewriteCandidate(options.block, localCandidate);
-      if (localAudit.accepted) {
-        candidate = localCandidate;
-        audit = localAudit;
-        localRewritten = true;
-      }
-    }
-  }
-
-  if ((!candidate || !audit?.accepted) && !localRewritten) {
     const repairedContent = await dedupeSingleBlock({
       settings: options.settings,
       baseUrl: options.baseUrl,
@@ -459,6 +463,18 @@ async function resolveValidatedRewrite(options: {
       candidate = repairedContent.trim();
       audit = evaluateRewriteCandidate(options.block, candidate);
       repaired = true;
+    }
+  }
+
+  if (!candidate || !audit?.accepted) {
+    const localCandidate = buildLocalRewrite(options.block);
+    if (localCandidate && localCandidate !== originalContent) {
+      const localAudit = evaluateRewriteCandidate(options.block, localCandidate);
+      if (localAudit.accepted) {
+        candidate = localCandidate;
+        audit = localAudit;
+        localRewritten = true;
+      }
     }
   }
 
@@ -538,18 +554,19 @@ export async function dedupeComposeBlocks(options: {
         {
           role: "system",
           content:
-            "你是短视频文案分块去重助手。你的任务是只降低表达重复度，不改变板块类型、核心命题、动作路径和事实信息。A 段必须继续爆，K/L 里的动作和入口不能改，句式和长度尽量贴近原文。对外只输出 JSON。",
+            "\u4f60\u662f\u77ed\u89c6\u9891\u6587\u6848\u5206\u5757\u53bb\u91cd\u52a9\u624b\u3002\u4f60\u7684\u4efb\u52a1\u662f\u53ea\u964d\u4f4e\u8868\u8fbe\u91cd\u590d\u5ea6\uff0c\u4e0d\u6539\u53d8\u677f\u5757\u7c7b\u578b\u3001\u6838\u5fc3\u547d\u9898\u3001\u52a8\u4f5c\u8def\u5f84\u548c\u4e8b\u5b9e\u4fe1\u606f\u3002A \u6bb5\u5fc5\u987b\u7ee7\u7eed\u7206\uff0cK/L \u91cc\u7684\u52a8\u4f5c\u548c\u5165\u53e3\u4e0d\u80fd\u6539\uff0c\u53e5\u5f0f\u548c\u957f\u5ea6\u5c3d\u91cf\u8d34\u8fd1\u539f\u6587\u3002\u539f\u6837\u8fd4\u56de\u3001\u53ea\u6362\u6807\u70b9\u3001\u53ea\u6362\u4e00\u4e24\u4e2a\u8bcd\u90fd\u7b97\u5931\u8d25\uff0c\u5fc5\u987b\u7ee7\u7eed\u91cd\u5199\u3002\u5bf9\u5916\u53ea\u8f93\u51fa JSON\u3002",
         },
         {
           role: "user",
           content: [
-            `主题：${options.theme}`,
-            "请按原顺序重写以下板块。",
-            "要求：",
-            "1. 每个板块分别重写。",
-            "2. 保留原逻辑、原结论、原事实，不要洗软爆点。",
-            "3. 不要随意压字数，不要把一段改成摘要。",
-            '4. 输出格式：{"items":[{"id":"原id","content":"重写后内容"}]}',
+            `\u4e3b\u9898\uff1a${options.theme}`,
+            "\u8bf7\u6309\u539f\u987a\u5e8f\u91cd\u5199\u4ee5\u4e0b\u677f\u5757\u3002",
+            "\u8981\u6c42\uff1a",
+            "1. \u6bcf\u4e2a\u677f\u5757\u5206\u522b\u91cd\u5199\u3002",
+            "2. \u4fdd\u7559\u539f\u903b\u8f91\u3001\u539f\u7ed3\u8bba\u3001\u539f\u4e8b\u5b9e\uff0c\u4e0d\u8981\u6d17\u8f6f\u7206\u70b9\u3002",
+            "3. \u4e0d\u8981\u968f\u610f\u538b\u5b57\u6570\uff0c\u4e0d\u8981\u628a\u4e00\u6bb5\u6539\u6210\u6458\u8981\u3002",
+            "4. \u539f\u6837\u8fd4\u56de\u3001\u53ea\u6539\u6807\u70b9\u3001\u53ea\u6362\u4e00\u4e24\u4e2a\u8bcd\uff0c\u90fd\u7b97\u5931\u8d25\u3002",
+            '5. \u8f93\u51fa\u683c\u5f0f\uff1a{"items":[{"id":"\u539fid","content":"\u91cd\u5199\u540e\u5185\u5bb9"}]}',
             ...targetBlocks.map((block) => buildDedupeRule(block)),
             JSON.stringify({
               items: targetBlocks.map((item) => ({

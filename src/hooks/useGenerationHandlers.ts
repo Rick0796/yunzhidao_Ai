@@ -219,8 +219,8 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
         showNotice(
           "success",
           normalizedResult.message
-            ? `已生成 5 个轻改去重版本。${normalizedResult.message}`
-            : "已生成 5 个轻改去重版本。"
+            ? `已生成 2 个轻改去重版本。${normalizedResult.message}`
+            : "已生成 2 个轻改去重版本。"
         );
       } else {
         showNotice("success", "完整成品已经生成，并写入历史。");

@@ -27,6 +27,8 @@ import { generateJson } from "./llm";
 import { formatSkeletonExecutionLines, getSkeletonMeatStartIndex } from "./skeletons";
 import { analyzeTaskStrategy, formatTaskStrategyLines } from "./taskStrategy";
 
+const VIRAL_DRAFT_VARIANT_COUNT = 2;
+
 function buildEntryWorkflowInstruction(entryType: TaskForm["entryType"]) {
   if (entryType === "hotspot") {
     return "这是热点任务，优先写事件冲击、你的判断和评论互动，不要按参考爆款照抄。";
@@ -462,18 +464,18 @@ function buildViralRewriteInstruction(
   const originalText = (task.sourceText || task.userNote || "").trim();
   const userNote = task.userNote?.trim() || "";
   const meatGuide = meat
-    ? `业务植入方向（仅中后段自然融入，不抢主线）：
+    ? `业务植入方向（仅中后段自然融入，不抢主线）:
 桥接层：${meat.bridgeText || ""}
 服务层：${meat.serviceText || ""}
 行动铺垫：${meat.actionPrepText || ""}`
     : "本次不挂业务，全程不提产品和服务。";
 
   return [
-    "你是一位顶级短视频文案改写专家。请基于原文命题，生成5个高质量的全新版本文案。",
+    `你是一位顶级短视频文案改写专家。请基于原文命题，只生成 ${VIRAL_DRAFT_VARIANT_COUNT} 个高质量的轻改版本文案。`,
     "",
     "【核心任务】",
     "在保留原文段落数量、推进顺序和每段核心命题的基础上，用全新的表达方式重新创作。",
-    "字数必须与原文相近（±15%以内），每个版本都必须有明显的差异化特征。",
+    "字数必须与原文相近（±15%以内），两个版本都要能直接拿去做数字人口播。",
     "原文有几段，每个版本就必须有几段，不能合并、不能删减、不能跳过任何一段。",
     "",
     "【原文（段落结构和推进顺序必须严格保留）】",
@@ -490,23 +492,21 @@ ${userNote}
 ` : "",
     meatGuide,
     "",
-    "【5个版本的差异化方向】",
-    "版本1（换角度）：换一个切入人群或切入视角，但保持同一核心命题",
-    "版本2（换情绪）：升级情绪强度，让语气更紧迫、更有冲击力",
-    "版本3（换结构）：调整中段推进顺序，先讲结果再讲原因，或先讲代价再讲方法",
-    "版本4（换表达）：所有关键句换成完全不同的表达方式，但意思相同",
-    "版本5（升质量）：在上述基础上，综合提升，写出比原文更有爆款潜力的版本",
+    "【2个版本的分工】",
+    "版本1（保真轻改）：尽量贴原文推进，只换表达和句式，优先保留原文爆点和停留感",
+    "版本2（顺滑去重）：在保真基础上做更明显的去重，语气更口语，表达更自然",
     "",
     "【硬性规则】",
-    "1. 每个版本之间相似度不超过30%，严禁5个版本几乎一样",
-    "2. 不能只改动几个词，必须重新组织大部分句子",
+    `1. 只生成 ${VIRAL_DRAFT_VARIANT_COUNT} 个版本，禁止额外补第 3 个版本`,
+    "2. 两个版本不能原样照抄，也不能只改一两个词",
     "3. 保留原文的核心数据、人物、平台、时间节点等关键事实",
     "4. 口播感优先，每句控制在12-28字，超过30字主动断句",
     "5. 不写括号注释、镜头词、标签",
-    "6. script只写纯正文，subtitleScript只写字幕分行",
+    "6. 只输出 title 和 script，script 只写纯正文",
     "7. 严禁使用原文中没有出现过的口头禅或重复词，例如'说到底'、'不少人'、'其实'等词不能在同一版本里出现超过2次",
     "8. 原文中有几个列举项（如第一、第二、第三、第四），仿写中必须保留相同数量的列举项，不能丢失任何一项",
-    "9. 每段改写后，检查：原文这段讲了什么？仿写这段有没有覆盖同样的内容？如果没有，重写",
+    "9. 如果某段改写后和原文几乎一样，继续重写，直到表达明显不同但意思不变",
+    "10. 每段改写后，检查：原文这段讲了什么？仿写这段有没有覆盖同样的内容？如果没有，重写",
   ].filter(Boolean).join("\n");
 }
 
@@ -520,8 +520,10 @@ export async function runDraftGeneration(
   meat: MeatItem | null,
   cta: CtaItem
 ): Promise<GenerationSource<{ items: DraftItem[] }>> {
-  const fallback = { items: buildMockDrafts(task, profile, hook, skeleton, meat, cta) };
   const isViral = task.entryType === "viral";
+  const fallbackItems = buildMockDrafts(task, profile, hook, skeleton, meat, cta);
+  const preferredViralFallbacks = [fallbackItems[0], fallbackItems[3] ?? fallbackItems[1]].filter(Boolean);
+  const fallback = { items: isViral ? preferredViralFallbacks.slice(0, VIRAL_DRAFT_VARIANT_COUNT) : fallbackItems };
 
   if (isViral) {
     return generateJson({
@@ -530,22 +532,14 @@ export async function runDraftGeneration(
       task,
       fallback,
       model: settings.batchModel || settings.mainModel,
-      maxTokens: 16000,
+      maxTokens: 8000,
       instruction: buildViralRewriteInstruction(task, hook, meat, cta),
       schemaHint: JSON.stringify(
         {
           items: [
             {
-              id: "string",
-              versionName: "closest / synonym / smoother / stronger-dedupe / stronger-tone",
               title: "string",
-              coverLine: "string",
               script: "string",
-              subtitleScript: "string",
-              selectedHookId: hook.id,
-              selectedSkeletonId: skeleton.id,
-              selectedMeatId: meat?.id ?? null,
-              selectedCtaId: cta.id,
               platformFit: "视频号优先"
             }
           ]

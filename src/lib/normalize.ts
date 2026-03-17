@@ -958,8 +958,8 @@ export function normalizeDraftResults(
 ): NormalizedDraftResults {
   const fallback = buildMockDrafts(task, profile, hook, skeleton, meat, cta);
   const desiredCount = task.entryType === "viral" ? Math.max(4, Math.min(skeleton.steps.length, 8)) : Math.max(4, Math.min(skeleton.steps.length + 1, 6));
-
-  const normalizedFallback = fallback.map((item) => {
+  const maxDraftVariants = task.entryType === "viral" ? 2 : 5;
+  const allNormalizedFallback = fallback.map((item) => {
     const normalized = normalizeDraftScriptContent(item.script || "", skeleton, hook, cta, desiredCount, task);
     const nextScript = normalized.script || (task.entryType === "viral" ? item.script : [hook.text, cta.text].join("\n\n"));
     return {
@@ -973,9 +973,11 @@ export function normalizeDraftResults(
       selectedCtaId: cta.id
     };
   });
+  const preferredViralFallbacks = [allNormalizedFallback[0], allNormalizedFallback[3] ?? allNormalizedFallback[1]].filter(Boolean);
+  const normalizedFallback = (task.entryType === "viral" ? preferredViralFallbacks : allNormalizedFallback).slice(0, maxDraftVariants);
 
   let usedFallbackCount = 0;
-  const sourceItems = items.length > 0 ? items.slice(0, 5) : normalizedFallback;
+  const sourceItems = items.length > 0 ? items.slice(0, maxDraftVariants) : normalizedFallback;
   if (items.length === 0) {
     usedFallbackCount = normalizedFallback.length;
   }
@@ -1015,14 +1017,34 @@ export function normalizeDraftResults(
 
   const merged = [...cleaned];
   for (const candidate of normalizedFallback) {
-    if (merged.length >= 5) break;
+    if (merged.length >= maxDraftVariants) break;
     if (!merged.some((item) => item.versionName === candidate.versionName)) {
       merged.push(candidate);
       usedFallbackCount += 1;
     }
   }
 
-  const nextItems = merged.slice(0, 5);
+  const nextItems = task.entryType === "viral"
+    ? (() => {
+        const uniqueByScript: DraftItem[] = [];
+        const seenScripts = new Set<string>();
+        for (const item of merged) {
+          if (!seenScripts.has(item.script)) {
+            uniqueByScript.push(item);
+            seenScripts.add(item.script);
+          }
+        }
+        for (const candidate of allNormalizedFallback) {
+          if (uniqueByScript.length >= maxDraftVariants) break;
+          if (!seenScripts.has(candidate.script)) {
+            uniqueByScript.push(candidate);
+            seenScripts.add(candidate.script);
+            usedFallbackCount += 1;
+          }
+        }
+        return uniqueByScript.slice(0, maxDraftVariants);
+      })()
+    : merged.slice(0, maxDraftVariants);
   return {
     items: nextItems,
     usedFallbackCount,
