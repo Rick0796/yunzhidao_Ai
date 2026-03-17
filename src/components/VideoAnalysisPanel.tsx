@@ -13,7 +13,7 @@ interface VideoAnalysisPanelProps {
 
 type PanelState = "idle" | "ready" | "analyzing" | "result" | "error";
 
-const FRAME_COUNTS: Record<VideoAnalysisMode, number> = { FAST: 5, DEEP: 10 };
+const FRAME_COUNTS: Record<VideoAnalysisMode, number> = { FAST: 4, DEEP: 8 };
 
 const STRUCTURE_ITEMS: Array<{ key: keyof VideoAnalysisResult["videoStructure"]; label: string; num: number }> = [
   { key: "coreProposition", label: "核心命题", num: 1 },

@@ -887,17 +887,16 @@ function App() {
                   <FieldLabel text="API Base URL" />
                   <Input value={settings.baseUrl} onChange={(value) => updateSettingsField("baseUrl", value)} placeholder="/api" />
                 </div>
-                <div>
-                  <FieldLabel text="API Key" />
-                  <Input value={settings.apiKey} onChange={(value) => updateSettingsField("apiKey", value)} placeholder="留空则依赖服务端环境变量" />
+                <div className="md:col-span-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm leading-7 text-slate-300">
+                  API Key 现在统一由后端托管，这里不再从浏览器直接持有或发送密钥。前端只保留代理地址和模型名，避免密钥泄露，也避免不同功能各走一套模型链路。
                 </div>
                 <div>
-                  <FieldLabel text="模型名" />
-                  <Input value={settings.mainModel} onChange={(value) => updateSettingsField("mainModel", value)} placeholder="gemini-3-flash" />
+                  <FieldLabel text="模型名（后端默认）" />
+                  <Input value={settings.mainModel} onChange={(value) => updateSettingsField("mainModel", value)} placeholder="gemini-2.0-flash" />
                 </div>
                 <div>
                   <FieldLabel text="视觉模型名（视频分析）" />
-                  <Input value={settings.imageModel} onChange={(value) => updateSettingsField("imageModel", value)} placeholder="gemini-3-pro-image" />
+                  <Input value={settings.imageModel} onChange={(value) => updateSettingsField("imageModel", value)} placeholder="gemini-2.0-flash" />
                 </div>
               </div>
             </div>

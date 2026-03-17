@@ -29,7 +29,7 @@ export function normalizeApiSettings(value: Partial<ApiSettings> | null | undefi
     ...(value || {}),
     useLiveApi: typeof value?.useLiveApi === "boolean" ? value.useLiveApi : defaultApiSettings.useLiveApi,
     baseUrl: typeof value?.baseUrl === "string" && value.baseUrl.trim() ? value.baseUrl : defaultApiSettings.baseUrl,
-    apiKey: typeof value?.apiKey === "string" && value.apiKey.trim() ? value.apiKey : defaultApiSettings.apiKey,
+    apiKey: "",
     mainModel: typeof value?.mainModel === "string" && value.mainModel.trim() ? value.mainModel : defaultApiSettings.mainModel,
     batchModel: typeof value?.batchModel === "string" && value.batchModel.trim() ? value.batchModel : defaultApiSettings.batchModel,
     polishModel: typeof value?.polishModel === "string" && value.polishModel.trim() ? value.polishModel : defaultApiSettings.polishModel,

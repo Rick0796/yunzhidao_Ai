@@ -562,9 +562,9 @@ def read_config() -> dict[str, Any]:
         or {}
     )
 
-    base_url = env_text("UPSTREAM_BASE_URL", "OPENAI_BASE_URL") or clean_config_text(config.get("baseUrl", "")).rstrip("/")
-    api_key = env_text("UPSTREAM_API_KEY", "OPENAI_API_KEY") or clean_config_text(config.get("apiKey", ""))
-    default_model = env_text("UPSTREAM_DEFAULT_MODEL", "OPENAI_MODEL") or clean_config_text(config.get("defaultModel", "gemini-3-flash")) or "gemini-3-flash"
+    base_url = env_text("GEMINI_BASE_URL", "UPSTREAM_BASE_URL", "OPENAI_BASE_URL") or clean_config_text(config.get("baseUrl", "https://generativelanguage.googleapis.com/v1beta/openai/")).rstrip("/")
+    api_key = env_text("GEMINI_API_KEY", "UPSTREAM_API_KEY", "OPENAI_API_KEY") or clean_config_text(config.get("apiKey", ""))
+    default_model = env_text("GEMINI_MODEL", "UPSTREAM_DEFAULT_MODEL", "OPENAI_MODEL") or clean_config_text(config.get("defaultModel", "gemini-2.0-flash")) or "gemini-2.0-flash"
     prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
     port = env_int("PORT") or to_int(config.get("port", 8788), 8788)
     retries = env_int("API_RETRIES") or to_int(config.get("retries", 2), 2)
@@ -3508,13 +3508,16 @@ async def analyze_video(request: Request) -> JSONResponse:
         raise HTTPException(status_code=500, detail="后端未配置 API Key 或 Base URL")
 
     body = await read_request_json(request)
-    frames = body.get("frames", [])  # list of base64 JPEG strings
+    frames = [str(frame).strip() for frame in body.get("frames", []) if str(frame).strip()]  # list of base64 JPEG strings
     mode = str(body.get("mode", "FAST"))
     image_model = str(body.get("model") or CONFIG["defaultModel"])
     is_deep = mode == "DEEP"
 
     if not frames:
         raise HTTPException(status_code=400, detail="未收到视频帧数据")
+
+    max_frames = 8 if is_deep else 4
+    frames = frames[:max_frames]
 
     deep_part = (
         "\n额外要求（深度模式）：\n1. 必须返回 5-8 个 timestamps（time格式MM:SS, seconds数字, description描述）。\n2. 对视频结构给出完整营销拆解。"
@@ -3549,8 +3552,8 @@ async def analyze_video(request: Request) -> JSONResponse:
     upstream_url = f"{CONFIG['baseUrl']}/chat/completions"
     request_body = {
         "model": image_model,
-        "temperature": 0.3,
-        "max_tokens": 4096,
+        "temperature": 0.2,
+        "max_tokens": 3400 if is_deep else 2400,
         "messages": [{"role": "user", "content": content_parts}],
     }
 

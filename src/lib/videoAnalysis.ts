@@ -113,7 +113,7 @@ export async function analyzeVideoFrames(
   signal?: AbortSignal
 ): Promise<VideoAnalysisResult> {
   if (!settings.useLiveApi) {
-    throw new Error("未开启实时 API，无法进行视频分析。请在设置中开启实时 API 并配置 API Key。");
+    throw new Error("未开启实时 API，无法进行视频分析。请先在设置中开启实时 API。");
   }
 
   if (frames.length === 0) {
@@ -134,13 +134,13 @@ export async function analyzeVideoFrames(
 
     try {
       // 优先走后端端点，服务端负责 JSON 解析和归一化
-      const response = await fetch("/api/analyze-video", {
+      const response = await fetch(`${normalizeBaseUrl(settings.baseUrl || "/api")}/analyze-video`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           frames,
           mode,
-          model: settings.imageModel || "gpt-4o",
+          model: settings.imageModel || "gemini-2.0-flash",
         }),
         signal: combinedSignal,
       });
@@ -188,8 +188,8 @@ export async function generateSoraPrompts(
   count: number,
   signal?: AbortSignal
 ): Promise<SoraPrompt[]> {
-  if (!settings.useLiveApi || !settings.apiKey) {
-    throw new Error("请开启实时 API 并配置 API Key。");
+  if (!settings.useLiveApi) {
+    throw new Error("请先开启实时 API。");
   }
 
   const promptLines = [
@@ -227,13 +227,13 @@ export async function generateSoraPrompts(
     })),
   ];
 
-  const response = await fetch(`${normalizeBaseUrl(settings.baseUrl)}/chat/completions`, {
+  const response = await fetch(`${normalizeBaseUrl(settings.baseUrl || "/api")}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: settings.imageModel || "gpt-4o",
+      model: settings.imageModel || "gemini-2.0-flash",
       temperature: 0.8,
-      max_tokens: 6000,
+      max_tokens: 3600,
       messages: [{ role: "user", content: contentParts }],
     }),
     signal,
@@ -289,7 +289,7 @@ export async function generateViralCopies(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       script,
-      model: settings.mainModel || "gemini-3-flash",
+      model: settings.mainModel || "gemini-2.0-flash",
     }),
     signal,
   });

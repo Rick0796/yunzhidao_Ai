@@ -55,7 +55,7 @@ function normalizeRewriteItems(parsed: unknown): Array<{ id: string; content: st
 }
 
 function settingsModel(settings: ApiSettings) {
-  return settings.mainModel || settings.polishModel || "gemini-3-flash";
+  return settings.mainModel || settings.polishModel || "gemini-2.0-flash";
 }
 
 function countSentences(text: string) {
@@ -303,7 +303,6 @@ async function callChatCompletion(baseUrl: string, settings: ApiSettings, body: 
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {}),
     },
     body: JSON.stringify(body),
   });

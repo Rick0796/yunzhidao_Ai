@@ -173,7 +173,6 @@ export async function generateJson<T>({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${settings.apiKey}`,
         "X-Prompt-Version": "copy-workbench-v2026-03-11",
         "X-Task-Entry": task.entryType,
         "X-Request-Id": `${Date.now()}-${randomSeed}`

@@ -47,16 +47,16 @@ async function readConfig() {
     const parsed = JSON.parse(raw.replace(/^\uFEFF/, ""));
     return {
       port: parsed.port || fallback.port || 8787,
-      baseUrl: (parsed.baseUrl || fallback.baseUrl || "").replace(/\/+$/, ""),
+      baseUrl: (parsed.baseUrl || fallback.baseUrl || "https://generativelanguage.googleapis.com/v1beta/openai/").replace(/\/+$/, ""),
       apiKey: parsed.apiKey || "",
-      defaultModel: parsed.defaultModel || fallback.defaultModel || "gemini-3-flash"
+      defaultModel: parsed.defaultModel || fallback.defaultModel || "gemini-2.0-flash"
     };
   } catch {
     return {
       port: Number(process.env.PORT) || fallback.port || 8787,
-      baseUrl: (process.env.LLM_BASE_URL || fallback.baseUrl || "").replace(/\/+$/, ""),
-      apiKey: process.env.LLM_API_KEY || "",
-      defaultModel: process.env.LLM_MODEL || fallback.defaultModel || "gemini-3-flash"
+      baseUrl: (process.env.GEMINI_BASE_URL || process.env.LLM_BASE_URL || fallback.baseUrl || "https://generativelanguage.googleapis.com/v1beta/openai/").replace(/\/+$/, ""),
+      apiKey: process.env.GEMINI_API_KEY || process.env.LLM_API_KEY || "",
+      defaultModel: process.env.GEMINI_MODEL || process.env.LLM_MODEL || fallback.defaultModel || "gemini-2.0-flash"
     };
   }
 }

@@ -139,17 +139,20 @@ def load_model_config() -> ModelConfig:
     load_env_file()
     config = _load_project_config()
     base_url = (
-        _clean_text(os.getenv("UPSTREAM_BASE_URL"))
+        _clean_text(os.getenv("GEMINI_BASE_URL"))
+        or _clean_text(os.getenv("UPSTREAM_BASE_URL"))
         or _clean_text(os.getenv("OPENAI_BASE_URL"))
         or _clean_text(config.get("baseUrl"))
     ).rstrip("/")
     api_key = (
-        _clean_text(os.getenv("UPSTREAM_API_KEY"))
+        _clean_text(os.getenv("GEMINI_API_KEY"))
+        or _clean_text(os.getenv("UPSTREAM_API_KEY"))
         or _clean_text(os.getenv("OPENAI_API_KEY"))
         or _clean_text(config.get("apiKey"))
     )
     model = (
-        _clean_text(os.getenv("UPSTREAM_DEFAULT_MODEL"))
+        _clean_text(os.getenv("GEMINI_MODEL"))
+        or _clean_text(os.getenv("UPSTREAM_DEFAULT_MODEL"))
         or _clean_text(os.getenv("OPENAI_MODEL"))
         or _clean_text(config.get("defaultModel"))
         or DEFAULT_MODEL
@@ -184,14 +187,14 @@ def validate_bot_config(config: BotConfig) -> BotConfig:
 def validate_model_config(config: ModelConfig) -> ModelConfig:
     errors: list[str] = []
     if not config.base_url:
-        errors.append("Missing model base URL; check UPSTREAM_BASE_URL / OPENAI_BASE_URL / config.local.json.")
+        errors.append("Missing model base URL; check GEMINI_BASE_URL / UPSTREAM_BASE_URL / OPENAI_BASE_URL / config.local.json.")
     elif not config.base_url.startswith(("http://", "https://")):
         errors.append("Model base URL must start with http:// or https://.")
     if not config.api_key:
-        errors.append("Missing model API Key; check UPSTREAM_API_KEY / OPENAI_API_KEY / config.local.json.")
+        errors.append("Missing model API Key; check GEMINI_API_KEY / UPSTREAM_API_KEY / OPENAI_API_KEY / config.local.json.")
     normalized_model = config.model.strip().lower()
     if not normalized_model:
-        errors.append("Missing default model name; check UPSTREAM_DEFAULT_MODEL / OPENAI_MODEL / config.local.json.")
+        errors.append("Missing default model name; check GEMINI_MODEL / UPSTREAM_DEFAULT_MODEL / OPENAI_MODEL / config.local.json.")
     elif normalized_model in INVALID_MODEL_NAMES:
         errors.append(f"Unsupported default model name: {config.model}.")
     if config.timeout_seconds < 30:

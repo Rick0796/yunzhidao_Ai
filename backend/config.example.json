@@ -1,8 +1,8 @@
 {
   "port": 8787,
-  "baseUrl": "https://llm.xiaochisaas.com/v1",
-  "apiKey": "sk-请替换成你的大模型密钥",
-  "defaultModel": "gemini-3-flash",
+  "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
+  "apiKey": "AIza...replace-with-your-gemini-api-key",
+  "defaultModel": "gemini-2.0-flash",
   "promptVersion": "copy-workbench-v2026-03-09",
   "retries": 2
 }

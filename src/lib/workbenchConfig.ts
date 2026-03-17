@@ -196,12 +196,12 @@ export function displayCtaMode(mode: CtaMode): string {
 
 export const defaultApiSettings: ApiSettings = {
   useLiveApi: true,
-  baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
-  apiKey: "AIzaSyD54sdEwzoUB5JIN6n95b8SvbIjNyuyibE",
-  mainModel: "gemini-2.0-flash-exp",
-  batchModel: "gemini-2.0-flash-exp",
-  polishModel: "gemini-2.0-flash-exp",
-  imageModel: "gemini-2.0-flash-exp",
+  baseUrl: "/api",
+  apiKey: "",
+  mainModel: "gemini-2.0-flash",
+  batchModel: "gemini-2.0-flash",
+  polishModel: "gemini-2.0-flash",
+  imageModel: "gemini-2.0-flash",
   requestTimeoutMs: 180000
 };
 
