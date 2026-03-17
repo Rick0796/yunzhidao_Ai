@@ -955,7 +955,7 @@ function App() {
                   <Toggle checked={settings.useLiveApi} onChange={(checked) => updateSettingsField("useLiveApi", checked)} label={settings.useLiveApi ? "已开启" : "使用本地兜底"} />
                 </div>
                 <div>
-                  <FieldLabel text="API Base URL" />
+                  <FieldLabel text="后端代理地址" />
                   <Input value={settings.baseUrl} onChange={(value) => updateSettingsField("baseUrl", value)} placeholder="/api" />
                 </div>
                 <div className="md:col-span-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm leading-7 text-slate-300">

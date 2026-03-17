@@ -106,6 +106,7 @@ export async function runDecompose(
     fallback,
     instruction:
       `请拆解这条素材，先判断核心命题、开头类型、核心冲突，再告诉我原文前三秒为什么不够炸。重点按"注意力警报"来分析皮：前4到8个字有没有先打锚点，有没有先下判决，有没有具体后果，有没有让人想问为什么。然后给出更炸的新皮、合适骨架、是否挂肉、怎么收口。风险提示务必具体。${buildEntryWorkflowInstruction(task.entryType)}`,
+    maxTokens: task.entryType === "viral" ? 7000 : 6000,
     schemaHint: JSON.stringify(
       {
         taskName: "string",
@@ -298,6 +299,7 @@ export async function runSkeletonGeneration(
       "",
       buildEntryWorkflowInstruction(task.entryType)
     ].join("\n"),
+    maxTokens: task.entryType === "viral" ? 7000 : 6000,
     schemaHint: JSON.stringify(
       {
         items: [
