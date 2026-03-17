@@ -39,6 +39,7 @@ function fallbackCopy(text: string) {
 export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNotice }: VideoAnalysisPanelProps) {
   const [panelState, setPanelState] = useState<PanelState>("idle");
   const [file, setFile] = useState<File | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [mode, setMode] = useState<VideoAnalysisMode>("FAST");
   const [stage, setStage] = useState("");
   const [progress, setProgress] = useState(0);
@@ -54,19 +55,24 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
 
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const handleFileSelect = useCallback((selectedFile: File) => {
     if (!selectedFile.type.startsWith("video/")) {
       showNotice("warning", "请上传视频文件（MP4、MOV、AVI 等）。");
       return;
     }
+    // 释放之前的 URL
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    const newUrl = URL.createObjectURL(selectedFile);
+    setVideoUrl(newUrl);
     setFile(selectedFile);
     setPanelState("ready");
     setResult(null);
     setErrorMsg("");
     setSoraPrompts([]);
     setViralCopies([]);
-  }, [showNotice]);
+  }, [showNotice, videoUrl]);
 
   const handleDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -469,12 +475,32 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
                 <span className="h-3.5 w-1 rounded-full bg-[#8B5CF6]" />
                 时间轴节点
               </p>
+              {videoUrl ? (
+                <div className="overflow-hidden rounded-xl border border-white/10">
+                  <video
+                    ref={videoRef}
+                    src={videoUrl}
+                    controls
+                    className="w-full"
+                    style={{ maxHeight: "300px" }}
+                  />
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 {result.timestamps.map((item, index) => (
-                  <div key={index} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs">
+                  <button
+                    key={index}
+                    onClick={() => {
+                      if (videoRef.current && item.seconds > 0) {
+                        videoRef.current.currentTime = item.seconds;
+                        videoRef.current.play();
+                      }
+                    }}
+                    className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs transition-all hover:border-[#00D4FF]/50 hover:bg-[#00D4FF]/10"
+                  >
                     <span className="font-mono text-[#00D4FF]">{item.time}</span>
                     <span className="text-slate-400">{item.description}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

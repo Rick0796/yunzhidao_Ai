@@ -356,13 +356,34 @@ def generate_sora_prompts_with_gemini(
         timeout_seconds=timeout_seconds,
     )
 
-    prompt = f"""你是一名 AIGC 导演，请基于视频内容输出 {max(1, count)} 条可直接用于生成数字人短视频的提示词。
+    prompt = f"""你是一名专业的 AIGC 数字人视频导演，请基于视频内容输出 {max(1, count)} 条高质量的数字人短视频提示词。
+
+每条提示词必须包含以下 8 个模块，按顺序输出：
+
+1. [规格参数]：画面比例（9:16竖屏）、时长、分辨率（4K超清）、景深效果、画面质感细节（皮肤纹理、服装材质等）。
+
+2. [风格设定]：整体视觉风格、色调搭配（冷暖对比）、氛围营造、专业感与信任背书。
+
+3. [主角设定]：年龄、性别、面部特征、发型、眼神气质、心理状态、穿着打扮（具体到品牌风格、颜色、配饰如领夹麦克风等）。
+
+4. [场景设定]：具体场景描述（如豪车内饰、办公室、户外等）、环境细节（座椅材质、灯光效果、背景元素）、氛围渲染。
+
+5. [分镜头脚本]：3-4 个镜头切换，包含景别（特写/中景/远景）、机位角度、镜头运动、画面过渡。
+
+6. [表演要求]：口播节奏、手势幅度、眼神方向、情绪表达、互动感营造。
+
+7. [口播内容]：完整的口播文案，保持原视频的核心信息和情感张力。
+
+8. [负面限制]：明确禁止的元素（如卡通感、科幻背景、文字乱码、手指异常、神态呆滞、字幕生成等）。
+
 输出 JSON 数组，每项格式为：
-{{"title":"提示词标题","fullPrompt":"完整提示词"}}
+{{"title":"提示词标题（简短概括主题）","fullPrompt":"完整提示词（包含上述8个模块，每个模块用方括号标注）"}}
+
 要求：
 1. 仅使用简体中文。
-2. 明确镜头、人物动作、场景、光线、节奏、画面比例。
-3. 不要输出 markdown。
+2. 提示词总长度 400 字以上，确保细节丰富。
+3. 不要输出 markdown，只输出纯 JSON。
+4. 从视频中提取真实的口播内容，不要编造。
 {f"参考视频摘要：{analysis_summary}" if analysis_summary else ""}"""
 
     parsed = _generate_content(
@@ -372,7 +393,7 @@ def generate_sora_prompts_with_gemini(
             {"file_data": {"mime_type": reference.mime_type, "file_uri": reference.file_uri}},
             {"text": prompt},
         ],
-        max_output_tokens=4096,
+        max_output_tokens=8192,
     )
 
     items = parsed if isinstance(parsed, list) else [parsed]
