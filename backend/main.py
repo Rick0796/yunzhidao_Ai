@@ -563,16 +563,20 @@ def read_config() -> dict[str, Any]:
         or {}
     )
 
-    base_url = env_text("GEMINI_BASE_URL", "UPSTREAM_BASE_URL", "OPENAI_BASE_URL") or clean_config_text(config.get("baseUrl", "https://generativelanguage.googleapis.com/v1beta/openai/")).rstrip("/")
-    api_key = env_text("GEMINI_API_KEY", "UPSTREAM_API_KEY", "OPENAI_API_KEY") or clean_config_text(config.get("apiKey", ""))
-    default_model = env_text("GEMINI_MODEL", "UPSTREAM_DEFAULT_MODEL", "OPENAI_MODEL") or clean_config_text(config.get("defaultModel", "gemini-2.0-flash")) or "gemini-2.0-flash"
+    # 优先使用 GEMINI_API_KEY 环境变量
+    api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("API_KEY") or "").strip()
+    if not api_key:
+        api_key = clean_config_text(config.get("apiKey", ""))
+
+    base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+    default_model = env_text("GEMINI_MODEL") or clean_config_text(config.get("defaultModel", "gemini-2.5-flash")) or "gemini-2.5-flash"
     prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
     port = env_int("PORT") or to_int(config.get("port", 8788), 8788)
     retries = env_int("API_RETRIES") or to_int(config.get("retries", 2), 2)
     timeout_seconds = env_int("API_TIMEOUT_SECONDS") or to_int(config.get("timeoutSeconds", 110), 110)
 
     return {
-        "baseUrl": base_url.rstrip("/"),
+        "baseUrl": base_url,
         "apiKey": api_key,
         "defaultModel": default_model,
         "port": port,

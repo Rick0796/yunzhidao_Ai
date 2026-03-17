@@ -198,10 +198,10 @@ export const defaultApiSettings: ApiSettings = {
   useLiveApi: true,
   baseUrl: "/api",
   apiKey: "",
-  mainModel: "gemini-2.0-flash",
-  batchModel: "gemini-2.0-flash",
-  polishModel: "gemini-2.0-flash",
-  imageModel: "gemini-2.0-flash",
+  mainModel: "gemini-2.5-flash",
+  batchModel: "gemini-2.5-flash",
+  polishModel: "gemini-2.5-flash",
+  imageModel: "gemini-2.5-flash",
   requestTimeoutMs: 180000
 };
 

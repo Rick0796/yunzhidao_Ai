@@ -1,8 +1,8 @@
 {
   "port": 8787,
-  "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
-  "apiKey": "AIza...replace-with-your-gemini-api-key",
-  "defaultModel": "gemini-2.0-flash",
+  "defaultModel": "gemini-2.5-flash",
   "promptVersion": "copy-workbench-v2026-03-09",
-  "retries": 2
+  "retries": 2,
+  "timeoutSeconds": 120,
+  "_comment": "API Key 请通过环境变量 GEMINI_API_KEY 设置，不要写在这里"
 }
