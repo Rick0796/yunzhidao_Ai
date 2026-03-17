@@ -3,6 +3,7 @@
 """???????"""
 
 import backend.main as backend_main
+from backend.gemini_video import _gemini_root_and_version
 from backend.main import CONFIG
 
 
@@ -92,3 +93,13 @@ def test_generate_sora_prompts_reuses_existing_file_uri(client, monkeypatch) -> 
     assert captured["analysis_summary"] == "??"
     assert captured["count"] == 3
     assert captured["file_stream"] is None
+
+
+def test_gemini_root_resolution_falls_back_to_official_host() -> None:
+    root, version = _gemini_root_and_version("/v1")
+    assert root == "https://generativelanguage.googleapis.com"
+    assert version == "v1beta"
+
+    root, version = _gemini_root_and_version("https://llm.xiaochisaas.com/v1")
+    assert root == "https://generativelanguage.googleapis.com"
+    assert version == "v1beta"

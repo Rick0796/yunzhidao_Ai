@@ -23,7 +23,15 @@ class GeminiVideoReference:
 
 
 def _gemini_root_and_version(base_url: str) -> tuple[str, str]:
-    normalized = (base_url or "").rstrip("/")
+    normalized = (base_url or "").strip().rstrip("/")
+    official_root = "https://generativelanguage.googleapis.com"
+
+    if not normalized.startswith(("http://", "https://")):
+        return official_root, "v1beta"
+
+    if "generativelanguage.googleapis.com" not in normalized:
+        return official_root, "v1beta"
+
     if "/v1beta/" in normalized:
         root, _ = normalized.split("/v1beta/", 1)
         return root, "v1beta"
