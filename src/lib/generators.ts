@@ -530,7 +530,7 @@ export async function runDraftGeneration(
       task,
       fallback,
       model: settings.batchModel || settings.mainModel,
-      maxTokens: 8000,
+      maxTokens: 16000,
       instruction: buildViralRewriteInstruction(task, hook, meat, cta),
       schemaHint: JSON.stringify(
         {
