@@ -39,7 +39,7 @@ except ImportError as exc:  # pragma: no cover
 
 from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
 from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
-from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini
+from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini, generate_json_with_gemini
 
 RUNTIME_PATHS = resolve_runtime_paths()
 ROOT_DIR = RUNTIME_PATHS.root_dir
@@ -2356,6 +2356,35 @@ async def upsert_library_script(request: Request) -> dict[str, Any]:
         "document": document,
         "text": render_script_document_text(document),
     }
+
+
+@app.post("/api/generate-json")
+async def generate_json_endpoint(request: Request) -> JSONResponse:
+    """Direct Gemini API call with JSON output - bypasses OpenAI compatibility layer."""
+    if not CONFIG["apiKey"]:
+        raise HTTPException(status_code=500, detail="未配置 GEMINI_API_KEY 环境变量")
+
+    body = await read_request_json(request)
+    prompt = body.get("prompt", "")
+    model = body.get("model", CONFIG["defaultModel"])
+    max_tokens = body.get("max_tokens", 4096)
+
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt 不能为空")
+
+    try:
+        result = await asyncio.to_thread(
+            generate_json_with_gemini,
+            prompt,
+            api_key=CONFIG["apiKey"],
+            model=model,
+            max_output_tokens=max_tokens,
+        )
+        return JSONResponse(content={"result": result})
+    except GeminiVideoError as exc:
+        return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
+    except Exception as exc:
+        return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 
 
 @app.post("/api/chat/completions")

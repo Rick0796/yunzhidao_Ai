@@ -1,7 +1,6 @@
 ﻿import { ApiSettings, BaseProfile, GenerationSource, TaskForm } from "../types";
 import { buildHookPromptRuleLines } from "./hookEngine";
 import { normalizeBaseUrl } from "./http";
-import { extractJsonBlock, normalizeMessageContent } from "./modelResponse";
 import { displayBusinessMode, displayCtaMode } from "./workbenchConfig";
 import { analyzeTaskStrategy, formatTaskStrategyLines } from "./taskStrategy";
 
@@ -169,7 +168,21 @@ export async function generateJson<T>({
   try {
     const randomSeed = Math.random().toString(36).substring(7);
 
-    const response = await fetch(`${normalizeBaseUrl(settings.baseUrl || "/api")}/chat/completions`, {
+    // 构建完整的 prompt
+    const fullPrompt = [
+      buildSystemPrompt(profile),
+      "",
+      buildTaskContext(task),
+      "",
+      instruction,
+      "",
+      `[生成批次: ${randomSeed}]`,
+      "只返回合法 JSON，不要 markdown，不要解释，不要多余文字。",
+      `输出结构：${schemaHint}`
+    ].join("\n");
+
+    // 使用新的 /api/generate-json 端点，直接调用 Gemini 原生 API
+    const response = await fetch(`${normalizeBaseUrl(settings.baseUrl || "/api")}/generate-json`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -178,28 +191,9 @@ export async function generateJson<T>({
         "X-Request-Id": `${Date.now()}-${randomSeed}`
       },
       body: JSON.stringify({
+        prompt: fullPrompt,
         model: model || settings.mainModel,
-        temperature: 0.75,
-        top_p: 0.9,
-        max_tokens: maxTokens ?? 4000,
-        messages: [
-          {
-            role: "system",
-            content: buildSystemPrompt(profile)
-          },
-          {
-            role: "user",
-            content: [
-              buildTaskContext(task),
-              "",
-              instruction,
-              "",
-              `[生成批次: ${randomSeed}]`,
-              "只返回合法 JSON，不要 markdown，不要解释，不要多余文字。",
-              `输出结构：${schemaHint}`
-            ].join("\n")
-          }
-        ]
+        max_tokens: maxTokens ?? 4000
       }),
       signal: controller.signal
     });
@@ -210,18 +204,13 @@ export async function generateJson<T>({
     }
 
     const parsed = JSON.parse(raw);
-    const content = normalizeMessageContent(parsed?.choices?.[0]?.message?.content);
-
-    if (!content) {
-      throw new Error("模型未返回可解析文本内容。");
+    if (parsed.error) {
+      throw new Error(parsed.error.message || "API 返回错误");
     }
 
-    let data: T;
-    try {
-      data = JSON.parse(content) as T;
-    } catch {
-      const jsonText = extractJsonBlock(content);
-      data = JSON.parse(jsonText) as T;
+    const data = parsed.result as T;
+    if (!data) {
+      throw new Error("API 未返回有效结果");
     }
 
     return {
@@ -232,7 +221,7 @@ export async function generateJson<T>({
     const message = error instanceof Error ? error.message : "API 调用失败，已自动回退到 mock。";
     const friendlyMessage = message.includes("429")
       ? "API 当前被限流（429），本次先回退到 mock 结果。"
-      : message.includes("模型未返回可解析文本内容")
+      : message.includes("未返回有效结果")
         ? "模型这次没有按要求返回结构化内容，本次先回退到 mock 结果。"
         : error instanceof Error
           ? `API 调用失败，已自动回退到 mock：${error.message.slice(0, 120)}`

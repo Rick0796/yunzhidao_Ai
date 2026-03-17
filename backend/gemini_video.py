@@ -224,6 +224,24 @@ def _generate_content(
     return text
 
 
+def generate_json_with_gemini(
+    prompt: str,
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    max_output_tokens: int = 4096,
+) -> Any:
+    """Generate JSON content using Gemini API - for general text generation tasks."""
+    key = api_key or _get_api_key()
+    return _generate_content(
+        api_key=key,
+        model=model or "gemini-2.5-flash",
+        parts=[{"text": prompt}],
+        max_output_tokens=max_output_tokens,
+        response_mime_type="application/json",
+    )
+
+
 def _normalize_string(value: Any) -> str:
     return str(value or "").strip()
 
