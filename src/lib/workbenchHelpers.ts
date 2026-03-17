@@ -14,6 +14,7 @@ import type {
 } from "../types";
 import { DEFAULT_ORIGINAL_ENTRY_TYPE, defaultApiSettings, defaultTask, displayEntryType, type OriginalEntryType, isOriginalEntryType, type WorkbenchMode } from "./workbenchConfig";
 import type { BusinessHotItem, HotRankItem } from "./workflows";
+import { normalizeBaseUrl } from "./http";
 
 export function classNames(...items: Array<string | false | null | undefined>) {
   return items.filter(Boolean).join(" ");
@@ -28,7 +29,7 @@ export function normalizeApiSettings(value: Partial<ApiSettings> | null | undefi
     ...defaultApiSettings,
     ...(value || {}),
     useLiveApi: typeof value?.useLiveApi === "boolean" ? value.useLiveApi : defaultApiSettings.useLiveApi,
-    baseUrl: typeof value?.baseUrl === "string" && value.baseUrl.trim() ? value.baseUrl : defaultApiSettings.baseUrl,
+    baseUrl: normalizeBaseUrl(typeof value?.baseUrl === "string" && value.baseUrl.trim() ? value.baseUrl : defaultApiSettings.baseUrl),
     apiKey: "",
     mainModel: typeof value?.mainModel === "string" && value.mainModel.trim() ? value.mainModel : defaultApiSettings.mainModel,
     batchModel: typeof value?.batchModel === "string" && value.batchModel.trim() ? value.batchModel : defaultApiSettings.batchModel,

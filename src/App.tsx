@@ -46,6 +46,7 @@ import {
 } from "./lib/normalize";
 import { formatSkeletonCardDescription, formatSkeletonExecutionLines } from "./lib/skeletons";
 import { STORAGE_KEYS } from "./lib/workbenchStorage";
+import { normalizeBaseUrl } from "./lib/http";
 import type {
   ApiSettings,
   BaseProfile,
@@ -157,7 +158,7 @@ function App() {
     weiboHotItems,
     zhihuHotItems
   } = useHotspotCenter({
-    baseUrl: settings.baseUrl || "/api",
+    baseUrl: normalizeBaseUrl(settings.baseUrl || "/api"),
     showNotice,
     applyHotspotMaterial
   });
