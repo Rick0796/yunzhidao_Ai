@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { ApiSettings, SoraPrompt, VideoAnalysisMode, VideoAnalysisResult, VideoHistoryItem } from "../types";
-import { extractKeyFrames } from "../lib/videoFrames";
-import { analyzeVideoFrames, generateSoraPrompts, generateViralCopies } from "../lib/videoAnalysis";
+import { analyzeVideoFile, generateSoraPrompts, generateViralCopies } from "../lib/videoAnalysis";
 import { useStoredState } from "../lib/workbenchHelpers";
 import { STORAGE_KEYS } from "../lib/workbenchStorage";
 
@@ -13,7 +12,6 @@ interface VideoAnalysisPanelProps {
 
 type PanelState = "idle" | "ready" | "analyzing" | "result" | "error";
 
-const FRAME_COUNTS: Record<VideoAnalysisMode, number> = { FAST: 4, DEEP: 8 };
 
 const STRUCTURE_ITEMS: Array<{ key: keyof VideoAnalysisResult["videoStructure"]; label: string; num: number }> = [
   { key: "coreProposition", label: "核心命题", num: 1 },
@@ -37,7 +35,6 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
   const [stage, setStage] = useState("");
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<VideoAnalysisResult | null>(null);
-  const [frames, setFrames] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [history, setHistory] = useStoredState<VideoHistoryItem[]>(STORAGE_KEYS.videoHistory, []);
@@ -62,7 +59,6 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
     setFile(selectedFile);
     setPanelState("ready");
     setResult(null);
-    setFrames([]);
     setErrorMsg("");
     setSoraPrompts([]);
     setViralCopies([]);
@@ -92,12 +88,11 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
     setSoraPrompts([]);
     setViralCopies([]);
     try {
-      const frameCount = FRAME_COUNTS[mode];
-      const extracted = await extractKeyFrames(file, frameCount);
-      setFrames(extracted);
-      setProgress(40);
-      setStage(`已提取 ${extracted.length} 帧，正在 AI 分析...`);
-      const analysisResult = await analyzeVideoFrames(settings, extracted, mode, controller.signal);
+      setProgress(28);
+      setStage("????????? Gemini...");
+      const analysisResult = await analyzeVideoFile(settings, file, mode, controller.signal);
+      setProgress(78);
+      setStage("Gemini ???????????????...");
       setProgress(100);
       setResult(analysisResult);
       setPanelState("result");
@@ -140,7 +135,13 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
     setIsGeneratingSora(true);
     showNotice("info", `正在生成 ${count} 条 Sora 提示词...`);
     try {
-      const prompts = await generateSoraPrompts(settings, frames, result.summary, count);
+      const prompts = await generateSoraPrompts(settings, {
+        file,
+        existingFileUri: result.fileUri,
+        mimeType: result.mimeType,
+        summary: result.summary,
+        count,
+      });
       setSoraPrompts((prev) => count === 1 ? prompts : [...prev, ...prompts]);
       showNotice("success", "Sora 提示词生成成功！");
     } catch (e) {
@@ -148,7 +149,7 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
     } finally {
       setIsGeneratingSora(false);
     }
-  }, [result, frames, settings, isGeneratingSora, showNotice]);
+  }, [file, result, settings, isGeneratingSora, showNotice]);
 
   const handleGenerateViral = useCallback(async () => {
     if (!result?.script || isGeneratingViral) return;
@@ -176,7 +177,6 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
 
   const loadHistory = useCallback((item: VideoHistoryItem) => {
     setFile(null);
-    setFrames([]);
     setMode(item.mode);
     setResult(item.result);
     setSoraPrompts([]);

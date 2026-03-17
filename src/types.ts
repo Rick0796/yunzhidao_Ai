@@ -280,6 +280,8 @@ export interface VideoAnalysisResult {
   visualFeatures: VideoVisualFeature[];
   videoStructure: VideoStructure;
   timestamps: VideoTimestamp[];
+  fileUri?: string;
+  mimeType?: string;
 }
 
 export interface VideoHistoryItem {

@@ -10,6 +10,7 @@ dependencies = [
   "duckduckgo-search>=4.0.0",
   "lxml>=4.9.0",
   "requests>=2.31.0,<3.0.0",
+  "python-multipart>=0.0.9",
 ]
 
 [build-system]

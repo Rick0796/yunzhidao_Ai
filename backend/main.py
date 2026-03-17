@@ -17,7 +17,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("当前 Python 环境缺少 urllib，无法启动后端。") from exc
 
 try:
-    from fastapi import FastAPI, HTTPException, Request, Query
+    from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
@@ -39,6 +39,7 @@ except ImportError as exc:  # pragma: no cover
 
 from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
 from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
+from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini
 
 RUNTIME_PATHS = resolve_runtime_paths()
 ROOT_DIR = RUNTIME_PATHS.root_dir
@@ -3502,145 +3503,100 @@ if (DIST_DIR / "assets").exists():
 
 
 @app.post("/api/analyze-video")
-async def analyze_video(request: Request) -> JSONResponse:
-    """接收视频关键帧（base64），调用视觉模型分析，返回结构化结果。"""
+async def analyze_video(
+    file: UploadFile | None = File(default=None),
+    mode: str = Form("FAST"),
+    cachedUri: str | None = Form(default=None),
+    model: str | None = Form(default=None),
+    mimeType: str | None = Form(default=None),
+) -> JSONResponse:
     if not CONFIG["apiKey"] or not CONFIG["baseUrl"]:
-        raise HTTPException(status_code=500, detail="后端未配置 API Key 或 Base URL")
+        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key or Base URL")
 
-    body = await read_request_json(request)
-    frames = [str(frame).strip() for frame in body.get("frames", []) if str(frame).strip()]  # list of base64 JPEG strings
-    mode = str(body.get("mode", "FAST"))
-    image_model = str(body.get("model") or CONFIG["defaultModel"])
-    is_deep = mode == "DEEP"
+    if file is None and not cachedUri:
+        raise HTTPException(status_code=400, detail="Upload a full video file or provide an existing Gemini file URI")
 
-    if not frames:
-        raise HTTPException(status_code=400, detail="未收到视频帧数据")
+    file_stream = None
+    content_length = None
+    mime_type = clean_text(mimeType) or "video/mp4"
+    display_name = "uploaded-video"
 
-    max_frames = 8 if is_deep else 4
-    frames = frames[:max_frames]
-
-    deep_part = (
-        "\n额外要求（深度模式）：\n1. 必须返回 5-8 个 timestamps（time格式MM:SS, seconds数字, description描述）。\n2. 对视频结构给出完整营销拆解。"
-        if is_deep else ""
-    )
-    prompt_lines = [
-        "你是一名短视频内容分析专家，请只输出 JSON，不要输出任何解释文字。",
-        f"以下是从视频中按时间顺序抽取的 {len(frames)} 帧关键画面，请根据画面内容进行分析。",
-        "",
-        "字段要求：",
-        "1. summary: 视频摘要（中文）。",
-        "2. script: 根据画面中出现的文字、字幕、人物口型和动作，尽可能完整推断还原视频口播或旁白内容（中文）。不要说无法确定，要根据画面主题和风格给出合理推断，至少200字。",
-        "3. visualFeatures: 数组，每项包含 feature 和 description。",
-        "4. videoStructure: 对象，包含 coreProposition/openingType/conflictStructure/progressionLogic/psychologicalHook/climaxSentence/languageFeatures/emotionalCurve/viewerReward。",
-        "5. timestamps: 关键时间点数组。" if is_deep else "5. timestamps 可省略。",
-        "",
-        "输出质量要求：",
-        "1. 仅使用简体中文。",
-        "2. 不要使用未提取、未知等占位语，信息不足时给出合理推断。",
-        "3. 结果必须是合法 JSON 对象。",
-        deep_part,
-    ]
-    prompt = "\n".join(line for line in prompt_lines if line is not None)
-
-    content_parts: list[Any] = [{"type": "text", "text": prompt}]
-    for frame in frames:
-        content_parts.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{frame}", "detail": "low"},
-        })
-
-    upstream_url = f"{CONFIG['baseUrl']}/chat/completions"
-    request_body = {
-        "model": image_model,
-        "temperature": 0.2,
-        "max_tokens": 3400 if is_deep else 2400,
-        "messages": [{"role": "user", "content": content_parts}],
-    }
+    if file is not None:
+        file_stream = file.file
+        file_stream.seek(0, os.SEEK_END)
+        content_length = file_stream.tell()
+        file_stream.seek(0)
+        mime_type = clean_text(file.content_type) or "video/mp4"
+        display_name = clean_text(file.filename) or "uploaded-video"
+        if not content_length:
+            raise HTTPException(status_code=400, detail="Uploaded video file is empty")
 
     try:
-        status_code, raw_text = await fetch_with_retry(
-            upstream_url,
-            request_body,
-            {"Content-Type": "application/json", "Authorization": f"Bearer {CONFIG['apiKey']}"},
-            CONFIG["retries"],
+        result = await asyncio.to_thread(
+            analyze_video_with_gemini,
+            api_key=CONFIG["apiKey"],
+            base_url=CONFIG["baseUrl"],
+            model=str(model or CONFIG["defaultModel"]),
+            timeout_seconds=CONFIG["timeoutSeconds"],
+            mode=mode,
+            existing_file_uri=cachedUri,
+            file_stream=file_stream,
+            content_length=content_length,
+            mime_type=mime_type,
+            display_name=display_name,
         )
-        if status_code >= 400:
-            try:
-                err = json.loads(raw_text)
-                msg = err.get("error", {}).get("message") or raw_text[:200]
-            except Exception:
-                msg = raw_text[:200]
-            return JSONResponse(content={"error": {"message": msg}}, status_code=status_code)
-
-        payload = json.loads(raw_text)
-        content = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
-        if not content:
-            return JSONResponse(content={"error": {"message": "模型未返回内容"}}, status_code=502)
-
-        # 服务端稳健解析 JSON
-        cleaned = content.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
-            cleaned = re.sub(r"\n?```$", "", cleaned)
-        cleaned = cleaned.strip()
-
-        # 尝试直接解析
-        parsed = None
-        try:
-            parsed = json.loads(cleaned)
-        except json.JSONDecodeError:
-            # 提取 { ... } 块
-            start = cleaned.find("{")
-            end = cleaned.rfind("}")
-            if start >= 0 and end > start:
-                try:
-                    parsed = json.loads(cleaned[start:end + 1])
-                except json.JSONDecodeError:
-                    pass
-
-        if parsed is None:
-            return JSONResponse(
-                content={"error": {"message": f"模型返回内容无法解析为 JSON。原始内容（前400字）：{content[:400]}"}},
-                status_code=502,
-            )
-
-        # 归一化结构
-        def norm_str(v: Any) -> str:
-            return str(v) if v else ""
-
-        vs_raw = parsed.get("videoStructure") or {}
-        result = {
-            "summary": norm_str(parsed.get("summary")),
-            "script": norm_str(parsed.get("script")),
-            "visualFeatures": [
-                {"feature": str(f.get("feature", "")), "description": str(f.get("description", ""))}
-                for f in (parsed.get("visualFeatures") or [])
-                if isinstance(f, dict)
-            ],
-            "videoStructure": {
-                "coreProposition": norm_str(vs_raw.get("coreProposition")),
-                "openingType": norm_str(vs_raw.get("openingType")),
-                "conflictStructure": norm_str(vs_raw.get("conflictStructure")),
-                "progressionLogic": norm_str(vs_raw.get("progressionLogic")),
-                "psychologicalHook": norm_str(vs_raw.get("psychologicalHook")),
-                "climaxSentence": norm_str(vs_raw.get("climaxSentence")),
-                "languageFeatures": norm_str(vs_raw.get("languageFeatures")),
-                "emotionalCurve": norm_str(vs_raw.get("emotionalCurve")),
-                "viewerReward": norm_str(vs_raw.get("viewerReward")),
-            },
-            "timestamps": [
-                {
-                    "time": str(t.get("time", "00:00")),
-                    "seconds": float(t.get("seconds", 0)),
-                    "description": str(t.get("description", "")),
-                }
-                for t in (parsed.get("timestamps") or [])
-                if isinstance(t, dict)
-            ] if is_deep else [],
-        }
         return JSONResponse(content=result)
+    except GeminiVideoError as exc:
+        return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 
-    except Exception as exc:
+
+@app.post("/api/generate-sora-prompts")
+async def generate_sora_prompts(
+    file: UploadFile | None = File(default=None),
+    existingFileUri: str | None = Form(default=None),
+    analysisSummary: str = Form(default=""),
+    count: int = Form(default=1),
+    model: str | None = Form(default=None),
+    mimeType: str | None = Form(default=None),
+) -> JSONResponse:
+    if not CONFIG["apiKey"] or not CONFIG["baseUrl"]:
+        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key or Base URL")
+
+    if file is None and not existingFileUri:
+        raise HTTPException(status_code=400, detail="Upload a full video file or provide an existing Gemini file URI")
+
+    file_stream = None
+    content_length = None
+    mime_type = clean_text(mimeType) or "video/mp4"
+    display_name = "uploaded-video"
+
+    if file is not None:
+        file_stream = file.file
+        file_stream.seek(0, os.SEEK_END)
+        content_length = file_stream.tell()
+        file_stream.seek(0)
+        mime_type = clean_text(file.content_type) or "video/mp4"
+        display_name = clean_text(file.filename) or "uploaded-video"
+        if not content_length:
+            raise HTTPException(status_code=400, detail="Uploaded video file is empty")
+
+    try:
+        prompts = await asyncio.to_thread(
+            generate_sora_prompts_with_gemini,
+            api_key=CONFIG["apiKey"],
+            base_url=CONFIG["baseUrl"],
+            model=str(model or CONFIG["defaultModel"]),
+            timeout_seconds=CONFIG["timeoutSeconds"],
+            count=max(1, min(count, 5)),
+            analysis_summary=analysisSummary,
+            existing_file_uri=existingFileUri,
+            file_stream=file_stream,
+            content_length=content_length,
+            mime_type=mime_type,
+            display_name=display_name,
+        )
+        return JSONResponse(content={"prompts": prompts})
+    except GeminiVideoError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 
 
