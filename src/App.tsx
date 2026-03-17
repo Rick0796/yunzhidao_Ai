@@ -809,8 +809,79 @@ function App() {
               )}
             </div>
           ) : (
-            <div className="rounded-2xl border border-white/10 bg-white/4 px-4 py-3">
-              <span className="text-sm text-slate-300">模式：爆款仿写 — 保留原文结构，改开头抓力和表达去重</span>
+            <div className={classNames(
+              "rounded-2xl border-2 transition",
+              (normalizedTask.businessModeChosen && (normalizedTask.ctaModeChosen || task.businessMode === "none"))
+                ? "border-white/10 bg-white/3"
+                : "border-amber-400/50 bg-amber-400/5"
+            )}>
+              <button
+                className="flex w-full items-center justify-between px-4 py-3 text-left"
+                onClick={() => setIsEntryExpanded((v) => !v)}
+              >
+                <span className="text-sm font-semibold text-white">任务设置</span>
+                <div className="flex items-center gap-2">
+                  {normalizedTask.businessModeChosen && (normalizedTask.ctaModeChosen || task.businessMode === "none")
+                    ? <span className="flex items-center gap-1 text-xs text-emerald-400"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>已完成</span>
+                    : <span className="animate-pulse text-xs font-medium text-amber-300">← 请选择</span>
+                  }
+                  <svg className={classNames("h-4 w-4 text-slate-500 transition-transform", !isEntryExpanded && "-rotate-90")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </div>
+              </button>
+              {isEntryExpanded && (
+                <div className="border-t border-white/8 px-4 pb-4 pt-3 space-y-4">
+                  {/* 模式说明 */}
+                  <div className="text-sm text-slate-300">模式：爆款仿写 — 保留原文结构，改开头抓力和表达去重</div>
+                  {/* 挂业务方式 */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">挂业务方式</span>
+                      {normalizedTask.businessModeChosen && <span className="text-xs text-emerald-400">{displayBusinessMode(task.businessMode)}</span>}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {BUSINESS_OPTIONS.map((item) => (
+                        <button
+                          key={item.value}
+                          className={classNames(
+                            "rounded-xl border-2 px-3 py-2.5 text-left transition-all",
+                            normalizedTask.businessModeChosen && task.businessMode === item.value
+                              ? "border-cyan-400 bg-cyan-400/15 shadow-[0_0_12px_rgba(0,212,255,0.25)] text-white"
+                              : "border-white/15 bg-white/5 text-slate-300 hover:border-cyan-400/50 hover:bg-cyan-400/8 hover:text-white"
+                          )}
+                          onClick={() => chooseBusinessMode(item.value)}
+                        >
+                          <div className="text-sm font-semibold">{item.label}</div>
+                          <div className="mt-0.5 text-[11px] leading-4 text-slate-400">{item.hint}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* 收口方式 */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">收口方式</span>
+                      {normalizedTask.ctaModeChosen && <span className="text-xs text-emerald-400">{displayCtaMode(task.ctaMode)}</span>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                      {CTA_OPTIONS.map((item) => (
+                        <button
+                          key={item.value}
+                          className={classNames(
+                            "rounded-xl border-2 px-3 py-2.5 text-left transition-all",
+                            normalizedTask.ctaModeChosen && task.ctaMode === item.value
+                              ? "border-cyan-400 bg-cyan-400/15 shadow-[0_0_12px_rgba(0,212,255,0.25)] text-white"
+                              : "border-white/15 bg-white/5 text-slate-300 hover:border-cyan-400/50 hover:bg-cyan-400/8 hover:text-white"
+                          )}
+                          onClick={() => chooseCtaMode(item.value)}
+                        >
+                          <div className="text-sm font-semibold">{item.label}</div>
+                          <div className="mt-0.5 text-[11px] leading-4 text-slate-400">{item.hint}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
