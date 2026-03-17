@@ -6,7 +6,7 @@ echo 关闭此窗口将停止服务。
 echo.
 
 :loop
-python backend\main.py
+python -m backend.main
 echo.
 echo 服务意外停止，3 秒后自动重启...
 timeout /t 3 /nobreak >nul

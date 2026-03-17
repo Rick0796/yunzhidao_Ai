@@ -79,7 +79,11 @@ def _raise_response_error(response: requests.Response, context: str) -> None:
     if isinstance(payload, dict):
         error = payload.get("error")
         if isinstance(error, dict) and error.get("message"):
-            raise GeminiVideoError(f"{context}: {error['message']}")
+            message = str(error["message"])
+            lowered = message.lower()
+            if "api key not valid" in lowered or "please pass a valid api key" in lowered:
+                raise GeminiVideoError("Gemini API Key ?????? backend/config.local.json ?? apiKey?? GEMINI_API_KEY ?????")
+            raise GeminiVideoError(f"{context}: {message}")
     raise GeminiVideoError(f"{context}: HTTP {response.status_code} {response.text[:240]}")
 
 

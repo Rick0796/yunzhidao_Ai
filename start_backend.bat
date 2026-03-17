@@ -18,6 +18,6 @@ if not exist "backend\config.local.json" (
 )
 
 echo 启动后端服务...
-python backend\main.py
+python -m backend.main
 
 pause
