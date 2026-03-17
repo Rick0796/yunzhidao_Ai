@@ -39,7 +39,7 @@ except ImportError as exc:  # pragma: no cover
 
 from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
 from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
-from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini, generate_json_with_gemini
+from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini, generate_json_with_gemini, generate_text_with_gemini
 
 RUNTIME_PATHS = resolve_runtime_paths()
 ROOT_DIR = RUNTIME_PATHS.root_dir
@@ -568,7 +568,7 @@ def read_config() -> dict[str, Any]:
     if not api_key:
         api_key = clean_config_text(config.get("apiKey", ""))
 
-    base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+    base_url = "https://generativelanguage.googleapis.com"
     default_model = env_text("GEMINI_MODEL") or clean_config_text(config.get("defaultModel", "gemini-2.5-flash")) or "gemini-2.5-flash"
     prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
     port = env_int("PORT") or to_int(config.get("port", 8788), 8788)
@@ -616,34 +616,6 @@ def append_log(payload: dict[str, Any]) -> None:
         return
 
 
-async def fetch_with_retry(url: str, payload: dict[str, Any], headers: dict[str, str], retries: int) -> tuple[int, str]:
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    last_error: Exception | None = None
-
-    def send_once() -> tuple[int, str]:
-        request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=CONFIG["timeoutSeconds"]) as response:
-                return response.getcode(), response.read().decode("utf-8")
-        except urllib.error.HTTPError as error:
-            raw = error.read().decode("utf-8", errors="ignore")
-            raise UpstreamHttpError(error.code, raw) from error
-
-    for attempt in range(retries + 1):
-        try:
-            return await asyncio.to_thread(send_once)
-        except UpstreamHttpError as error:
-            if error.status_code == 429 and attempt < retries:
-                await asyncio.sleep(0.8 * (attempt + 1))
-                continue
-            return error.status_code, error.raw_text
-        except Exception as error:  # pragma: no cover
-            last_error = error
-            if attempt < retries:
-                await asyncio.sleep(0.8 * (attempt + 1))
-                continue
-
-    raise RuntimeError(str(last_error) if last_error else "上游请求失败")
 
 
 async def read_request_json(request: Request) -> dict[str, Any]:
@@ -2222,7 +2194,8 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "configured": bool(CONFIG["apiKey"]),
-        "proxy": "/api/chat/completions",
+        "proxy": "/api/generate-json",
+        "compatRoute": "/api/chat/completions",
         "upstream": CONFIG["baseUrl"],
         "defaultModel": CONFIG["defaultModel"],
         "promptVersion": CONFIG["promptVersion"],
@@ -2360,7 +2333,7 @@ async def upsert_library_script(request: Request) -> dict[str, Any]:
 
 @app.post("/api/generate-json")
 async def generate_json_endpoint(request: Request) -> JSONResponse:
-    """Direct Gemini API call with JSON output - bypasses OpenAI compatibility layer."""
+    """Direct official Gemini API call with JSON output."""
     if not CONFIG["apiKey"]:
         raise HTTPException(status_code=500, detail="未配置 GEMINI_API_KEY 环境变量")
 
@@ -2389,55 +2362,104 @@ async def generate_json_endpoint(request: Request) -> JSONResponse:
 
 @app.post("/api/chat/completions")
 async def chat_completions(request: Request) -> JSONResponse:
-    if not CONFIG["apiKey"] or not CONFIG["baseUrl"]:
-        raise HTTPException(status_code=500, detail="本地后端未配置 API Key 或 Base URL")
+    if not CONFIG["apiKey"]:
+        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key")
+
+    def normalize_message_content(content: Any) -> str:
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text_part = item.get("text")
+                    if isinstance(text_part, str):
+                        parts.append(text_part)
+            return "".join(parts).strip()
+        return str(content or "").strip()
+
+    def build_prompt_from_messages(messages: list[dict[str, Any]]) -> str:
+        prompt_parts: list[str] = []
+        for message in messages:
+            role = str(message.get("role") or "user").strip().lower() or "user"
+            content = normalize_message_content(message.get("content"))
+            if not content:
+                continue
+            prompt_parts.append(f"[{role}]\n{content}")
+        return "\n\n".join(prompt_parts).strip()
 
     start = time.perf_counter()
     body = await read_request_json(request)
     prompt_version = request.headers.get("X-Prompt-Version", CONFIG["promptVersion"])
     task_entry = request.headers.get("X-Task-Entry", "unknown")
     model_name = str(body.get("model") or CONFIG["defaultModel"])
-    upstream_url = f"{CONFIG['baseUrl']}/chat/completions"
-
-    # 把 system role 转成 user role（Gemini 不支持 system role）
+    max_tokens = max(256, to_int(body.get("max_tokens", 4096), 4096))
+    temperature_raw = body.get("temperature")
+    try:
+        temperature = float(temperature_raw) if temperature_raw is not None else None
+    except (TypeError, ValueError):
+        temperature = None
     messages = body.get("messages", [])
-    normalized_messages = []
-    for msg in messages:
-        if msg.get("role") == "system":
-            normalized_messages.append({"role": "user", "content": msg.get("content", "")})
-        else:
-            normalized_messages.append(msg)
+    if not isinstance(messages, list):
+        raise HTTPException(status_code=400, detail="messages must be a list")
 
-    # 过滤掉 Gemini 不支持的参数
-    clean_body = {k: v for k, v in body.items() if k not in ("response_format", "stream")}
-    clean_body["messages"] = normalized_messages
-    clean_body["model"] = model_name
+    prompt = build_prompt_from_messages([msg for msg in messages if isinstance(msg, dict)])
+    if not prompt:
+        raise HTTPException(status_code=400, detail="messages must not be empty")
 
-    status_code = 500
-    raw_text = ""
+    response_format = body.get("response_format")
+    wants_json = isinstance(response_format, dict) and response_format.get("type") == "json_object"
+
+    status_code = 200
     error_message = ""
 
     try:
-        status_code, raw_text = await fetch_with_retry(
-            upstream_url,
-            clean_body,
-            {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {CONFIG['apiKey']}",
-            },
-            CONFIG["retries"],
-        )
-        return JSONResponse(content=json.loads(raw_text), status_code=status_code)
-    except json.JSONDecodeError:
-        error_message = "上游返回了非 JSON 内容"
-        return JSONResponse(
-            content={"error": {"message": error_message, "raw": raw_text[:400]}},
-            status_code=status_code if status_code >= 400 else 502,
-        )
+        if wants_json:
+            payload = await asyncio.to_thread(
+                generate_json_with_gemini,
+                prompt,
+                api_key=CONFIG["apiKey"],
+                model=model_name,
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            )
+            content_text = json.dumps(payload, ensure_ascii=False)
+        else:
+            content_text = await asyncio.to_thread(
+                generate_text_with_gemini,
+                prompt,
+                api_key=CONFIG["apiKey"],
+                model=model_name,
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+        response_payload = {
+            "id": f"chatcmpl-{int(time.time() * 1000)}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content_text},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        return JSONResponse(content=response_payload)
+    except GeminiVideoError as exc:
+        status_code = 500
+        error_message = str(exc)
+        return JSONResponse(content={"error": {"message": error_message}}, status_code=500)
     except HTTPException as exc:
+        status_code = exc.status_code
         error_message = stringify_error(exc.detail)
         raise
     except Exception as error:  # pragma: no cover
+        status_code = 500
         error_message = str(error)
         return JSONResponse(content={"error": {"message": error_message}}, status_code=500)
     finally:
@@ -2451,7 +2473,7 @@ async def chat_completions(request: Request) -> JSONResponse:
                 "promptVersion": prompt_version,
                 "status": status_code,
                 "durationMs": duration_ms,
-                "error": error_message or (raw_text[:180] if status_code >= 400 else ""),
+                "error": error_message,
             }
         )
 
@@ -3635,84 +3657,47 @@ async def generate_sora_prompts(
 
 @app.post("/api/generate-viral-copies")
 async def generate_viral_copies(request: Request) -> JSONResponse:
-    """基于视频脚本生成3条不同风格爆款文案。"""
-    if not CONFIG["apiKey"] or not CONFIG["baseUrl"]:
-        raise HTTPException(status_code=500, detail="后端未配置 API Key 或 Base URL")
+    """Generate multiple viral copy variants from a source script using official Gemini."""
+    if not CONFIG["apiKey"]:
+        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key")
 
     body = await read_request_json(request)
     script = str(body.get("script", "")).strip()
     if not script:
-        raise HTTPException(status_code=400, detail="script 不能为空")
+        raise HTTPException(status_code=400, detail="script must not be empty")
 
     prompt = "\n".join([
-        "你是一名短视频增长文案专家。",
-        "请基于以下原始脚本，创作 3 条风格完全不同的爆款短视频文案。",
-        "",
-        "【严格要求】",
-        "1. 禁止直接复制或改写原始脚本，必须重新创作全新文案。",
-        "2. 三条文案必须采用完全不同的切入角度和叙事风格：",
-        "   - 第1条：情绪共鸣型（从用户痛点/情绪出发，引发强烈共鸣）",
-        "   - 第2条：干货价值型（直接给出3-5个具体可执行的方法/技巧）",
-        "   - 第3条：故事悬念型（用反转或悬念开头，讲一个有结论的故事）",
-        "3. 每条文案100-300字，包含：开头钩子（前3秒抓住注意力）、核心价值点、行动召唤。",
-        "4. 仅简体中文，不要表情符号，不要markdown。",
-        "",
-        "原始脚本（仅用于理解主题，禁止复制）：",
+        "You are a short-video copywriting expert.",
+        "Create 3 clearly different viral short-video copy variants based on the source script.",
+        "Return only a JSON array.",
+        "Each item must be an object with a text field.",
+        "Each copy should stay in Simplified Chinese and keep a strong hook, value delivery, and CTA.",
+        "Do not copy the source script verbatim.",
+        "Source script:",
         script,
-        "",
-        "返回合法 JSON 数组，格式：",
-        '[{"text":"文案1完整内容"},{"text":"文案2完整内容"},{"text":"文案3完整内容"}]',
-        "只返回 JSON，不要任何解释。",
+        "Return format:",
+        '[{"text":"variant 1"},{"text":"variant 2"},{"text":"variant 3"}]',
     ])
 
-    upstream_url = f"{CONFIG['baseUrl']}/chat/completions"
-    req_body = {
-        "model": str(body.get("model") or CONFIG["defaultModel"]),
-        "temperature": 0.9,
-        "max_tokens": 3000,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-
     try:
-        status_code, raw_text = await fetch_with_retry(
-            upstream_url,
-            req_body,
-            {"Content-Type": "application/json", "Authorization": f"Bearer {CONFIG['apiKey']}"},
-            CONFIG["retries"],
+        parsed = await asyncio.to_thread(
+            generate_json_with_gemini,
+            prompt,
+            api_key=CONFIG["apiKey"],
+            model=str(body.get("model") or CONFIG["defaultModel"]),
+            max_output_tokens=max(512, to_int(body.get("max_tokens", 3000), 3000)),
+            temperature=0.9,
         )
-        if status_code >= 400:
-            try:
-                err = json.loads(raw_text)
-                msg = err.get("error", {}).get("message") or raw_text[:200]
-            except Exception:
-                msg = raw_text[:200]
-            return JSONResponse(content={"error": {"message": msg}}, status_code=status_code)
-
-        payload = json.loads(raw_text)
-        content = (payload.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
-
-        # 提取 JSON 数组
-        cleaned = content
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
-            cleaned = re.sub(r"\n?```$", "", cleaned)
-        cleaned = cleaned.strip()
-        first_bracket = cleaned.find("[")
-        last_bracket = cleaned.rfind("]")
-        if first_bracket >= 0 and last_bracket > first_bracket:
-            cleaned = cleaned[first_bracket:last_bracket + 1]
-
-        parsed = json.loads(cleaned)
         if not isinstance(parsed, list):
-            raise ValueError("返回格式不是数组")
+            raise ValueError("Gemini did not return a JSON array")
 
-        copies = [str(item.get("text", "") if isinstance(item, dict) else item) for item in parsed]
-        copies = [c for c in copies if c.strip()]
+        copies = [str(item.get("text", "") if isinstance(item, dict) else item).strip() for item in parsed]
+        copies = [item for item in copies if item]
         if not copies:
-            raise ValueError("未生成有效文案")
-
+            raise ValueError("Gemini returned no usable copy variants")
         return JSONResponse(content={"copies": copies})
-
+    except GeminiVideoError as exc:
+        return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
     except Exception as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 

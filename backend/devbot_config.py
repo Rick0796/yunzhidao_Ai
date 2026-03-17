@@ -15,6 +15,7 @@ DEFAULT_DB_PATH = RUNTIME_PATHS.state_dir / "telegram_devbot.db"
 DEFAULT_POLL_INTERVAL = 2.0
 DEFAULT_MODEL = "gemini-2.0-flash"
 DEFAULT_MODEL_TIMEOUT_SECONDS = 90
+DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
 INVALID_MODEL_NAMES = {
     "gemini-3-flash",
     "your-model",
@@ -140,20 +141,15 @@ def load_model_config() -> ModelConfig:
     config = _load_project_config()
     base_url = (
         _clean_text(os.getenv("GEMINI_BASE_URL"))
-        or _clean_text(os.getenv("UPSTREAM_BASE_URL"))
-        or _clean_text(os.getenv("OPENAI_BASE_URL"))
         or _clean_text(config.get("baseUrl"))
+        or DEFAULT_GEMINI_BASE_URL
     ).rstrip("/")
     api_key = (
         _clean_text(os.getenv("GEMINI_API_KEY"))
-        or _clean_text(os.getenv("UPSTREAM_API_KEY"))
-        or _clean_text(os.getenv("OPENAI_API_KEY"))
         or _clean_text(config.get("apiKey"))
     )
     model = (
         _clean_text(os.getenv("GEMINI_MODEL"))
-        or _clean_text(os.getenv("UPSTREAM_DEFAULT_MODEL"))
-        or _clean_text(os.getenv("OPENAI_MODEL"))
         or _clean_text(config.get("defaultModel"))
         or DEFAULT_MODEL
     )
@@ -187,14 +183,14 @@ def validate_bot_config(config: BotConfig) -> BotConfig:
 def validate_model_config(config: ModelConfig) -> ModelConfig:
     errors: list[str] = []
     if not config.base_url:
-        errors.append("Missing model base URL; check GEMINI_BASE_URL / UPSTREAM_BASE_URL / OPENAI_BASE_URL / config.local.json.")
+        errors.append("Missing Gemini base URL; check GEMINI_BASE_URL or config.local.json.")
     elif not config.base_url.startswith(("http://", "https://")):
         errors.append("Model base URL must start with http:// or https://.")
     if not config.api_key:
-        errors.append("Missing model API Key; check GEMINI_API_KEY / UPSTREAM_API_KEY / OPENAI_API_KEY / config.local.json.")
+        errors.append("Missing Gemini API Key; check GEMINI_API_KEY or config.local.json.")
     normalized_model = config.model.strip().lower()
     if not normalized_model:
-        errors.append("Missing default model name; check GEMINI_MODEL / UPSTREAM_DEFAULT_MODEL / OPENAI_MODEL / config.local.json.")
+        errors.append("Missing Gemini model name; check GEMINI_MODEL or config.local.json.")
     elif normalized_model in INVALID_MODEL_NAMES:
         errors.append(f"Unsupported default model name: {config.model}.")
     if config.timeout_seconds < 30:

@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-import requests
 
 from backend.devbot_config import ModelConfig, ROOT_DIR, validate_model_config
 from backend.devbot_executor import run_command, BACKEND_COMPILE_TARGETS
 from backend.shared_types import ProgressCallback
 from backend.platform_utils import get_npm_command
+from backend.gemini_video import generate_json_with_gemini
 
 
 ALLOWED_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".json", ".md", ".bat", ".css"}
@@ -54,36 +54,22 @@ class ModelClient:
         self.config = validate_model_config(config)
 
     def _request_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
-        if not self.config.base_url or not self.config.api_key:
-            raise RuntimeError("缺少模型配置，请检查 .env.telegram.local 或 config.local.json")
+        if not self.config.api_key:
+            raise RuntimeError("Missing GEMINI_API_KEY in .env.telegram.local or config.local.json")
 
-        response = requests.post(
-            f"{self.config.base_url.rstrip('/')}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.config.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self.config.model,
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            },
-            timeout=self.config.timeout_seconds,
+        prompt = "\n\n".join(
+            part for part in [f"[system]\n{system_prompt.strip()}", f"[user]\n{user_prompt.strip()}"] if part.strip()
+        ).strip()
+        payload = generate_json_with_gemini(
+            prompt,
+            api_key=self.config.api_key,
+            model=self.config.model,
+            max_output_tokens=4096,
+            temperature=0.2,
         )
-        response.raise_for_status()
-        payload = response.json()
-        content = payload["choices"][0]["message"]["content"]
-        if isinstance(content, list):
-            content = "".join(
-                part.get("text", "")
-                for part in content
-                if isinstance(part, dict)
-            )
-        return _extract_json_payload(str(content or ""))
+        if not isinstance(payload, dict):
+            raise RuntimeError("Gemini returned non-object JSON for devbot planning")
+        return payload
 
     def create_plan(self, task_text: str, repo_snapshot: str) -> PlanResult:
         payload = self._request_json(

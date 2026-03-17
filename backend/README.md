@@ -35,7 +35,8 @@ python backend/main.py
 ## 主要接口
 
 - `GET /api/health`
-- `POST /api/chat/completions`
+- `POST /api/generate-json`
+- `POST /api/chat/completions` (compat route, now backed by official Gemini)
 - `GET /api/logs/recent`
 
 ## 日志

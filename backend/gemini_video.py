@@ -194,6 +194,7 @@ def _generate_content(
     parts: list[dict[str, Any]],
     max_output_tokens: int,
     response_mime_type: str = "application/json",
+    temperature: float | None = None,
 ) -> Any:
     """Call Gemini generateContent API."""
     base_url = "https://generativelanguage.googleapis.com"
@@ -208,6 +209,7 @@ def _generate_content(
             "generationConfig": {
                 "responseMimeType": response_mime_type,
                 "maxOutputTokens": max_output_tokens,
+                **({"temperature": temperature} if temperature is not None else {}),
             },
         },
         timeout=180,  # Increased timeout for longer generations
@@ -246,6 +248,7 @@ def generate_json_with_gemini(
     api_key: str | None = None,
     model: str | None = None,
     max_output_tokens: int = 4096,
+    temperature: float | None = None,
 ) -> Any:
     """Generate JSON content using Gemini API - for general text generation tasks."""
     key = api_key or _get_api_key()
@@ -255,7 +258,31 @@ def generate_json_with_gemini(
         parts=[{"text": prompt}],
         max_output_tokens=max_output_tokens,
         response_mime_type="application/json",
+        temperature=temperature,
     )
+
+
+def generate_text_with_gemini(
+    prompt: str,
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    max_output_tokens: int = 4096,
+    temperature: float | None = None,
+) -> str:
+    """Generate plain text content using the official Gemini API."""
+    key = api_key or _get_api_key()
+    return str(
+        _generate_content(
+            api_key=key,
+            model=model or "gemini-2.5-flash",
+            parts=[{"text": prompt}],
+            max_output_tokens=max_output_tokens,
+            response_mime_type="text/plain",
+            temperature=temperature,
+        )
+        or ""
+    ).strip()
 
 
 def _normalize_string(value: Any) -> str:
