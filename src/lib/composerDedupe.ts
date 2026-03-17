@@ -1,7 +1,7 @@
 ﻿import type { ApiSettings } from "../types";
 import type { ComposeBlock, DedupeComparisonItem, DedupeResult } from "./composerTypes";
 import { normalizeBaseUrl } from "./http";
-import { extractJsonBlock, normalizeMessageContent, safeJsonParse } from "./modelResponse";
+import { safeJsonParse } from "./modelResponse";
 import { normalizeText, overlapScore } from "./textMatch";
 
 const BUSINESS_TERMS = ["AI获客", "数字资产", "数字人", "私域", "流量", "获客", "内容增长", "企业增长", "老板增长"] as const;
@@ -299,24 +299,67 @@ function buildLocalRewrite(block: ComposeBlock) {
 }
 
 async function callChatCompletion(baseUrl: string, settings: ApiSettings, body: Record<string, unknown>) {
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  // 从 messages 中提取 prompt
+  const messages = body.messages as Array<{ role: string; content: string }> | undefined;
+  const systemContent = messages?.find((m) => m.role === "system")?.content || "";
+  const userContent = messages?.find((m) => m.role === "user")?.content || "";
+  const fullPrompt = [systemContent, "", userContent].join("\n");
+
+  const response = await fetch(`${baseUrl}/generate-json`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      prompt: fullPrompt,
+      model: body.model || settings.mainModel,
+      max_tokens: 4096,
+    }),
   });
 
   const payload = (await response.json().catch(() => null)) as
-    | { choices?: Array<{ message?: { content?: unknown } }>; error?: { message?: string }; detail?: string }
+    | { result?: unknown; error?: { message?: string } }
     | null;
 
   if (!response.ok) {
-    const message = payload?.error?.message || (typeof payload?.detail === "string" ? payload.detail : "") || "去重调用失败";
+    const message = payload?.error?.message || "去重调用失败";
     throw new Error(message);
   }
 
-  return normalizeMessageContent(payload?.choices?.[0]?.message?.content).trim();
+  // 直接返回 result，因为 /generate-json 已经返回解析好的 JSON
+  return payload?.result;
+}
+
+// 用于单段改写的纯文本调用（不需要 JSON 输出）
+async function callTextRewrite(baseUrl: string, settings: ApiSettings, prompt: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${baseUrl}/generate-json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt: prompt + "\n\n只输出改写后的正文，用 JSON 格式 {\"content\": \"改写后的内容\"}",
+        model: settings.mainModel,
+        max_tokens: 2048,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { result?: { content?: string } | string; error?: { message?: string } }
+      | null;
+
+    if (!response.ok || payload?.error) {
+      return null;
+    }
+
+    const result = payload?.result;
+    if (typeof result === "string") return result.trim();
+    if (typeof result === "object" && result?.content) return result.content.trim();
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 async function repairDedupeJson(options: {
@@ -326,10 +369,9 @@ async function repairDedupeJson(options: {
   targetBlocks: ComposeBlock[];
 }) {
   try {
-    const repairedContent = await callChatCompletion(options.baseUrl, options.settings, {
+    const result = await callChatCompletion(options.baseUrl, options.settings, {
       model: settingsModel(options.settings),
       temperature: 0.1,
-      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
@@ -347,7 +389,8 @@ async function repairDedupeJson(options: {
         },
       ],
     });
-    return safeJsonParse<unknown>(repairedContent) ?? safeJsonParse<unknown>(extractJsonBlock(repairedContent));
+    // callChatCompletion 现在直接返回解析好的 JSON
+    return result;
   } catch {
     return null;
   }
@@ -360,39 +403,23 @@ async function dedupeSingleBlock(options: {
   block: ComposeBlock;
   guardNote?: string;
 }) {
-  try {
-    return await callChatCompletion(options.baseUrl, options.settings, {
-      model: settingsModel(options.settings),
-      temperature: 0.7,
-      messages: [
-        {
-          role: "system",
-          content:
-            "你是短视频文案改写专家。任务是对给定段落进行真正的去重改写——用全新的句式和表达重写，而不是只改几个字。保留核心命题、关键数字和逻辑顺序，但句子结构、用词、语序都要有明显变化。字数保持相近。只输出改写后的正文，不要解释。",
-        },
-        {
-          role: "user",
-          content: [
-            `主题：${options.theme}`,
-            `板块类型：${options.block.sectionType}`,
-            ...buildBlockConstraintLines(options.block),
-            options.guardNote ? `上次改写被打回原因：${options.guardNote}` : "",
-            "改写要求：",
-            "1. 至少60%的句子必须用全新的表达方式重写",
-            "2. 保留原文核心命题、数字、人名、平台名等关键事实",
-            "3. 不能只改连接词或同义词替换，要真正重构句子",
-            "4. 口播感优先，每句12-28字",
-            `原文：
+  const prompt = [
+    "你是短视频文案改写专家。任务是对给定段落进行真正的去重改写——用全新的句式和表达重写，而不是只改几个字。保留核心命题、关键数字和逻辑顺序，但句子结构、用词、语序都要有明显变化。字数保持相近。",
+    "",
+    `主题：${options.theme}`,
+    `板块类型：${options.block.sectionType}`,
+    ...buildBlockConstraintLines(options.block),
+    options.guardNote ? `上次改写被打回原因：${options.guardNote}` : "",
+    "改写要求：",
+    "1. 至少60%的句子必须用全新的表达方式重写",
+    "2. 保留原文核心命题、数字、人名、平台名等关键事实",
+    "3. 不能只改连接词或同义词替换，要真正重构句子",
+    "4. 口播感优先，每句12-28字",
+    `原文：
 ${options.block.content}`,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        },
-      ],
-    });
-  } catch {
-    return null;
-  }
+  ].filter(Boolean).join("\n");
+
+  return callTextRewrite(options.baseUrl, options.settings, prompt);
 }
 
 async function resolveValidatedRewrite(options: {
@@ -537,16 +564,23 @@ export async function dedupeComposeBlocks(options: {
       ],
     });
 
-    let parsed = safeJsonParse<unknown>(content) ?? safeJsonParse<unknown>(extractJsonBlock(content));
-    if (!parsed) {
-      const looseItems = extractItemsFromLooseJson(content);
-      parsed = looseItems.length ? looseItems : null;
+    // callChatCompletion 现在直接返回解析好的 JSON 对象
+    let parsed: unknown = content;
+
+    // 如果返回的是字符串（兜底情况），尝试解析
+    if (typeof content === "string") {
+      parsed = safeJsonParse<unknown>(content);
+      if (!parsed) {
+        const looseItems = extractItemsFromLooseJson(content);
+        parsed = looseItems.length ? looseItems : null;
+      }
     }
+
     if (!parsed) {
       parsed = await repairDedupeJson({
         settings: options.settings,
         baseUrl,
-        malformedContent: content,
+        malformedContent: typeof content === "string" ? content : JSON.stringify(content),
         targetBlocks,
       });
     }

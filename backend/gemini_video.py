@@ -41,11 +41,20 @@ def _safe_json(text: str) -> Any:
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
+        # Try to find JSON object
         start_object = cleaned.find("{")
         end_object = cleaned.rfind("}")
         if start_object >= 0 and end_object > start_object:
             try:
                 return json.loads(cleaned[start_object:end_object + 1])
+            except json.JSONDecodeError:
+                pass
+        # Try to find JSON array
+        start_array = cleaned.find("[")
+        end_array = cleaned.rfind("]")
+        if start_array >= 0 and end_array > start_array:
+            try:
+                return json.loads(cleaned[start_array:end_array + 1])
             except json.JSONDecodeError:
                 pass
     return None
@@ -201,7 +210,7 @@ def _generate_content(
                 "maxOutputTokens": max_output_tokens,
             },
         },
-        timeout=120,
+        timeout=180,  # Increased timeout for longer generations
     )
     _raise_response_error(response, "Gemini generateContent failed")
 
@@ -210,7 +219,14 @@ def _generate_content(
     if not candidates:
         raise GeminiVideoError("Gemini 返回空响应")
 
-    content = candidates[0].get("content", {})
+    candidate = candidates[0]
+    finish_reason = candidate.get("finishReason", "")
+
+    # Check if output was truncated
+    if finish_reason == "MAX_TOKENS":
+        raise GeminiVideoError("Gemini 输出被截断（超出 token 限制），请减少输入内容或增加 max_tokens")
+
+    content = candidate.get("content", {})
     parts_result = content.get("parts", [])
     if not parts_result:
         raise GeminiVideoError("Gemini 返回空内容")
