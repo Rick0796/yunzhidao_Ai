@@ -1,14 +1,13 @@
-"""Gemini video analysis using official Google GenAI SDK."""
+"""Gemini video analysis using direct API calls."""
 from __future__ import annotations
 
 import json
 import os
-import tempfile
 import time
+from dataclasses import dataclass
 from typing import Any, BinaryIO
 
-from google import genai
-from google.genai import types
+import requests
 
 GEMINI_FILE_POLL_MAX_ATTEMPTS = 240
 GEMINI_FILE_POLL_INTERVAL_SECONDS = 1.0
@@ -24,6 +23,13 @@ def _get_api_key() -> str:
     if not key:
         raise GeminiVideoError("未配置 GEMINI_API_KEY 环境变量")
     return key
+
+
+@dataclass(frozen=True)
+class GeminiVideoReference:
+    file_uri: str
+    mime_type: str
+    display_name: str
 
 
 def _safe_json(text: str) -> Any:
@@ -42,98 +48,192 @@ def _safe_json(text: str) -> Any:
                 return json.loads(cleaned[start_object:end_object + 1])
             except json.JSONDecodeError:
                 pass
-        start_array = cleaned.find("[")
-        end_array = cleaned.rfind("]")
-        if start_array >= 0 and end_array > start_array:
-            try:
-                return json.loads(cleaned[start_array:end_array + 1])
-            except json.JSONDecodeError:
-                pass
     return None
+
+
+def _raise_response_error(response: requests.Response, context: str) -> None:
+    """Raise error from failed API response."""
+    if response.ok:
+        return
+    payload = _safe_json(response.text)
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            raise GeminiVideoError(f"{context}: {error['message']}")
+    raise GeminiVideoError(f"{context}: HTTP {response.status_code} {response.text[:240]}")
+
+
+def _upload_file_to_gemini(
+    api_key: str,
+    file_stream: BinaryIO,
+    content_length: int,
+    mime_type: str,
+    display_name: str,
+    timeout_seconds: int,
+) -> GeminiVideoReference:
+    """Upload file to Gemini API using resumable upload protocol."""
+    base_url = "https://generativelanguage.googleapis.com"
+
+    # Step 1: Initiate upload
+    start_url = f"{base_url}/upload/v1beta/files"
+    start_response = requests.post(
+        start_url,
+        params={"key": api_key},
+        headers={
+            "X-Goog-Upload-Protocol": "resumable",
+            "X-Goog-Upload-Command": "start",
+            "X-Goog-Upload-Header-Content-Length": str(content_length),
+            "X-Goog-Upload-Header-Content-Type": mime_type,
+            "Content-Type": "application/json",
+        },
+        json={"file": {"display_name": display_name}},
+        timeout=max(30, timeout_seconds),
+    )
+    _raise_response_error(start_response, "Gemini file start failed")
+
+    # Step 2: Get upload URL
+    upload_url = start_response.headers.get("X-Goog-Upload-URL")
+    if not upload_url:
+        raise GeminiVideoError("Gemini file upload URL missing")
+
+    # Step 3: Upload file content
+    file_stream.seek(0)
+    upload_response = requests.post(
+        upload_url,
+        headers={
+            "Content-Length": str(content_length),
+            "X-Goog-Upload-Offset": "0",
+            "X-Goog-Upload-Command": "upload, finalize",
+            "Content-Type": mime_type,
+        },
+        data=file_stream,
+        timeout=max(120, timeout_seconds * 4),
+    )
+    _raise_response_error(upload_response, "Gemini file upload failed")
+
+    # Step 4: Parse response
+    payload = _safe_json(upload_response.text)
+    file_data = payload.get("file") if isinstance(payload, dict) else payload
+    if not isinstance(file_data, dict):
+        raise GeminiVideoError("Gemini file upload returned invalid metadata")
+
+    file_name = file_data.get("name", "").strip()
+    file_uri = file_data.get("uri", "").strip()
+    if not file_name or not file_uri:
+        raise GeminiVideoError("Gemini file upload succeeded but returned no file name or uri")
+
+    # Step 5: Poll for processing completion
+    state = file_data.get("state", "").upper()
+    if state == "ACTIVE":
+        return GeminiVideoReference(file_uri=file_uri, mime_type=mime_type, display_name=display_name)
+
+    poll_url = f"{base_url}/v1beta/{file_name}"
+    for _ in range(GEMINI_FILE_POLL_MAX_ATTEMPTS):
+        status_response = requests.get(poll_url, params={"key": api_key}, timeout=max(30, timeout_seconds))
+        _raise_response_error(status_response, "Gemini file polling failed")
+        status_payload = status_response.json()
+        state = status_payload.get("state", "").upper()
+        if state == "ACTIVE":
+            return GeminiVideoReference(
+                file_uri=status_payload.get("uri") or file_uri,
+                mime_type=mime_type,
+                display_name=display_name,
+            )
+        if state == "FAILED":
+            raise GeminiVideoError("Gemini file processing failed")
+        time.sleep(GEMINI_FILE_POLL_INTERVAL_SECONDS)
+
+    raise GeminiVideoError("Gemini file processing timed out")
+
+
+def _ensure_reference(
+    api_key: str,
+    existing_file_uri: str | None,
+    file_stream: BinaryIO | None,
+    content_length: int | None,
+    mime_type: str | None,
+    display_name: str | None,
+    timeout_seconds: int,
+) -> GeminiVideoReference:
+    """Ensure we have a valid file reference."""
+    resolved_mime = (mime_type or "video/mp4").strip() or "video/mp4"
+    resolved_name = (display_name or "uploaded-video").strip() or "uploaded-video"
+
+    if existing_file_uri:
+        return GeminiVideoReference(
+            file_uri=existing_file_uri.strip(),
+            mime_type=resolved_mime,
+            display_name=resolved_name,
+        )
+
+    if file_stream is None or content_length is None or content_length <= 0:
+        raise GeminiVideoError("未提供视频文件")
+
+    return _upload_file_to_gemini(
+        api_key=api_key,
+        file_stream=file_stream,
+        content_length=content_length,
+        mime_type=resolved_mime,
+        display_name=resolved_name,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def _generate_content(
+    api_key: str,
+    model: str,
+    parts: list[dict[str, Any]],
+    max_output_tokens: int,
+    response_mime_type: str = "application/json",
+) -> Any:
+    """Call Gemini generateContent API."""
+    base_url = "https://generativelanguage.googleapis.com"
+    url = f"{base_url}/v1beta/models/{model}:generateContent"
+
+    response = requests.post(
+        url,
+        params={"key": api_key},
+        headers={"Content-Type": "application/json"},
+        json={
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {
+                "responseMimeType": response_mime_type,
+                "maxOutputTokens": max_output_tokens,
+            },
+        },
+        timeout=120,
+    )
+    _raise_response_error(response, "Gemini generateContent failed")
+
+    payload = response.json()
+    candidates = payload.get("candidates", [])
+    if not candidates:
+        raise GeminiVideoError("Gemini 返回空响应")
+
+    content = candidates[0].get("content", {})
+    parts_result = content.get("parts", [])
+    if not parts_result:
+        raise GeminiVideoError("Gemini 返回空内容")
+
+    text = parts_result[0].get("text", "")
+    if response_mime_type == "application/json":
+        parsed = _safe_json(text)
+        if not parsed:
+            raise GeminiVideoError(f"Gemini 返回非JSON内容: {text[:200]}")
+        return parsed
+    return text
 
 
 def _normalize_string(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _upload_file_to_gemini(
-    client: genai.Client,
-    file_stream: BinaryIO,
-    mime_type: str,
-    display_name: str,
-) -> str:
-    """Upload file to Gemini and wait for processing."""
-    # Write stream to temp file for SDK upload
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-        tmp.write(file_stream.read())
-        tmp_path = tmp.name
-
-    try:
-        file_data = client.files.upload(
-            file=tmp_path,
-            config=types.UploadFileConfig(
-                display_name=display_name,
-                mime_type=mime_type or "video/mp4",
-            ),
-        )
-
-        if not file_data.name or not file_data.uri:
-            raise GeminiVideoError("文件上传成功但未返回可用的文件标识")
-
-        # Poll for processing completion
-        state = file_data.state
-        attempts = 0
-        while state == "PROCESSING":
-            attempts += 1
-            if attempts > GEMINI_FILE_POLL_MAX_ATTEMPTS:
-                raise GeminiVideoError("视频在 Gemini 文件服务中处理超时")
-            time.sleep(GEMINI_FILE_POLL_INTERVAL_SECONDS)
-            status = client.files.get(name=file_data.name)
-            state = status.state
-            if state == "FAILED":
-                raise GeminiVideoError("Gemini 文件处理失败")
-
-        if state != "ACTIVE":
-            raise GeminiVideoError(f"Gemini 文件状态异常：{state or 'UNKNOWN'}")
-
-        return file_data.uri
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-
-def _resolve_video_part(
-    client: genai.Client,
-    file_stream: BinaryIO | None,
-    content_length: int | None,
-    mime_type: str | None,
-    display_name: str | None,
-    existing_file_uri: str | None,
-) -> tuple[str | None, types.Part]:
-    """Resolve video to a Part for Gemini API."""
-    resolved_mime = (mime_type or "video/mp4").strip() or "video/mp4"
-    resolved_name = (display_name or "uploaded-video").strip() or "uploaded-video"
-
-    if existing_file_uri:
-        return existing_file_uri, types.Part.from_uri(
-            file_uri=existing_file_uri.strip(),
-            mime_type=resolved_mime,
-        )
-
-    if file_stream is None or content_length is None or content_length <= 0:
-        raise GeminiVideoError("未提供视频文件")
-
-    file_uri = _upload_file_to_gemini(client, file_stream, resolved_mime, resolved_name)
-    return file_uri, types.Part.from_uri(file_uri=file_uri, mime_type=resolved_mime)
-
-
 def _normalize_analysis_result(parsed: Any, *, file_uri: str | None, mime_type: str, deep: bool) -> dict[str, Any]:
     payload = parsed if isinstance(parsed, dict) else {}
-    structure_raw = payload.get("videoStructure") if isinstance(payload.get("videoStructure"), dict) else {}
-    timestamps_raw = payload.get("timestamps") if isinstance(payload.get("timestamps"), list) else []
-    visual_features_raw = payload.get("visualFeatures") if isinstance(payload.get("visualFeatures"), list) else []
+    structure_raw = payload.get("videoStructure", {})
+    timestamps_raw = payload.get("timestamps", [])
+    visual_features_raw = payload.get("visualFeatures", [])
+
     return {
         "summary": _normalize_string(payload.get("summary")),
         "script": _normalize_string(payload.get("script")),
@@ -143,7 +243,7 @@ def _normalize_analysis_result(parsed: Any, *, file_uri: str | None, mime_type: 
                 "description": _normalize_string(item.get("description")),
             }
             for item in visual_features_raw
-            if isinstance(item, dict) and (_normalize_string(item.get("feature")) or _normalize_string(item.get("description")))
+            if isinstance(item, dict)
         ],
         "videoStructure": {
             "coreProposition": _normalize_string(structure_raw.get("coreProposition")),
@@ -173,7 +273,7 @@ def _normalize_analysis_result(parsed: Any, *, file_uri: str | None, mime_type: 
 def analyze_video_with_gemini(
     *,
     api_key: str | None = None,
-    base_url: str | None = None,  # ignored, kept for compatibility
+    base_url: str | None = None,
     model: str,
     timeout_seconds: int,
     mode: str,
@@ -185,11 +285,16 @@ def analyze_video_with_gemini(
 ) -> dict[str, Any]:
     """Analyze video using Gemini API."""
     key = api_key or _get_api_key()
-    client = genai.Client(api_key=key)
     is_deep = mode.upper() == "DEEP"
 
-    file_uri, video_part = _resolve_video_part(
-        client, file_stream, content_length, mime_type, display_name, existing_file_uri
+    reference = _ensure_reference(
+        api_key=key,
+        existing_file_uri=existing_file_uri,
+        file_stream=file_stream,
+        content_length=content_length,
+        mime_type=mime_type,
+        display_name=display_name,
+        timeout_seconds=timeout_seconds,
     )
 
     prompt = """你是一名短视频内容分析专家，请只输出 JSON，不要输出任何解释文字。
@@ -206,23 +311,20 @@ def analyze_video_with_gemini(
 2. 不要使用"未提取""未知"等占位语，信息不足时给出合理推断。
 3. 结果必须是合法 JSON。"""
 
-    response = client.models.generate_content(
+    parsed = _generate_content(
+        api_key=key,
         model=model or "gemini-2.5-flash",
-        contents=[video_part, prompt],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            max_output_tokens=8192 if is_deep else 4096,
-        ),
+        parts=[
+            {"file_data": {"mime_type": reference.mime_type, "file_uri": reference.file_uri}},
+            {"text": prompt},
+        ],
+        max_output_tokens=8192 if is_deep else 4096,
     )
-
-    parsed = _safe_json(response.text or "")
-    if not parsed:
-        raise GeminiVideoError("AI 返回内容无法解析为 JSON")
 
     return _normalize_analysis_result(
         parsed,
-        file_uri=file_uri,
-        mime_type=(mime_type or "video/mp4").strip() or "video/mp4",
+        file_uri=reference.file_uri,
+        mime_type=mime_type or "video/mp4",
         deep=is_deep,
     )
 
@@ -230,7 +332,7 @@ def analyze_video_with_gemini(
 def generate_sora_prompts_with_gemini(
     *,
     api_key: str | None = None,
-    base_url: str | None = None,  # ignored, kept for compatibility
+    base_url: str | None = None,
     model: str,
     timeout_seconds: int,
     count: int,
@@ -243,10 +345,15 @@ def generate_sora_prompts_with_gemini(
 ) -> list[dict[str, str]]:
     """Generate Sora prompts from video using Gemini API."""
     key = api_key or _get_api_key()
-    client = genai.Client(api_key=key)
 
-    file_uri, video_part = _resolve_video_part(
-        client, file_stream, content_length, mime_type, display_name, existing_file_uri
+    reference = _ensure_reference(
+        api_key=key,
+        existing_file_uri=existing_file_uri,
+        file_stream=file_stream,
+        content_length=content_length,
+        mime_type=mime_type,
+        display_name=display_name,
+        timeout_seconds=timeout_seconds,
     )
 
     prompt = f"""你是一名 AIGC 导演，请基于视频内容输出 {max(1, count)} 条可直接用于生成数字人短视频的提示词。
@@ -258,19 +365,18 @@ def generate_sora_prompts_with_gemini(
 3. 不要输出 markdown。
 {f"参考视频摘要：{analysis_summary}" if analysis_summary else ""}"""
 
-    response = client.models.generate_content(
+    parsed = _generate_content(
+        api_key=key,
         model=model or "gemini-2.5-flash",
-        contents=[video_part, prompt],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            max_output_tokens=4096,
-        ),
+        parts=[
+            {"file_data": {"mime_type": reference.mime_type, "file_uri": reference.file_uri}},
+            {"text": prompt},
+        ],
+        max_output_tokens=4096,
     )
 
-    parsed = _safe_json(response.text or "")
-    items = parsed if isinstance(parsed, list) else [parsed] if isinstance(parsed, dict) else []
-
-    results: list[dict[str, str]] = []
+    items = parsed if isinstance(parsed, list) else [parsed]
+    results = []
     for index, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             continue
