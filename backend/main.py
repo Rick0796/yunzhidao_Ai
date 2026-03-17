@@ -601,7 +601,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="云智道AI后端", version="0.4.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://yunzhidao-ai.vercel.app", "http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
