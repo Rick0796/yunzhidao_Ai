@@ -76,7 +76,7 @@ function App() {
   const [enteredWorkbench, setEnteredWorkbench] = useState(false);
   const [workbenchMode, setWorkbenchMode] = useStoredState<WorkbenchMode | null>(STORAGE_KEYS.workbenchMode, null);
   const [experienceMode, setExperienceMode] = useStoredState<"beginner" | "advanced">(STORAGE_KEYS.experienceMode, "beginner");
-  const [settings, setSettings] = useStoredState<ApiSettings>(STORAGE_KEYS.settings, defaultApiSettings);
+  const [storedSettings, setStoredSettings] = useStoredState<ApiSettings>(STORAGE_KEYS.settings, defaultApiSettings);
   const [profile, setProfile] = useStoredState<BaseProfile>(STORAGE_KEYS.profile, defaultBaseProfile);
   const [task, setTask] = useStoredState<TaskForm>(STORAGE_KEYS.task, defaultTask);
   const [hooks, setHooks] = useStoredState<HookItem[]>(STORAGE_KEYS.hooks, []);
@@ -120,6 +120,7 @@ function App() {
   );
   const currentWorkbenchMode = workbenchMode ?? inferWorkbenchMode(task.entryType);
   const isBeginnerMode = experienceMode === "beginner";
+  const settings = useMemo(() => normalizeApiSettings(storedSettings), [storedSettings]);
   const normalizedTask = useMemo(() => normalizeTaskState(task), [task]);
   const lastOriginalEntryRef = useRef<{ entryType: OriginalEntryType; chosen: boolean }>({
     entryType: isOriginalEntryType(defaultTask.entryType) ? defaultTask.entryType : DEFAULT_ORIGINAL_ENTRY_TYPE,
@@ -239,11 +240,10 @@ function App() {
   }, [notice]);
 
   useEffect(() => {
-    const normalized = normalizeApiSettings(settings);
-    if (!sameApiSettings(settings, normalized)) {
-      setSettings(normalized);
+    if (!sameApiSettings(storedSettings, settings)) {
+      setStoredSettings(settings);
     }
-  }, [settings, setSettings]);
+  }, [settings, setStoredSettings, storedSettings]);
 
   useEffect(() => {
     if (
@@ -409,7 +409,7 @@ function App() {
   }
 
   function updateSettingsField<K extends keyof ApiSettings>(key: K, value: ApiSettings[K]) {
-    setSettings((prev) => normalizeApiSettings({ ...prev, [key]: value }));
+    setStoredSettings((prev) => normalizeApiSettings({ ...prev, [key]: value }));
   }
 
   function openWorkbench(mode: WorkbenchMode) {
