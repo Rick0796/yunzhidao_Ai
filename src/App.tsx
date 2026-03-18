@@ -974,7 +974,7 @@ function App() {
 
         <StepFooter>
           <button className="brand-btn" onClick={() => goStep(2)} disabled={!canGoStep2}>
-            {currentWorkbenchMode === "rewrite" ? "确定原文，进入生成开头" : "确定任务，进入选皮"}
+            {currentWorkbenchMode === "rewrite" ? "??????????" : "?????????"}
           </button>
         </StepFooter>
       </GlassCard>
@@ -983,7 +983,7 @@ function App() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">
-              {currentWorkbenchMode === "rewrite" ? "生成开头" : "开头（皮）"}
+              {currentWorkbenchMode === "rewrite" ? "????" : "?????"}
             </div>
             {currentWorkbenchMode !== "rewrite" && (
               <div className="mt-1 text-sm text-slate-300 truncate max-w-xs md:max-w-md">{getTaskPrimaryText(task) || "还没填写"}</div>
@@ -1029,47 +1029,48 @@ function App() {
           </div>
         ) : null}
 
-        <div className={classNames("mt-4", currentWorkbenchMode === "rewrite" && "hidden")}>
-          <button
-            className="flex w-full items-center justify-between text-left"
-            onClick={() => setIsHooksCollapsed((v) => !v)}
-          >
-            <span className="text-xs font-semibold text-slate-400">开头列表 {hooks.length > 0 ? `· ${hooks.length} 条` : ""}</span>
-            <svg className={classNames("h-4 w-4 text-slate-500 transition-transform", isHooksCollapsed && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-          </button>
-          {!isHooksCollapsed && (
-            <div className="mt-2 grid gap-2">
-              {hooks.length === 0 ? (
-                <EmptyBlock text="还没生成开头，点上面的按钮先出一批。" />
-              ) : (
-                hooks.map((item) => (
-                  <button
-                    key={item.id}
-                    className={classNames("result-card-v2", item.id === selectedHook?.id && "result-card-v2-active")}
-                    onClick={() => handleHookSelect(item.id)}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold leading-6 text-white">{item.text}</div>
-                        <div className="mt-1 text-xs text-slate-400">{item.type} · {item.riskLevel}风险 · {item.score}分</div>
+        {currentWorkbenchMode !== "rewrite" ? (
+          <div className="mt-4">
+            <button
+              className="flex w-full items-center justify-between text-left"
+              onClick={() => setIsHooksCollapsed((v) => !v)}
+            >
+              <span className="text-xs font-semibold text-slate-400">???? {hooks.length > 0 ? `? ${hooks.length} ?` : ""}</span>
+              <svg className={classNames("h-4 w-4 text-slate-500 transition-transform", isHooksCollapsed && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {!isHooksCollapsed && (
+              <div className="mt-2 grid gap-2">
+                {hooks.length === 0 ? (
+                  <EmptyBlock text="??????????????????" />
+                ) : (
+                  hooks.map((item) => (
+                    <button
+                      key={item.id}
+                      className={classNames("result-card-v2", item.id === selectedHook?.id && "result-card-v2-active")}
+                      onClick={() => handleHookSelect(item.id)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold leading-6 text-white">{item.text}</div>
+                          <div className="mt-1 text-xs text-slate-400">{item.type} ? {item.riskLevel}?? ? {item.score}?</div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span
+                            role="button" tabIndex={0}
+                            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 hover:text-white"
+                            onClick={(e) => { e.stopPropagation(); handleCopy(item.text, "??????"); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleCopy(item.text, "??????"); } }}
+                          >??</span>
+                          <div className={classNames("h-4 w-4 rounded-full border", item.id === selectedHook?.id ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
+                        </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <span
-                          role="button" tabIndex={0}
-                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 hover:text-white"
-                          onClick={(e) => { e.stopPropagation(); handleCopy(item.text, "开头已复制。"); }}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleCopy(item.text, "开头已复制。"); } }}
-                        >复制</span>
-                        <div className={classNames("h-4 w-4 rounded-full border", item.id === selectedHook?.id ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
-                      </div>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        ) : null}
         <StepFooter>
           <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(1)}>返回上一步</button>
           <button className="brand-btn" onClick={() => goStep(3)} disabled={currentWorkbenchMode === "rewrite" ? !canGoStep3 : !selectedHook}>
@@ -1098,6 +1099,7 @@ function App() {
         </div>
         <ModuleMetaHint meta={moduleMeta.structure} />
 
+        {currentWorkbenchMode !== "rewrite" ? (
         <div className="mt-4">
           <button
             className="flex w-full items-center justify-between text-left mb-2"
@@ -1224,6 +1226,7 @@ function App() {
             </>
           )}
         </div>
+        ) : null}
 
         <StepFooter>
           <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(2)}>返回上一步</button>

@@ -176,7 +176,7 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
       return [];
     }
     if (!canGoStep2) {
-      showNotice("warning", "??????????????");
+      showNotice("warning", "先把原文贴进去，再开始生成。");
       return [];
     }
 
@@ -209,14 +209,14 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
 
       if (append) {
         const addedCount = nextDrafts.length - drafts.length;
-        showNotice(addedCount > 0 ? "success" : "info", addedCount > 0 ? `????? ${addedCount} ??????` : "????????????????????");
+        showNotice(addedCount > 0 ? "success" : "info", addedCount > 0 ? `已追加生成 ${addedCount} 条仿写版本。` : "新生成内容与现有版本太像，已保留原结果。");
       } else {
-        showNotice("success", nextDrafts.length > 0 ? "????????????????" : "????????????");
+        showNotice("success", nextDrafts.length > 0 ? "已根据原文结构生成完整仿写版本。" : "这次没有生成出可用版本。");
       }
 
       return nextDrafts;
     } catch (error: unknown) {
-      showNotice("warning", `?????????${error instanceof Error ? error.message : "????"}`);
+      showNotice("warning", `爆款仿写生成失败：${error instanceof Error ? error.message : "未知错误"}`);
       return [];
     } finally {
       setIsGeneratingDrafts(false);
@@ -225,11 +225,11 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
 
   async function handleGenerateDrafts(): Promise<void> {
     if (currentWorkbenchMode === "rewrite") {
-      if (!selectedHook || !selectedCta || (task.businessMode !== "none" && !selectedMeat)) {
-        showNotice("warning", "????????????????????");
-        return;
-      }
-    } else {
+      await handleGenerateRewriteDrafts({ count: 1, append: false });
+      return;
+    }
+
+    {
       if (!selectedHook || !selectedSkeleton || !selectedCta || (task.businessMode !== "none" && !selectedMeat)) {
         showNotice("warning", "先把皮、骨、肉、收口都定下来。");
         return;
