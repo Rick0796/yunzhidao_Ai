@@ -1,9 +1,8 @@
-import type { DraftItem, TaskForm } from "../types";
+﻿import type { DraftItem, TaskForm } from "../types";
 
 const SENTENCE_SPLIT_RE = /[^\u3002\uFF01\uFF1F!?\uFF1B;]+[\u3002\uFF01\uFF1F!?\uFF1B;]?/g;
 const SENTENCE_END_RE = /[\u3002\uFF01\uFF1F!?\uFF1B;]$/;
-const SENTENCE_TRIM_RE = /[\u3002\uFF01\uFF1F!?\uFF1B;]+$/g;
-const HARD_TOKEN_RE = /20\d{2}\u5e74|\d+(?:\.\d+)?%|\u7b2c[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u53410-9]+/g;
+const HARD_TOKEN_RE = /20\d{2}年|\d+(?:\.\d+)?%|第[一二三四五六七八九十0-9]+/g;
 
 export interface RewriteConstraintSummary {
   paragraphCountMatch: boolean;
@@ -29,7 +28,7 @@ export function splitSentences(text: string) {
 export function ensureSentence(text: string) {
   const normalized = text.trim();
   if (!normalized) return "";
-  return SENTENCE_END_RE.test(normalized) ? normalized : `${normalized}。`;
+  return SENTENCE_END_RE.test(normalized) ? normalized : `${normalized}?`;
 }
 
 export function scriptToSubtitle(script: string) {
@@ -54,14 +53,7 @@ export function summarizeRewriteConstraints(sourceText: string, draftText: strin
   const draftParagraphs = splitParagraphs(draftText);
   const lengthRatio = getLengthRatio(sourceParagraphs.join(""), draftParagraphs.join(""));
   const hardTokens = extractHardTokens(sourceParagraphs.join(""));
-  const maxSentenceDelta = Math.max(
-    0,
-    ...draftParagraphs.map((paragraph, index) => {
-      const sourceParagraph = sourceParagraphs[index] ?? "";
-      return Math.abs(splitSentences(paragraph).length - splitSentences(sourceParagraph).length);
-    })
-  );
-
+  const maxSentenceDelta = Math.max(0, ...draftParagraphs.map((paragraph, index) => Math.abs(splitSentences(paragraph).length - splitSentences(sourceParagraphs[index] ?? "").length)));
   return {
     paragraphCountMatch: sourceParagraphs.length > 0 && draftParagraphs.length === sourceParagraphs.length,
     lengthRatio,
@@ -130,12 +122,10 @@ export function normalizeRewriteDrafts(items: Array<Partial<DraftItem>>, task: T
 export function buildConstraintMessage(summary: RewriteConstraintSummary) {
   const ratio = summary.lengthRatio.toFixed(2);
   const parts = [
-    summary.paragraphCountMatch ? "段落一致" : "段落不一致",
-    summary.lengthRatioOk ? `字数比 ${ratio}` : `字数比异常 ${ratio}`,
-    summary.hardTokenRetention ? "硬信息保留" : "硬信息丢失",
+    summary.paragraphCountMatch ? "????" : "?????",
+    summary.lengthRatioOk ? `??? ${ratio}` : `????? ${ratio}`,
+    summary.hardTokenRetention ? "?????" : "?????",
   ];
-  if (summary.maxSentenceDelta > 1) {
-    parts.push(`句数差 ${summary.maxSentenceDelta}`);
-  }
+  if (summary.maxSentenceDelta > 1) parts.push(`??? ${summary.maxSentenceDelta}`);
   return parts.join(" / ");
 }
