@@ -5,6 +5,7 @@ import ParticleBackground from "./components/ParticleBackground";
 import ComposeWorkbench from "./components/ComposeWorkbench";
 import HotspotCenterPanel from "./components/HotspotCenterPanel";
 import VideoAnalysisPanel from "./components/VideoAnalysisPanel";
+import RewriteFlowPanel from "./components/RewriteFlowPanel";
 import {
   buildMockSourceStructure
 } from "./lib/mock";
@@ -703,13 +704,75 @@ function App() {
     if (target === 4 && canGoStep4) return setWizardStep(4);
   }
 
+  const rewriteStepPanel = (
+    <RewriteFlowPanel
+      wizardStep={wizardStep}
+      canGoStep2={canGoStep2}
+      canGoStep3={canGoStep3}
+      showTaskSettings={showTaskSettings}
+      onToggleTaskSettings={() => setShowTaskSettings((prev) => !prev)}
+      showAdvanced={showAdvanced}
+      onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
+      hasTaskInput={Boolean(getTaskPrimaryText(task).trim())}
+      taskInput={renderTaskInput()}
+      advancedSettings={(
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <FieldLabel text="??? / ???" />
+            <Textarea value={profile.selfIntro} onChange={(value) => updateProfileField("selfIntro", value)} />
+          </div>
+          <div>
+            <FieldLabel text="????" />
+            <Textarea value={profile.targetAudience} onChange={(value) => updateProfileField("targetAudience", value)} />
+          </div>
+          <div>
+            <FieldLabel text="?????" />
+            <Textarea value={profile.coreKeywords} onChange={(value) => updateProfileField("coreKeywords", value)} />
+          </div>
+          <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
+            <div>
+              <FieldLabel text="?????? API" />
+              <Toggle checked={settings.useLiveApi} onChange={(checked) => updateSettingsField("useLiveApi", checked)} label={settings.useLiveApi ? "???" : "??????"} />
+            </div>
+            <div>
+              <FieldLabel text="??????" />
+              <Input value={settings.baseUrl} onChange={(value) => updateSettingsField("baseUrl", value)} placeholder="/api" />
+            </div>
+            <div>
+              <FieldLabel text="?????????" />
+              <Input value={settings.mainModel} onChange={(value) => updateSettingsField("mainModel", value)} placeholder="gemini-2.0-flash" />
+            </div>
+            <div>
+              <FieldLabel text="???????????" />
+              <Input value={settings.imageModel} onChange={(value) => updateSettingsField("imageModel", value)} placeholder="gemini-2.0-flash" />
+            </div>
+          </div>
+        </div>
+      )}
+      rewriteSourceStructure={rewriteSourceStructure}
+      isRewriteStructureCollapsed={isRewriteStructureCollapsed}
+      onToggleRewriteStructure={() => setIsRewriteStructureCollapsed((prev) => !prev)}
+      drafts={drafts}
+      selectedDraftId={selectedDraftId}
+      selectedDraft={selectedDraft}
+      onSelectDraft={(id) => setSelectedDraftId(id)}
+      isGeneratingDrafts={isGeneratingDrafts}
+      moduleMeta={moduleMeta.drafts}
+      onGenerateOne={() => void handleGenerateRewriteDrafts({ count: 1, append: false })}
+      onGenerateMore={() => void handleGenerateRewriteDrafts({ count: 3, append: true })}
+      onCopy={handleCopy}
+      goStep={goStep}
+    />
+  );
+
   const stepPanel =
+    currentWorkbenchMode === "rewrite" ? rewriteStepPanel :
     wizardStep === 1 ? (
       <GlassCard>
         <div className="space-y-3">
 
           {/* ── 任务设置（合并折叠卡片） ── */}
-          {currentWorkbenchMode !== "rewrite" ? (
+          {true ? (
             <div className={classNames(
               "rounded-2xl border-2 transition",
               (normalizedTask.entryTypeChosen && normalizedTask.businessModeChosen && (normalizedTask.ctaModeChosen || task.businessMode === "none"))
@@ -974,7 +1037,7 @@ function App() {
 
         <StepFooter>
           <button className="brand-btn" onClick={() => goStep(2)} disabled={!canGoStep2}>
-            {currentWorkbenchMode === "rewrite" ? "??????????" : "?????????"}
+            "?????????"
           </button>
         </StepFooter>
       </GlassCard>
@@ -983,22 +1046,20 @@ function App() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">
-              {currentWorkbenchMode === "rewrite" ? "????" : "?????"}
+              ?????
             </div>
-            {currentWorkbenchMode !== "rewrite" && (
-              <div className="mt-1 text-sm text-slate-300 truncate max-w-xs md:max-w-md">{getTaskPrimaryText(task) || "还没填写"}</div>
-            )}
+            <div className="mt-1 text-sm text-slate-300 truncate max-w-xs md:max-w-md">{getTaskPrimaryText(task) || "????"}</div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.hooks ? <SourceBadge meta={moduleMeta.hooks} /> : null}
-            {currentWorkbenchMode === "rewrite" ? <button className="brand-btn" onClick={() => goStep(3)} disabled={!canGoStep3}>??????</button> : <button className="brand-btn" onClick={() => void handleGenerateHooks()} disabled={isGeneratingHooks}>
+            <button className="brand-btn" onClick={() => void handleGenerateHooks()} disabled={isGeneratingHooks}>
               {isGeneratingHooks ? "???..." : hooks.length > 0 ? "????" : "????"}
-            </button>}
+            </button>
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.hooks} />
 
-        {currentWorkbenchMode === "rewrite" ? (
+        {true ? (
           <div className="mt-4 rounded-2xl border border-white/10 bg-white/4 p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="text-sm font-semibold text-white">原文结构版</div>
@@ -1029,7 +1090,7 @@ function App() {
           </div>
         ) : null}
 
-        {currentWorkbenchMode !== "rewrite" ? (
+        {true ? (
           <div className="mt-4">
             <button
               className="flex w-full items-center justify-between text-left"
@@ -1073,8 +1134,8 @@ function App() {
         ) : null}
         <StepFooter>
           <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(1)}>返回上一步</button>
-          <button className="brand-btn" onClick={() => goStep(3)} disabled={currentWorkbenchMode === "rewrite" ? !canGoStep3 : !selectedHook}>
-            {currentWorkbenchMode === "rewrite" ? "??????" : "?????????"}
+          <button className="brand-btn" onClick={() => goStep(3)} disabled={!selectedHook}>
+            ?????????
           </button>
         </StepFooter>
       </GlassCard>
@@ -1087,19 +1148,14 @@ function App() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.structure ? <SourceBadge meta={moduleMeta.structure} /> : null}
-            {currentWorkbenchMode === "rewrite" ? (<>
-              <button className="brand-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 1, append: false })} disabled={isGeneratingDrafts}>
-                {isGeneratingDrafts ? "???..." : drafts.length > 0 ? "????1?" : "??1?"}
-              </button>
-              <button className="ghost-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 3, append: true })} disabled={isGeneratingDrafts}>???3?</button>
-            </>) : <button className="brand-btn" onClick={() => void handleGenerateStructure()} disabled={!selectedHook || isGeneratingStructure}>
+            <button className="brand-btn" onClick={() => void handleGenerateStructure()} disabled={!selectedHook || isGeneratingStructure}>
               {isGeneratingStructure ? "???..." : skeletons.length > 0 || ctas.length > 0 ? "????" : "????"}
-            </button>}
+            </button>
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.structure} />
 
-        {currentWorkbenchMode !== "rewrite" ? (
+        {true ? (
         <div className="mt-4">
           <button
             className="flex w-full items-center justify-between text-left mb-2"
@@ -1230,8 +1286,8 @@ function App() {
 
         <StepFooter>
           <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(2)}>返回上一步</button>
-          <button className="brand-btn" onClick={() => goStep(4)} disabled={currentWorkbenchMode === "rewrite" ? !drafts.length : !canGoStep4}>
-            {currentWorkbenchMode === "rewrite" ? "????" : "?????????"}
+          <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>
+            ?????????
           </button>
         </StepFooter>
       </GlassCard>
@@ -1250,14 +1306,9 @@ function App() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.drafts ? <SourceBadge meta={moduleMeta.drafts} /> : null}
-            {currentWorkbenchMode === "rewrite" ? (<>
-              <button className="brand-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 1, append: false })} disabled={isGeneratingDrafts}>
-                {isGeneratingDrafts ? "???..." : drafts.length > 0 ? "????1?" : "??1?"}
-              </button>
-              <button className="ghost-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 3, append: true })} disabled={isGeneratingDrafts}>???3?</button>
-            </>) : <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
+            <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
               {isGeneratingDrafts ? "???..." : drafts.length > 0 ? "????" : "????"}
-            </button>}
+            </button>
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.drafts} />
@@ -1327,37 +1378,19 @@ function App() {
     );
 
   // 手机底部操作栏按钮
-  const mobileActionBtn = enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" ? (
+  const mobileActionBtn = enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" && currentWorkbenchMode !== "rewrite" ? (
     wizardStep === 1 ? (
       <button className="brand-btn" onClick={() => goStep(2)} disabled={!canGoStep2}>
-        {currentWorkbenchMode === "rewrite" ? "确定，进入选开头" : "确定任务"}
+        ????
       </button>
     ) : wizardStep === 2 ? (
-      <button className="brand-btn" onClick={() => goStep(3)} disabled={currentWorkbenchMode === "rewrite" ? !canGoStep3 : !selectedHook}>
-        {currentWorkbenchMode === "rewrite" ? "确定开头，进入生成成品" : "确定开头"}
-      </button>
+      <button className="brand-btn" onClick={() => goStep(3)} disabled={!selectedHook}>????</button>
     ) : wizardStep === 3 ? (
-      currentWorkbenchMode === "rewrite" ? (
-        drafts.length > 0 ? (
-          <button className="brand-btn" onClick={() => goStep(4)}>查看成品</button>
-        ) : (
-          <button className="brand-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 1, append: false })} disabled={isGeneratingDrafts}>
-            {isGeneratingDrafts ? "生成中..." : "生成1版"}
-          </button>
-        )
-      ) : (
-        <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>确定结构</button>
-      )
+      <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>????</button>
     ) : (
-      currentWorkbenchMode === "rewrite" ? (
-        <button className="brand-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 1, append: false })} disabled={isGeneratingDrafts}>
-          {isGeneratingDrafts ? "生成中..." : "继续生成1版"}
-        </button>
-      ) : (
-        <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
-          {isGeneratingDrafts ? "生成中..." : drafts.length > 0 ? "重新生成" : "生成成品"}
-        </button>
-      )
+      <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
+        {isGeneratingDrafts ? "???..." : drafts.length > 0 ? "????" : "????"}
+      </button>
     )
   ) : null;
 
