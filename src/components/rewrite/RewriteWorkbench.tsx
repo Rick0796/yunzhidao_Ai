@@ -76,6 +76,10 @@ export default function RewriteWorkbench(props: RewriteWorkbenchProps) {
   const userNote = task.userNote || "";
   const baseUrl = normalizeBaseUrl(settings.baseUrl || "/api");
 
+  // 调试信息
+  console.log("[RewriteWorkbench] baseUrl:", baseUrl);
+  console.log("[RewriteWorkbench] useLiveApi:", settings.useLiveApi);
+
   async function handleGenerate(count: number, refineNote?: string, append = false) {
     if (!sourceText.trim()) {
       showNotice("warning", "请先粘贴要仿写的原文。");
@@ -89,13 +93,25 @@ export default function RewriteWorkbench(props: RewriteWorkbenchProps) {
 
     try {
       const prompt = buildPrompt(sourceText, userNote, refineNote, count);
-      const response = await fetch(`${baseUrl}/generate-viral-copies`, {
+      const apiUrl = `${baseUrl}/generate-viral-copies`;
+      console.log("[RewriteWorkbench] Calling API:", apiUrl);
+      const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ script: prompt, count }),
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      console.log("[RewriteWorkbench] Response status:", response.status);
+      if (!response.ok) {
+        // 尝试读取错误响应体
+        try {
+          const errorBody = await response.json();
+          console.log("[RewriteWorkbench] Error response:", errorBody);
+          throw new Error(`HTTP ${response.status}: ${errorBody?.detail || errorBody?.error?.message || JSON.stringify(errorBody)}`);
+        } catch (parseErr) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+      }
       const raw = await response.json() as { copies?: string[]; error?: { message?: string } };
       if (raw.error) throw new Error(raw.error.message || "API 返回错误");
       const copies = Array.isArray(raw.copies) ? raw.copies.filter((c) => typeof c === "string" && c.trim()) : [];
@@ -109,9 +125,20 @@ export default function RewriteWorkbench(props: RewriteWorkbenchProps) {
       showNotice("success", append ? `已追加 ${next.length} 条版本。` : `已生成 ${next.length} 条仿写版本。`);
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") return;
+      // 显示真实错误信息用于调试
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("API Error:", errorMessage);
+      // 检查是否是后端返回的错误
+      if (errorMessage.includes("500") || errorMessage.includes("Backend Gemini config")) {
+        showNotice("warning", `后端配置问题：${errorMessage}。请检查 Vercel 环境变量 GEMINI_API_KEY 是否已设置。`);
+      } else if (errorMessage.includes("HTTP")) {
+        showNotice("warning", `请求失败：${errorMessage}。请检查后端服务是否正常运行。`);
+      }
       const fallback = buildLocalFallback(sourceText, count);
       setScripts(append ? (prev) => [...prev, ...fallback] : fallback);
-      showNotice("info", "API 暂时不可用，已使用本地仿写版本。");
+      if (!errorMessage.includes("500") && !errorMessage.includes("HTTP")) {
+        showNotice("info", "API 暂时不可用，已使用本地仿写版本。");
+      }
     } finally {
       setIsGenerating(false);
       abortRef.current = null;
