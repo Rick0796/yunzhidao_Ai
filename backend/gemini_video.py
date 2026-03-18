@@ -68,7 +68,15 @@ def _raise_response_error(response: requests.Response, context: str) -> None:
     if isinstance(payload, dict):
         error = payload.get("error")
         if isinstance(error, dict) and error.get("message"):
-            raise GeminiVideoError(f"{context}: {error['message']}")
+            message = str(error["message"])
+            lower = message.lower()
+            if "api key expired" in lower:
+                raise GeminiVideoError("Gemini API Key 已过期，请更换新的可用 Key")
+            if "quota" in lower and "billing" in lower:
+                raise GeminiVideoError("Gemini API Key 当前额度已用尽，请更换有可用配额的 Key")
+            if "api key not valid" in lower or "api_key_invalid" in lower:
+                raise GeminiVideoError("Gemini API Key 无效，请检查配置是否正确")
+            raise GeminiVideoError(f"{context}: {message}")
     raise GeminiVideoError(f"{context}: HTTP {response.status_code} {response.text[:240]}")
 
 

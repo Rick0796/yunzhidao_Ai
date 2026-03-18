@@ -169,6 +169,8 @@ def build_copy_analysis_prompt(*, original_copy: str, industry: str, needs: str,
 2. 每条生成文案都必须与原文字数接近，禁止明显变长或变短。
 3. 每条生成文案都只能做去重改写，不能改变核心观点，不能另起炉灶。
 4. generatedScripts 里的 content 只能放最终仿写正文本身，不要额外输出风格说明、拍摄建议、解释文字或任何标题标签。
+5. 每一段都要真正重写句式和表达，不能只是替换少量近义词，不能出现大段与原文近似的连续表达。
+6. 除“AI”“周老师”“直播”等必要专有词外，尽量避免和原文出现连续 8 个字以上的重复。
 
 请只返回合法 JSON，不要输出任何解释文字。
 
@@ -201,6 +203,7 @@ def build_copy_refine_prompt(*, current_result: Any, user_instruction: str, user
 2. 保持原文爆款结构一致，推进顺序一致，段落节奏一致。原文约 {paragraph_count} 段时，改写稿也保持相近段落数。
 3. 保持字数接近，控制在 {min_length} 到 {max_length} 字之间。
 4. generatedScripts 里的 content 只能输出最终仿写正文，不要附加解释、标签或拍摄建议。
+5. 每一段都要真正重写句式和表达，不能只改几个词，不能出现大段连续照搬。
 
 规则：
 1. 必须返回严格的 JSON 格式，不要包含任何思考过程或多余文字。
