@@ -25,11 +25,13 @@ export function cloneDeep<T>(value: T): T {
 }
 
 export function normalizeApiSettings(value: Partial<ApiSettings> | null | undefined): ApiSettings {
+  // 强制使用 /api 作为后端代理地址，忽略任何存储的 baseUrl
+  // 这确保所有请求都发送到我们自己的后端，而不是外部 API
   return {
     ...defaultApiSettings,
     ...(value || {}),
     useLiveApi: typeof value?.useLiveApi === "boolean" ? value.useLiveApi : defaultApiSettings.useLiveApi,
-    baseUrl: normalizeBaseUrl(typeof value?.baseUrl === "string" && value.baseUrl.trim() ? value.baseUrl : defaultApiSettings.baseUrl),
+    baseUrl: "/api", // 强制使用 /api
     apiKey: "",
     mainModel: typeof value?.mainModel === "string" && value.mainModel.trim() ? value.mainModel : defaultApiSettings.mainModel,
     batchModel: typeof value?.batchModel === "string" && value.batchModel.trim() ? value.batchModel : defaultApiSettings.batchModel,
