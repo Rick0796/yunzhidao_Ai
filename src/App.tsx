@@ -6,6 +6,7 @@ import ComposeWorkbench from "./components/ComposeWorkbench";
 import HotspotCenterPanel from "./components/HotspotCenterPanel";
 import VideoAnalysisPanel from "./components/VideoAnalysisPanel";
 import RewriteFlowContainer from "./components/RewriteFlowContainer";
+import RewriteWorkbench from "./components/rewrite/RewriteWorkbench";
 import {
   buildMockSourceStructure
 } from "./lib/mock";
@@ -714,66 +715,12 @@ function App() {
   }
 
   const rewriteStepPanel = (
-    <RewriteFlowContainer
-      wizardStep={wizardStep}
-      canGoStep2={canGoStep2}
-      canGoStep3={canGoStep3}
-      showTaskSettings={showTaskSettings}
-      onToggleTaskSettings={() => setShowTaskSettings((prev) => !prev)}
-      showAdvanced={showAdvanced}
-      onToggleAdvanced={() => setShowAdvanced((prev) => !prev)}
-      hasTaskInput={Boolean(getTaskPrimaryText(task).trim())}
-      taskInput={renderTaskInput()}
-      advancedSettings={(
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="md:col-span-2">
-            <FieldLabel text="个人定位 / 角色自述" />
-            <Textarea value={profile.selfIntro} onChange={(value) => updateProfileField("selfIntro", value)} />
-          </div>
-          <div>
-            <FieldLabel text="目标受众" />
-            <Textarea value={profile.targetAudience} onChange={(value) => updateProfileField("targetAudience", value)} />
-          </div>
-          <div>
-            <FieldLabel text="核心关键词" />
-            <Textarea value={profile.coreKeywords} onChange={(value) => updateProfileField("coreKeywords", value)} />
-          </div>
-          <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
-            <div>
-              <FieldLabel text="是否启用 API" />
-              <Toggle checked={settings.useLiveApi} onChange={(checked) => updateSettingsField("useLiveApi", checked)} label={settings.useLiveApi ? "API 已开启" : "仅本地生成"} />
-            </div>
-            <div>
-              <FieldLabel text="API 地址" />
-              <Input value={settings.baseUrl} onChange={(value) => updateSettingsField("baseUrl", value)} placeholder="/api" />
-            </div>
-            <div>
-              <FieldLabel text="主模型" />
-              <Input value={settings.mainModel} onChange={(value) => updateSettingsField("mainModel", value)} placeholder="gemini-2.0-flash" />
-            </div>
-            <div>
-              <FieldLabel text="图片模型" />
-              <Input value={settings.imageModel} onChange={(value) => updateSettingsField("imageModel", value)} placeholder="gemini-2.0-flash" />
-            </div>
-          </div>
-        </div>
-      )}
-      rewriteSourceStructure={rewriteSourceStructure}
-      isRewriteStructureCollapsed={isRewriteStructureCollapsed}
-      onToggleRewriteStructure={() => setIsRewriteStructureCollapsed((prev) => !prev)}
-      drafts={drafts}
-      selectedDraftId={selectedDraftId}
-      selectedDraft={selectedDraft}
-      onSelectDraft={(id) => setSelectedDraftId(id)}
-      isGeneratingDrafts={isGeneratingDrafts}
-      moduleMeta={moduleMeta.drafts}
-      onGenerateOne={() => void handleGenerateRewriteDrafts({ count: 1, append: false })}
-      onGenerateMore={() => void handleGenerateRewriteDrafts({ count: 3, append: true })}
-      refineNote={rewriteRefineNote}
-      onRefineNoteChange={setRewriteRefineNote}
-      onRefine={() => void handleGenerateRewriteDrafts({ count: 1, append: false, refineNote: rewriteRefineNote })}
-      onCopy={handleCopy}
-      goStep={goStep}
+    <RewriteWorkbench
+      task={task}
+      settings={settings}
+      onUpdateSourceText={(value) => updateTaskField("sourceText", value)}
+      onUpdateUserNote={(value) => updateTaskField("userNote", value)}
+      showNotice={showNotice}
     />
   );
 
