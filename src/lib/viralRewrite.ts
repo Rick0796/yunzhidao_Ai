@@ -58,13 +58,21 @@ function createDraft(versionIndex: number, script: string): DraftItem {
     selectedSkeletonId: REWRITE_SENTINEL_ID,
     selectedMeatId: null,
     selectedCtaId: REWRITE_SENTINEL_ID,
-    platformFit: "\u89c6\u9891\u53f7\u4f18\u5148",
+    platformFit: "视频号优先",
   };
 }
 
 function buildLocalDrafts(task: TaskForm, count: number): DraftItem[] {
-  const paragraphs = splitParagraphs(task.sourceText || task.userNote);
+  const sourceText = task.sourceText || task.userNote || "";
+  const paragraphs = splitParagraphs(sourceText);
   if (!paragraphs.length) {
+    // 如果没有段落，尝试按句子分割来处理
+    const sentences = splitSentences(sourceText);
+    if (sentences.length > 0) {
+      // 整个文本作为一个"段落"来处理
+      const script = rewriteParagraph(sourceText, 0, 0);
+      return Array.from({ length: count }, (_, index) => createDraft(index, script));
+    }
     return [createDraft(0, "请先粘贴原文。")].slice(0, count);
   }
   return Array.from({ length: count }, (_, index) => {
@@ -105,6 +113,26 @@ export async function generateViralRewriteDrafts(options: {
 }): Promise<GenerationSource<{ items: DraftItem[] }>> {
   const count = Math.max(1, Math.min(options.count ?? 1, 3));
   const fallback = buildLocalDrafts(options.task, count);
+
+  // 确保 fallback 始终有内容
+  if (!fallback.length || !fallback[0]?.script || fallback[0].script === "请先粘贴原文。") {
+    // 如果没有原文，返回提示而不是空结果
+    const hintDraft: DraftItem = {
+      id: `rewrite-hint-${Date.now()}`,
+      versionName: "提示",
+      title: "请先在上方填写原文",
+      coverLine: "请先输入要仿写的原文",
+      script: "请先在上方的\"上传文案\"输入框中粘贴要仿写的原文，然后点击生成按钮。",
+      subtitleScript: "请先在上方的\"上传文案\"输入框中粘贴要仿写的原文，然后点击生成按钮。",
+      selectedHookId: "rewrite-hint",
+      selectedSkeletonId: "rewrite-hint",
+      selectedMeatId: null,
+      selectedCtaId: "rewrite-hint",
+      platformFit: "视频号优先",
+    };
+    return { data: { items: [hintDraft] }, source: "local" };
+  }
+
   if (!options.settings.useLiveApi) {
     return { data: { items: fallback }, source: "local" };
   }
@@ -127,11 +155,18 @@ export async function generateViralRewriteDrafts(options: {
       : Array.isArray(parsed.result)
         ? parsed.result
         : [];
+
+    // 如果 API 返回空结果，使用 fallback
+    if (!sourceItems.length) {
+      return { data: { items: fallback }, source: "local" };
+    }
+
     return {
       data: { items: normalizeDrafts(sourceItems, options.task, count) },
       source: "api",
     };
-  } catch {
+  } catch (err) {
+    console.error("API调用失败，使用本地生成:", err);
     return { data: { items: fallback }, source: "local" };
   }
 }
