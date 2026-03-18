@@ -1,1 +1,0 @@
-"""Hot rank detail route."""
