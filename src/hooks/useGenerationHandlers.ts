@@ -24,6 +24,7 @@ import {
   normalizeSkeletonResults
 } from "../lib/normalize";
 import type { WorkbenchMode } from "../lib/workbenchConfig";
+import { generateViralRewriteDrafts } from "../lib/viralRewrite";
 
 interface GenerationHandlersParams {
   settings: ApiSettings;
@@ -31,6 +32,7 @@ interface GenerationHandlersParams {
   task: TaskForm;
   currentWorkbenchMode: WorkbenchMode;
   canGoStep2: boolean;
+  drafts: DraftItem[];
   selectedHook: HookItem | null;
   selectedSkeleton: SkeletonItem | null;
   selectedMeat: MeatItem | null;
@@ -73,6 +75,7 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
     task,
     currentWorkbenchMode,
     canGoStep2,
+    drafts,
     selectedHook,
     selectedSkeleton,
     selectedMeat,
@@ -166,10 +169,64 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
     }
   }
 
+  async function handleGenerateRewriteDrafts(options?: { count?: number; append?: boolean }): Promise<DraftItem[]> {
+    const count = Math.max(1, Math.min(options?.count ?? 1, 3));
+    const append = Boolean(options?.append);
+    if (currentWorkbenchMode !== "rewrite") {
+      return [];
+    }
+    if (!canGoStep2) {
+      showNotice("warning", "??????????????");
+      return [];
+    }
+
+    setIsGeneratingDrafts(true);
+    try {
+      const result = await generateViralRewriteDrafts({
+        settings,
+        task,
+        count,
+        existingScripts: append ? drafts.map((item) => item.script) : [],
+      });
+      const baseDrafts = append ? [...drafts] : [];
+      const seenScripts = new Set(baseDrafts.map((item) => item.script));
+      const nextItems = result.data.items.filter((item) => !seenScripts.has(item.script));
+      const nextDrafts = append ? [...baseDrafts, ...nextItems] : result.data.items;
+      const nextSelectedDraftId = nextItems[0]?.id ?? nextDrafts[0]?.id ?? null;
+
+      setDrafts(nextDrafts);
+      setSelectedDraftId(nextSelectedDraftId);
+      setDraftSignature("rewrite-direct");
+      setModuleMeta((prev) => ({
+        ...prev,
+        drafts: {
+          source: result.source,
+          updatedAt: new Date().toISOString(),
+          message: result.message,
+        }
+      }));
+      saveCurrentHistory(nextDrafts, nextSelectedDraftId, null, null, null, null);
+
+      if (append) {
+        const addedCount = nextDrafts.length - drafts.length;
+        showNotice(addedCount > 0 ? "success" : "info", addedCount > 0 ? `????? ${addedCount} ??????` : "????????????????????");
+      } else {
+        showNotice("success", nextDrafts.length > 0 ? "????????????????" : "????????????");
+      }
+
+      return nextDrafts;
+    } catch (error: unknown) {
+      showNotice("warning", `?????????${error instanceof Error ? error.message : "????"}`);
+      return [];
+    } finally {
+      setIsGeneratingDrafts(false);
+    }
+  }
+
   async function handleGenerateDrafts(): Promise<void> {
     if (currentWorkbenchMode === "rewrite") {
       if (!selectedHook || !selectedCta || (task.businessMode !== "none" && !selectedMeat)) {
-        showNotice("warning", "先把皮和收口确定下来。");
+        showNotice("warning", "????????????????????");
         return;
       }
     } else {
@@ -235,6 +292,7 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
   return {
     handleGenerateHooks,
     handleGenerateStructure,
-    handleGenerateDrafts
+    handleGenerateDrafts,
+    handleGenerateRewriteDrafts
   };
 }

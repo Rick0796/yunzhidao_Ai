@@ -172,10 +172,10 @@ export function createTaskForMode(
       hotspotAngle: "",
       topicGoal: "",
       storyConclusion: "",
-      businessMode,
-      businessModeChosen,
-      ctaMode,
-      ctaModeChosen,
+      businessMode: "none",
+      businessModeChosen: true,
+      ctaMode: "none",
+      ctaModeChosen: true,
     };
   }
 

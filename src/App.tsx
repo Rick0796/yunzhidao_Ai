@@ -220,17 +220,13 @@ function App() {
 
   useEffect(() => {
     if (currentWorkbenchMode !== "rewrite") return;
-    setIsRewriteStructureCollapsed(hooks.length > 0);
-  }, [currentWorkbenchMode, hooks.length]);
+    setIsRewriteStructureCollapsed(drafts.length > 0);
+  }, [currentWorkbenchMode, drafts.length]);
 
   const currentSelectionSignature = `${selectedHook?.id ?? "none"}-${selectedSkeleton?.id ?? "none"}-${selectedMeat?.id ?? "none"}-${selectedCta?.id ?? "none"}`;
   const canGoStep2 = hasRequiredTaskChoices && Boolean(getTaskPrimaryText(task).trim());
-  const canGoStep3 = canGoStep2 && Boolean(selectedHook);
-  const canGoStep4 = canGoStep3 && (
-    currentWorkbenchMode === "rewrite"
-      ? Boolean(selectedCta && (task.businessMode === "none" || selectedMeat))
-      : Boolean(selectedSkeleton && selectedCta && (task.businessMode === "none" || selectedMeat))
-  );
+  const canGoStep3 = currentWorkbenchMode === "rewrite" ? canGoStep2 : canGoStep2 && Boolean(selectedHook);
+  const canGoStep4 = currentWorkbenchMode === "rewrite" ? drafts.length > 0 : canGoStep3 && Boolean(selectedSkeleton && selectedCta && (task.businessMode === "none" || selectedMeat));
   const progress = [canGoStep2, canGoStep3, canGoStep4, drafts.length > 0].filter(Boolean).length;
 
   useEffect(() => {
@@ -462,7 +458,7 @@ function App() {
     setDraftSignature(
       `${workspace?.selectedHook?.id ?? "none"}-${workspace?.selectedSkeleton?.id ?? "none"}-${workspace?.selectedMeat?.id ?? "none"}-${workspace?.selectedCta?.id ?? "none"}`
     );
-    setWizardStep(workspace?.drafts?.length ? 4 : workspace?.selectedCta ? 3 : workspace?.selectedHook ? 2 : 1);
+    setWizardStep(item.snapshot.entryType === "viral" ? (workspace?.drafts?.length ? 4 : 2) : workspace?.drafts?.length ? 4 : workspace?.selectedCta ? 3 : workspace?.selectedHook ? 2 : 1);
     setStructureTab("skeleton");
     setShowHotspotHelper(false);
     setShowTaskSettings(isBeginnerMode);
@@ -495,12 +491,13 @@ function App() {
     showNotice("success", "热点素材已回填到内容输入区。");
   }
 
-  const { handleGenerateHooks, handleGenerateStructure, handleGenerateDrafts } = useGenerationHandlers({
+  const { handleGenerateHooks, handleGenerateStructure, handleGenerateDrafts, handleGenerateRewriteDrafts } = useGenerationHandlers({
     settings,
     profile,
     task,
     currentWorkbenchMode,
     canGoStep2,
+    drafts,
     selectedHook,
     selectedSkeleton,
     selectedMeat,
@@ -977,7 +974,7 @@ function App() {
 
         <StepFooter>
           <button className="brand-btn" onClick={() => goStep(2)} disabled={!canGoStep2}>
-            {currentWorkbenchMode === "rewrite" ? "确定原文，进入看结构选皮" : "确定任务，进入选皮"}
+            {currentWorkbenchMode === "rewrite" ? "确定原文，进入生成开头" : "确定任务，进入选皮"}
           </button>
         </StepFooter>
       </GlassCard>
@@ -986,7 +983,7 @@ function App() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">
-              {currentWorkbenchMode === "rewrite" ? "仿写开头生成" : "开头（皮）"}
+              {currentWorkbenchMode === "rewrite" ? "生成开头" : "开头（皮）"}
             </div>
             {currentWorkbenchMode !== "rewrite" && (
               <div className="mt-1 text-sm text-slate-300 truncate max-w-xs md:max-w-md">{getTaskPrimaryText(task) || "还没填写"}</div>
@@ -994,9 +991,9 @@ function App() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.hooks ? <SourceBadge meta={moduleMeta.hooks} /> : null}
-            <button className="brand-btn" onClick={() => void handleGenerateHooks()} disabled={isGeneratingHooks}>
-              {isGeneratingHooks ? "生成中..." : hooks.length > 0 ? "重新生成" : "生成开头"}
-            </button>
+            {currentWorkbenchMode === "rewrite" ? <button className="brand-btn" onClick={() => goStep(3)} disabled={!canGoStep3}>??????</button> : <button className="brand-btn" onClick={() => void handleGenerateHooks()} disabled={isGeneratingHooks}>
+              {isGeneratingHooks ? "???..." : hooks.length > 0 ? "????" : "????"}
+            </button>}
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.hooks} />
@@ -1032,7 +1029,7 @@ function App() {
           </div>
         ) : null}
 
-        <div className="mt-4">
+        <div className={classNames("mt-4", currentWorkbenchMode === "rewrite" && "hidden")}>
           <button
             className="flex w-full items-center justify-between text-left"
             onClick={() => setIsHooksCollapsed((v) => !v)}
@@ -1075,8 +1072,8 @@ function App() {
 
         <StepFooter>
           <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(1)}>返回上一步</button>
-          <button className="brand-btn" onClick={() => goStep(3)} disabled={!selectedHook}>
-            {currentWorkbenchMode === "rewrite" ? "确定开头，进入装配" : "确定开头，进入结构"}
+          <button className="brand-btn" onClick={() => goStep(3)} disabled={currentWorkbenchMode === "rewrite" ? !canGoStep3 : !selectedHook}>
+            {currentWorkbenchMode === "rewrite" ? "??????" : "?????????"}
           </button>
         </StepFooter>
       </GlassCard>
@@ -1089,9 +1086,14 @@ function App() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.structure ? <SourceBadge meta={moduleMeta.structure} /> : null}
-            <button className="brand-btn" onClick={() => void handleGenerateStructure()} disabled={!selectedHook || isGeneratingStructure}>
-              {isGeneratingStructure ? "生成中..." : skeletons.length > 0 || ctas.length > 0 ? "重新生成" : "生成结构"}
-            </button>
+            {currentWorkbenchMode === "rewrite" ? (<>
+              <button className="brand-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 1, append: false })} disabled={isGeneratingDrafts}>
+                {isGeneratingDrafts ? "???..." : drafts.length > 0 ? "????1?" : "??1?"}
+              </button>
+              <button className="ghost-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 3, append: true })} disabled={isGeneratingDrafts}>???3?</button>
+            </>) : <button className="brand-btn" onClick={() => void handleGenerateStructure()} disabled={!selectedHook || isGeneratingStructure}>
+              {isGeneratingStructure ? "???..." : skeletons.length > 0 || ctas.length > 0 ? "????" : "????"}
+            </button>}
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.structure} />
@@ -1225,8 +1227,8 @@ function App() {
 
         <StepFooter>
           <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(2)}>返回上一步</button>
-          <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>
-            确定结构，进入成品
+          <button className="brand-btn" onClick={() => goStep(4)} disabled={currentWorkbenchMode === "rewrite" ? !drafts.length : !canGoStep4}>
+            {currentWorkbenchMode === "rewrite" ? "????" : "?????????"}
           </button>
         </StepFooter>
       </GlassCard>
@@ -1245,9 +1247,14 @@ function App() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.drafts ? <SourceBadge meta={moduleMeta.drafts} /> : null}
-            <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
-              {isGeneratingDrafts ? "生成中..." : drafts.length > 0 ? "重新生成" : "生成成品"}
-            </button>
+            {currentWorkbenchMode === "rewrite" ? (<>
+              <button className="brand-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 1, append: false })} disabled={isGeneratingDrafts}>
+                {isGeneratingDrafts ? "???..." : drafts.length > 0 ? "????1?" : "??1?"}
+              </button>
+              <button className="ghost-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 3, append: true })} disabled={isGeneratingDrafts}>???3?</button>
+            </>) : <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
+              {isGeneratingDrafts ? "???..." : drafts.length > 0 ? "????" : "????"}
+            </button>}
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.drafts} />
@@ -1323,13 +1330,31 @@ function App() {
         {currentWorkbenchMode === "rewrite" ? "确定，进入选开头" : "确定任务"}
       </button>
     ) : wizardStep === 2 ? (
-      <button className="brand-btn" onClick={() => goStep(3)} disabled={!selectedHook}>确定开头</button>
-    ) : wizardStep === 3 ? (
-      <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>确定结构</button>
-    ) : (
-      <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
-        {isGeneratingDrafts ? "生成中..." : drafts.length > 0 ? "重新生成" : "生成成品"}
+      <button className="brand-btn" onClick={() => goStep(3)} disabled={currentWorkbenchMode === "rewrite" ? !canGoStep3 : !selectedHook}>
+        {currentWorkbenchMode === "rewrite" ? "确定开头，进入生成成品" : "确定开头"}
       </button>
+    ) : wizardStep === 3 ? (
+      currentWorkbenchMode === "rewrite" ? (
+        drafts.length > 0 ? (
+          <button className="brand-btn" onClick={() => goStep(4)}>查看成品</button>
+        ) : (
+          <button className="brand-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 1, append: false })} disabled={isGeneratingDrafts}>
+            {isGeneratingDrafts ? "生成中..." : "生成1版"}
+          </button>
+        )
+      ) : (
+        <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>确定结构</button>
+      )
+    ) : (
+      currentWorkbenchMode === "rewrite" ? (
+        <button className="brand-btn" onClick={() => void handleGenerateRewriteDrafts({ count: 1, append: false })} disabled={isGeneratingDrafts}>
+          {isGeneratingDrafts ? "生成中..." : "继续生成1版"}
+        </button>
+      ) : (
+        <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
+          {isGeneratingDrafts ? "生成中..." : drafts.length > 0 ? "重新生成" : "生成成品"}
+        </button>
+      )
     )
   ) : null;
 
