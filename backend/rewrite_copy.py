@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from backend.gemini_models import DEFAULT_GEMINI_MODEL, normalize_gemini_model_name
 from backend.gemini_video import GeminiVideoError, generate_json_with_gemini
 from backend.platform_utils import clean_text
 
@@ -231,7 +232,7 @@ def analyze_copy_with_gemini(
     parsed = generate_json_with_gemini(
         prompt,
         api_key=api_key,
-        model=model or "gemini-2.5-flash",
+        model=normalize_gemini_model_name(model, DEFAULT_GEMINI_MODEL),
         max_output_tokens=4096,
         response_schema=COPY_ANALYSIS_SCHEMA,
     )
@@ -254,7 +255,7 @@ def refine_copy_with_gemini(
     parsed = generate_json_with_gemini(
         prompt,
         api_key=api_key,
-        model=model or "gemini-2.5-flash",
+        model=normalize_gemini_model_name(model, DEFAULT_GEMINI_MODEL),
         max_output_tokens=4096,
         response_schema=COPY_REFINE_SCHEMA,
     )

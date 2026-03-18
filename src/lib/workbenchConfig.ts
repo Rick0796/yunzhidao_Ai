@@ -1,5 +1,7 @@
 ﻿import type { ApiSettings, BaseProfile, BusinessMode, CtaMode, EntryType, TaskForm } from "../types";
 
+import { DEFAULT_GEMINI_MODEL } from "./geminiModels";
+
 export type WorkbenchMode = "rewrite" | "original" | "compose" | "video";
 export type OriginalEntryType = Exclude<EntryType, "viral">;
 export type HotspotPlatformKey = "douyin" | "weibo" | "zhihu" | "baidu";
@@ -196,12 +198,12 @@ export function displayCtaMode(mode: CtaMode): string {
 
 export const defaultApiSettings: ApiSettings = {
   useLiveApi: true,
-  baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
-  apiKey: "AIzaSyD54sdEwzoUB5JIN6n95b8SvbIjNyuyibE",
-  mainModel: "gemini-2.0-flash-exp",
-  batchModel: "gemini-2.0-flash-exp",
-  polishModel: "gemini-2.0-flash-exp",
-  imageModel: "gemini-2.0-flash-exp",
+  baseUrl: "/api",
+  apiKey: "",
+  mainModel: DEFAULT_GEMINI_MODEL,
+  batchModel: DEFAULT_GEMINI_MODEL,
+  polishModel: DEFAULT_GEMINI_MODEL,
+  imageModel: DEFAULT_GEMINI_MODEL,
   requestTimeoutMs: 180000
 };
 

@@ -13,6 +13,7 @@ import type {
   WorkspaceSnapshot,
 } from "../types";
 import { DEFAULT_ORIGINAL_ENTRY_TYPE, defaultApiSettings, defaultTask, displayEntryType, type OriginalEntryType, isOriginalEntryType, type WorkbenchMode } from "./workbenchConfig";
+import { normalizeGeminiModel } from "./geminiModels";
 import type { BusinessHotItem, HotRankItem } from "./workflows";
 import { normalizeBaseUrl } from "./http";
 
@@ -33,10 +34,10 @@ export function normalizeApiSettings(value: Partial<ApiSettings> | null | undefi
     useLiveApi: typeof value?.useLiveApi === "boolean" ? value.useLiveApi : defaultApiSettings.useLiveApi,
     baseUrl: "/api", // 强制使用 /api
     apiKey: "",
-    mainModel: typeof value?.mainModel === "string" && value.mainModel.trim() ? value.mainModel : defaultApiSettings.mainModel,
-    batchModel: typeof value?.batchModel === "string" && value.batchModel.trim() ? value.batchModel : defaultApiSettings.batchModel,
-    polishModel: typeof value?.polishModel === "string" && value.polishModel.trim() ? value.polishModel : defaultApiSettings.polishModel,
-    imageModel: typeof value?.imageModel === "string" && value.imageModel.trim() ? value.imageModel : defaultApiSettings.imageModel,
+    mainModel: normalizeGeminiModel(value?.mainModel, defaultApiSettings.mainModel),
+    batchModel: normalizeGeminiModel(value?.batchModel, defaultApiSettings.batchModel),
+    polishModel: normalizeGeminiModel(value?.polishModel, defaultApiSettings.polishModel),
+    imageModel: normalizeGeminiModel(value?.imageModel, defaultApiSettings.imageModel),
     requestTimeoutMs:
       Math.max(
         90000,

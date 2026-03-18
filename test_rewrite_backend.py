@@ -90,6 +90,34 @@ def test_rewrite_refine_route_uses_new_backend_module(client, monkeypatch) -> No
     assert captured["user_background"] == "服务实体老板"
 
 
+def test_rewrite_analyze_route_normalizes_legacy_model_name(client, monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_analyze_copy_with_gemini(**kwargs):
+        captured.update(kwargs)
+        return {
+            "originalCopy": kwargs["original_copy"],
+            "analysis": {},
+            "generatedScripts": [{"title": "文案 1", "content": "去重改写版本"}],
+        }
+
+    monkeypatch.setattr(backend_main, "analyze_copy_with_gemini", fake_analyze_copy_with_gemini)
+
+    response = client.post(
+        "/api/rewrite/analyze",
+        json={
+            "originalCopy": "原文内容",
+            "industry": "AI 获客",
+            "needs": "字数接近",
+            "userBackground": "服务实体老板",
+            "model": "gemini-2.0-flash-exp",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["model"] == "gemini-2.5-flash"
+
+
 def test_rewrite_prompts_lock_length_and_structure() -> None:
     original_copy = "第一段说明问题。\n第二段给出转折。\n第三段完成收口。"
     current_result = {

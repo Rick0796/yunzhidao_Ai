@@ -1,4 +1,5 @@
 import type { ApiSettings, SoraPrompt, VideoAnalysisMode, VideoAnalysisResult, VideoStructure } from "../types";
+import { DEFAULT_GEMINI_MODEL, normalizeGeminiModel } from "./geminiModels";
 import { normalizeBaseUrl } from "./http";
 
 const DEFAULT_TIMEOUT_MS = 240000;
@@ -121,7 +122,7 @@ export async function analyzeVideoFile(
   const form = new FormData();
   form.append("file", file);
   form.append("mode", mode);
-  form.append("model", settings.imageModel || settings.mainModel || "gemini-2.0-flash");
+  form.append("model", normalizeGeminiModel(settings.imageModel || settings.mainModel, DEFAULT_GEMINI_MODEL));
 
   const { signal: requestSignal, dispose } = buildAbortSignal(signal);
   try {
@@ -179,7 +180,7 @@ export async function generateSoraPrompts(
     form.append("mimeType", options.mimeType);
   }
   form.append("count", String(Math.max(1, options.count)));
-  form.append("model", settings.imageModel || settings.mainModel || "gemini-2.0-flash");
+  form.append("model", normalizeGeminiModel(settings.imageModel || settings.mainModel, DEFAULT_GEMINI_MODEL));
 
   const { signal: requestSignal, dispose } = buildAbortSignal(options.signal);
   try {
@@ -224,7 +225,7 @@ export async function generateViralCopies(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       script,
-      model: settings.mainModel || "gemini-2.0-flash",
+      model: normalizeGeminiModel(settings.mainModel, DEFAULT_GEMINI_MODEL),
     }),
     signal,
   });

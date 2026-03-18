@@ -38,6 +38,7 @@ except ImportError as exc:  # pragma: no cover
 
 
 from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
+from backend.gemini_models import DEFAULT_GEMINI_MODEL, normalize_gemini_model_name
 from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
 from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini, generate_json_with_gemini, generate_text_with_gemini
 from backend.rewrite_copy import analyze_copy_with_gemini, normalize_multiline_text, refine_copy_with_gemini
@@ -570,7 +571,10 @@ def read_config() -> dict[str, Any]:
         api_key = clean_config_text(config.get("apiKey", ""))
 
     base_url = "https://generativelanguage.googleapis.com"
-    default_model = env_text("GEMINI_MODEL") or clean_config_text(config.get("defaultModel", "gemini-2.5-flash")) or "gemini-2.5-flash"
+    default_model = normalize_gemini_model_name(
+        env_text("GEMINI_MODEL") or clean_config_text(config.get("defaultModel", DEFAULT_GEMINI_MODEL)),
+        DEFAULT_GEMINI_MODEL,
+    )
     prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
     port = env_int("PORT") or to_int(config.get("port", 8788), 8788)
     retries = env_int("API_RETRIES") or to_int(config.get("retries", 2), 2)
@@ -588,6 +592,10 @@ def read_config() -> dict[str, Any]:
 
 
 CONFIG = read_config()
+
+
+def resolve_model_name(raw_model: Any) -> str:
+    return normalize_gemini_model_name(str(raw_model or ""), CONFIG["defaultModel"])
 FREE_WORKFLOW_HOT_RANK = {"id": "free_scrapers", "name": "免费热榜兼容入口"}
 FREE_WORKFLOW_MANUAL_SEARCH = {"id": "free_search", "name": "免费搜索兼容入口"}
 
@@ -2340,7 +2348,7 @@ async def generate_json_endpoint(request: Request) -> JSONResponse:
 
     body = await read_request_json(request)
     prompt = body.get("prompt", "")
-    model = body.get("model", CONFIG["defaultModel"])
+    model = resolve_model_name(body.get("model"))
     max_tokens = body.get("max_tokens", 4096)
 
     if not prompt:
@@ -2395,7 +2403,7 @@ async def chat_completions(request: Request) -> JSONResponse:
     body = await read_request_json(request)
     prompt_version = request.headers.get("X-Prompt-Version", CONFIG["promptVersion"])
     task_entry = request.headers.get("X-Task-Entry", "unknown")
-    model_name = str(body.get("model") or CONFIG["defaultModel"])
+    model_name = resolve_model_name(body.get("model"))
     max_tokens = max(256, to_int(body.get("max_tokens", 4096), 4096))
     temperature_raw = body.get("temperature")
     try:
@@ -3592,7 +3600,7 @@ async def analyze_video(
             analyze_video_with_gemini,
             api_key=CONFIG["apiKey"],
             base_url=CONFIG["baseUrl"],
-            model=str(model or CONFIG["defaultModel"]),
+            model=resolve_model_name(model),
             timeout_seconds=CONFIG["timeoutSeconds"],
             mode=mode,
             existing_file_uri=cachedUri,
@@ -3641,7 +3649,7 @@ async def generate_sora_prompts(
             generate_sora_prompts_with_gemini,
             api_key=CONFIG["apiKey"],
             base_url=CONFIG["baseUrl"],
-            model=str(model or CONFIG["defaultModel"]),
+            model=resolve_model_name(model),
             timeout_seconds=CONFIG["timeoutSeconds"],
             count=max(1, min(count, 5)),
             analysis_summary=analysisSummary,
@@ -3685,7 +3693,7 @@ async def generate_viral_copies(request: Request) -> JSONResponse:
             generate_json_with_gemini,
             prompt,
             api_key=CONFIG["apiKey"],
-            model=str(body.get("model") or CONFIG["defaultModel"]),
+            model=resolve_model_name(body.get("model")),
             max_output_tokens=max(512, to_int(body.get("max_tokens", 3000), 3000)),
             temperature=0.9,
         )
@@ -3724,7 +3732,7 @@ async def analyze_rewrite_copy(request: Request) -> JSONResponse:
             needs=needs,
             user_background=user_background,
             api_key=CONFIG["apiKey"],
-            model=str(body.get("model") or CONFIG["defaultModel"]),
+            model=resolve_model_name(body.get("model")),
         )
         return JSONResponse(content=result)
     except GeminiVideoError as exc:
@@ -3754,7 +3762,7 @@ async def refine_rewrite_copy(request: Request) -> JSONResponse:
             user_instruction=user_instruction,
             user_background=user_background,
             api_key=CONFIG["apiKey"],
-            model=str(body.get("model") or CONFIG["defaultModel"]),
+            model=resolve_model_name(body.get("model")),
         )
         return JSONResponse(content=result)
     except GeminiVideoError as exc:

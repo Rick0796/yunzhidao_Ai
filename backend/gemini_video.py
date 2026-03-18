@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, BinaryIO
 
 import requests
+from backend.gemini_models import DEFAULT_GEMINI_MODEL, normalize_gemini_model_name
 
 GEMINI_FILE_POLL_MAX_ATTEMPTS = 240
 GEMINI_FILE_POLL_INTERVAL_SECONDS = 1.0
@@ -76,6 +77,8 @@ def _raise_response_error(response: requests.Response, context: str) -> None:
                 raise GeminiVideoError("Gemini API Key 当前额度已用尽，请更换有可用配额的 Key")
             if "api key not valid" in lower or "api_key_invalid" in lower:
                 raise GeminiVideoError("Gemini API Key 无效，请检查配置是否正确")
+            if "is not found for api version" in lower or "not supported for generatecontent" in lower:
+                raise GeminiVideoError(f"当前模型不可用，请改用受支持的 Gemini 模型，例如 {DEFAULT_GEMINI_MODEL}")
             raise GeminiVideoError(f"{context}: {message}")
     raise GeminiVideoError(f"{context}: HTTP {response.status_code} {response.text[:240]}")
 
@@ -265,7 +268,7 @@ def generate_json_with_gemini(
     key = api_key or _get_api_key()
     return _generate_content(
         api_key=key,
-        model=model or "gemini-2.5-flash",
+        model=normalize_gemini_model_name(model, DEFAULT_GEMINI_MODEL),
         parts=[{"text": prompt}],
         max_output_tokens=max_output_tokens,
         response_mime_type="application/json",
@@ -287,7 +290,7 @@ def generate_text_with_gemini(
     return str(
         _generate_content(
             api_key=key,
-            model=model or "gemini-2.5-flash",
+            model=normalize_gemini_model_name(model, DEFAULT_GEMINI_MODEL),
             parts=[{"text": prompt}],
             max_output_tokens=max_output_tokens,
             response_mime_type="text/plain",
@@ -386,7 +389,7 @@ def analyze_video_with_gemini(
 
     parsed = _generate_content(
         api_key=key,
-        model=model or "gemini-2.5-flash",
+        model=normalize_gemini_model_name(model, DEFAULT_GEMINI_MODEL),
         parts=[
             {"file_data": {"mime_type": reference.mime_type, "file_uri": reference.file_uri}},
             {"text": prompt},
@@ -461,7 +464,7 @@ def generate_sora_prompts_with_gemini(
 
     parsed = _generate_content(
         api_key=key,
-        model=model or "gemini-2.5-flash",
+        model=normalize_gemini_model_name(model, DEFAULT_GEMINI_MODEL),
         parts=[
             {"file_data": {"mime_type": reference.mime_type, "file_uri": reference.file_uri}},
             {"text": prompt},

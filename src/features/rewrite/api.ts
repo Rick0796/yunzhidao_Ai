@@ -1,4 +1,5 @@
 import type { ApiSettings } from "../../types";
+import { DEFAULT_GEMINI_MODEL, normalizeGeminiModel } from "../../lib/geminiModels";
 import { normalizeBaseUrl } from "../../lib/http";
 import type { RewriteCopyResult } from "./types";
 
@@ -136,7 +137,7 @@ export async function analyzeRewriteCopy(
     "/rewrite/analyze",
     {
       ...payload,
-      model: settings.mainModel || "gemini-2.5-flash",
+      model: normalizeGeminiModel(settings.mainModel, DEFAULT_GEMINI_MODEL),
     },
     signal,
   );
@@ -162,7 +163,7 @@ export async function refineRewriteCopy(
     "/rewrite/refine",
     {
       ...payload,
-      model: settings.mainModel || "gemini-2.5-flash",
+      model: normalizeGeminiModel(settings.mainModel, DEFAULT_GEMINI_MODEL),
     },
     signal,
   );

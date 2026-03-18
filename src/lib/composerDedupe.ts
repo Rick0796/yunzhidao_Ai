@@ -4,6 +4,8 @@ import { normalizeBaseUrl } from "./http";
 import { safeJsonParse } from "./modelResponse";
 import { normalizeText, overlapScore } from "./textMatch";
 
+import { DEFAULT_GEMINI_MODEL, normalizeGeminiModel } from "./geminiModels";
+
 const BUSINESS_TERMS = ["AI获客", "数字资产", "数字人", "私域", "流量", "获客", "内容增长", "企业增长", "老板增长"] as const;
 const ACTION_TERMS = ["评论区", "评论", "留言", "关键词", "主页", "直播", "公开课", "训练营", "入口", "发消息", "点开"] as const;
 const HARD_TOKEN_PATTERN = /(?:\d{4}年|\d+(?:\.\d+)?%?|\d+(?:\.\d+)?(?:万|亿|元|块|倍|天|个月|月|年|小时|分钟)|[一二三四五六七八九十百千万两零半]+(?:年|个月|月|天|次|个|条|倍|万|亿|元|块|小时|分钟|成|%))/g;
@@ -55,7 +57,7 @@ function normalizeRewriteItems(parsed: unknown): Array<{ id: string; content: st
 }
 
 function settingsModel(settings: ApiSettings) {
-  return settings.mainModel || settings.polishModel || "gemini-2.0-flash";
+  return normalizeGeminiModel(settings.mainModel || settings.polishModel, DEFAULT_GEMINI_MODEL);
 }
 
 function countSentences(text: string) {

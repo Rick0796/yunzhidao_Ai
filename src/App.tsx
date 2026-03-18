@@ -37,6 +37,7 @@ import {
   type OriginalEntryType,
   type WorkbenchMode
 } from "./lib/workbenchConfig";
+import { DEFAULT_GEMINI_MODEL } from "./lib/geminiModels";
 import { useGenerationHandlers } from "./hooks/useGenerationHandlers";
 import {
   formatSkeletonPreview
@@ -961,11 +962,11 @@ function App() {
                 </div>
                 <div>
                   <FieldLabel text="模型名（后端默认）" />
-                  <Input value={settings.mainModel} onChange={(value) => updateSettingsField("mainModel", value)} placeholder="gemini-2.0-flash" />
+                  <Input value={settings.mainModel} onChange={(value) => updateSettingsField("mainModel", value)} placeholder={DEFAULT_GEMINI_MODEL} />
                 </div>
                 <div>
                   <FieldLabel text="视觉模型名（视频分析）" />
-                  <Input value={settings.imageModel} onChange={(value) => updateSettingsField("imageModel", value)} placeholder="gemini-2.0-flash" />
+                  <Input value={settings.imageModel} onChange={(value) => updateSettingsField("imageModel", value)} placeholder={DEFAULT_GEMINI_MODEL} />
                 </div>
               </div>
             </div>
