@@ -6,11 +6,7 @@
     "API_TIMEOUT_SECONDS": "110"
   },
   "functions": {
-    "api/index.py": {
-      "maxDuration": 120,
-      "excludeFiles": "{node_modules/**,src/**,dist/**,runtime/**,scripts/**,server/**,__pycache__/**,**/*.log,**/test_*.py,test_*.py,test_api_debug.html,README_FIXED.md,OPTIMIZATION_SUMMARY.md,FREE_API_GUIDE.md}"
-    },
-    "api/[...route].py": {
+    "api/**/*.py": {
       "maxDuration": 120,
       "excludeFiles": "{node_modules/**,src/**,dist/**,runtime/**,scripts/**,server/**,__pycache__/**,**/*.log,**/test_*.py,test_*.py,test_api_debug.html,README_FIXED.md,OPTIMIZATION_SUMMARY.md,FREE_API_GUIDE.md}"
     }
@@ -19,6 +15,38 @@
     {
       "source": "/ai-api/:path*",
       "destination": "https://llm.xiaochisaas.com/:path*"
+    },
+    {
+      "source": "/api/free/hot-rank",
+      "destination": "/api/free/hot_rank"
+    },
+    {
+      "source": "/api/free/hot-rank/detail",
+      "destination": "/api/free/hot_rank/detail"
+    },
+    {
+      "source": "/api/free/manual-search",
+      "destination": "/api/free/manual_search"
+    },
+    {
+      "source": "/api/library/compose-candidates",
+      "destination": "/api/library/compose_candidates"
+    },
+    {
+      "source": "/api/generate-json",
+      "destination": "/api/generate_json"
+    },
+    {
+      "source": "/api/analyze-video",
+      "destination": "/api/analyze_video"
+    },
+    {
+      "source": "/api/generate-sora-prompts",
+      "destination": "/api/generate_sora_prompts"
+    },
+    {
+      "source": "/api/generate-viral-copies",
+      "destination": "/api/generate_viral_copies"
     },
     {
       "source": "/:path((?!api/).*)",
