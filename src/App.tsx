@@ -5,7 +5,7 @@ import ParticleBackground from "./components/ParticleBackground";
 import ComposeWorkbench from "./components/ComposeWorkbench";
 import HotspotCenterPanel from "./components/HotspotCenterPanel";
 import VideoAnalysisPanel from "./components/VideoAnalysisPanel";
-import RewriteFlowPanel from "./components/RewriteFlowPanel";
+import RewriteFlowContainer from "./components/RewriteFlowContainer";
 import {
   buildMockSourceStructure
 } from "./lib/mock";
@@ -104,6 +104,7 @@ function App() {
   const [isGeneratingStructure, setIsGeneratingStructure] = useState(false);
   const [isGeneratingDrafts, setIsGeneratingDrafts] = useState(false);
   const [draftSignature, setDraftSignature] = useState("");
+  const [rewriteRefineNote, setRewriteRefineNote] = useState("");
   const [structureTab, setStructureTab] = useState<"skeleton" | "meat" | "cta">("skeleton");
   const [isRewriteStructureCollapsed, setIsRewriteStructureCollapsed] = useState(false);
   const [isWorkbenchIntroHidden, setIsWorkbenchIntroHidden] = useState(false);
@@ -222,7 +223,15 @@ function App() {
   useEffect(() => {
     if (currentWorkbenchMode !== "rewrite") return;
     setIsRewriteStructureCollapsed(drafts.length > 0);
-  }, [currentWorkbenchMode, drafts.length]);
+    setHooks([]);
+    setSkeletons([]);
+    setMeats([]);
+    setCtas([]);
+    setSelectedHookId(null);
+    setSelectedSkeletonId(null);
+    setSelectedMeatId(null);
+    setSelectedCtaId(null);
+  }, [currentWorkbenchMode, drafts.length, setCtas, setHooks, setMeats, setSelectedCtaId, setSelectedHookId, setSelectedMeatId, setSelectedSkeletonId, setSkeletons]);
 
   const currentSelectionSignature = `${selectedHook?.id ?? "none"}-${selectedSkeleton?.id ?? "none"}-${selectedMeat?.id ?? "none"}-${selectedCta?.id ?? "none"}`;
   const canGoStep2 = hasRequiredTaskChoices && Boolean(getTaskPrimaryText(task).trim());
@@ -705,7 +714,7 @@ function App() {
   }
 
   const rewriteStepPanel = (
-    <RewriteFlowPanel
+    <RewriteFlowContainer
       wizardStep={wizardStep}
       canGoStep2={canGoStep2}
       canGoStep3={canGoStep3}
@@ -718,32 +727,32 @@ function App() {
       advancedSettings={(
         <div className="grid gap-3 md:grid-cols-2">
           <div className="md:col-span-2">
-            <FieldLabel text="??? / ???" />
+            <FieldLabel text="个人定位 / 角色自述" />
             <Textarea value={profile.selfIntro} onChange={(value) => updateProfileField("selfIntro", value)} />
           </div>
           <div>
-            <FieldLabel text="????" />
+            <FieldLabel text="目标受众" />
             <Textarea value={profile.targetAudience} onChange={(value) => updateProfileField("targetAudience", value)} />
           </div>
           <div>
-            <FieldLabel text="?????" />
+            <FieldLabel text="核心关键词" />
             <Textarea value={profile.coreKeywords} onChange={(value) => updateProfileField("coreKeywords", value)} />
           </div>
           <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
             <div>
-              <FieldLabel text="?????? API" />
-              <Toggle checked={settings.useLiveApi} onChange={(checked) => updateSettingsField("useLiveApi", checked)} label={settings.useLiveApi ? "???" : "??????"} />
+              <FieldLabel text="是否启用 API" />
+              <Toggle checked={settings.useLiveApi} onChange={(checked) => updateSettingsField("useLiveApi", checked)} label={settings.useLiveApi ? "API 已开启" : "仅本地生成"} />
             </div>
             <div>
-              <FieldLabel text="??????" />
+              <FieldLabel text="API 地址" />
               <Input value={settings.baseUrl} onChange={(value) => updateSettingsField("baseUrl", value)} placeholder="/api" />
             </div>
             <div>
-              <FieldLabel text="?????????" />
+              <FieldLabel text="主模型" />
               <Input value={settings.mainModel} onChange={(value) => updateSettingsField("mainModel", value)} placeholder="gemini-2.0-flash" />
             </div>
             <div>
-              <FieldLabel text="???????????" />
+              <FieldLabel text="图片模型" />
               <Input value={settings.imageModel} onChange={(value) => updateSettingsField("imageModel", value)} placeholder="gemini-2.0-flash" />
             </div>
           </div>
@@ -760,6 +769,9 @@ function App() {
       moduleMeta={moduleMeta.drafts}
       onGenerateOne={() => void handleGenerateRewriteDrafts({ count: 1, append: false })}
       onGenerateMore={() => void handleGenerateRewriteDrafts({ count: 3, append: true })}
+      refineNote={rewriteRefineNote}
+      onRefineNoteChange={setRewriteRefineNote}
+      onRefine={() => void handleGenerateRewriteDrafts({ count: 1, append: false, refineNote: rewriteRefineNote })}
       onCopy={handleCopy}
       goStep={goStep}
     />
@@ -1037,7 +1049,7 @@ function App() {
 
         <StepFooter>
           <button className="brand-btn" onClick={() => goStep(2)} disabled={!canGoStep2}>
-            "?????????"
+            进入下一步
           </button>
         </StepFooter>
       </GlassCard>
@@ -1046,14 +1058,14 @@ function App() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">
-              ?????
+              选择开头
             </div>
-            <div className="mt-1 text-sm text-slate-300 truncate max-w-xs md:max-w-md">{getTaskPrimaryText(task) || "????"}</div>
+            <div className="mt-1 text-sm text-slate-300 truncate max-w-xs md:max-w-md">{getTaskPrimaryText(task) || "还没填写素材"}</div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.hooks ? <SourceBadge meta={moduleMeta.hooks} /> : null}
             <button className="brand-btn" onClick={() => void handleGenerateHooks()} disabled={isGeneratingHooks}>
-              {isGeneratingHooks ? "???..." : hooks.length > 0 ? "????" : "????"}
+              {isGeneratingHooks ? "生成中..." : hooks.length > 0 ? "重新生成" : "生成开头"}
             </button>
           </div>
         </div>
@@ -1096,13 +1108,13 @@ function App() {
               className="flex w-full items-center justify-between text-left"
               onClick={() => setIsHooksCollapsed((v) => !v)}
             >
-              <span className="text-xs font-semibold text-slate-400">???? {hooks.length > 0 ? `? ${hooks.length} ?` : ""}</span>
+              <span className="text-xs font-semibold text-slate-400">开头列表 {hooks.length > 0 ? `· ${hooks.length} 条` : ""}</span>
               <svg className={classNames("h-4 w-4 text-slate-500 transition-transform", isHooksCollapsed && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </button>
             {!isHooksCollapsed && (
               <div className="mt-2 grid gap-2">
                 {hooks.length === 0 ? (
-                  <EmptyBlock text="??????????????????" />
+                  <EmptyBlock text="还没生成开头，点击上面按钮生成。" />
                 ) : (
                   hooks.map((item) => (
                     <button
@@ -1113,15 +1125,15 @@ function App() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-semibold leading-6 text-white">{item.text}</div>
-                          <div className="mt-1 text-xs text-slate-400">{item.type} ? {item.riskLevel}?? ? {item.score}?</div>
+                          <div className="mt-1 text-xs text-slate-400">{item.type} · 风险 {item.riskLevel} · 评分 {item.score}</div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           <span
                             role="button" tabIndex={0}
                             className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 hover:text-white"
-                            onClick={(e) => { e.stopPropagation(); handleCopy(item.text, "??????"); }}
-                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleCopy(item.text, "??????"); } }}
-                          >??</span>
+                            onClick={(e) => { e.stopPropagation(); handleCopy(item.text, "开头已复制。"); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); handleCopy(item.text, "开头已复制。"); } }}
+                          >复制</span>
                           <div className={classNames("h-4 w-4 rounded-full border", item.id === selectedHook?.id ? "border-cyan-300 bg-cyan-300" : "border-white/20")} />
                         </div>
                       </div>
@@ -1135,7 +1147,7 @@ function App() {
         <StepFooter>
           <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(1)}>返回上一步</button>
           <button className="brand-btn" onClick={() => goStep(3)} disabled={!selectedHook}>
-            ?????????
+            进入骨肉结构
           </button>
         </StepFooter>
       </GlassCard>
@@ -1149,7 +1161,7 @@ function App() {
           <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.structure ? <SourceBadge meta={moduleMeta.structure} /> : null}
             <button className="brand-btn" onClick={() => void handleGenerateStructure()} disabled={!selectedHook || isGeneratingStructure}>
-              {isGeneratingStructure ? "???..." : skeletons.length > 0 || ctas.length > 0 ? "????" : "????"}
+              {isGeneratingStructure ? "生成中..." : skeletons.length > 0 || ctas.length > 0 ? "重新生成" : "生成结构"}
             </button>
           </div>
         </div>
@@ -1287,7 +1299,7 @@ function App() {
         <StepFooter>
           <button className="ghost-btn hidden md:inline-flex" onClick={() => goStep(2)}>返回上一步</button>
           <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>
-            ?????????
+            进入成品生成
           </button>
         </StepFooter>
       </GlassCard>
@@ -1307,7 +1319,7 @@ function App() {
           <div className="flex shrink-0 items-center gap-2">
             {moduleMeta.drafts ? <SourceBadge meta={moduleMeta.drafts} /> : null}
             <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
-              {isGeneratingDrafts ? "???..." : drafts.length > 0 ? "????" : "????"}
+              {isGeneratingDrafts ? "生成中..." : drafts.length > 0 ? "重新生成" : "生成成品"}
             </button>
           </div>
         </div>
@@ -1381,15 +1393,15 @@ function App() {
   const mobileActionBtn = enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" && currentWorkbenchMode !== "rewrite" ? (
     wizardStep === 1 ? (
       <button className="brand-btn" onClick={() => goStep(2)} disabled={!canGoStep2}>
-        ????
+        进入下一步
       </button>
     ) : wizardStep === 2 ? (
-      <button className="brand-btn" onClick={() => goStep(3)} disabled={!selectedHook}>????</button>
+      <button className="brand-btn" onClick={() => goStep(3)} disabled={!selectedHook}>进入结构</button>
     ) : wizardStep === 3 ? (
-      <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>????</button>
+      <button className="brand-btn" onClick={() => goStep(4)} disabled={!canGoStep4}>进入成品</button>
     ) : (
       <button className="brand-btn" onClick={() => void handleGenerateDrafts()} disabled={!canGoStep4 || isGeneratingDrafts}>
-        {isGeneratingDrafts ? "???..." : drafts.length > 0 ? "????" : "????"}
+        {isGeneratingDrafts ? "生成中..." : drafts.length > 0 ? "重新生成" : "生成成品"}
       </button>
     )
   ) : null;

@@ -12,7 +12,8 @@
     "server": "python backend/main.py",
     "server:node": "node server.js",
     "server:py": "python backend/main.py",
-    "validate:viral": "node ./node_modules/esbuild/bin/esbuild scripts/validate-viral.ts --bundle --platform=node --format=cjs --outfile=runtime/validate-viral.cjs && node runtime/validate-viral.cjs"
+    "validate:viral": "node ./node_modules/esbuild/bin/esbuild scripts/validate-viral.ts --bundle --platform=node --format=cjs --outfile=runtime/validate-viral.cjs && node runtime/validate-viral.cjs",
+    "test": "npm run validate:viral"
   },
   "dependencies": {
     "react": "^19.0.0",

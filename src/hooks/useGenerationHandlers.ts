@@ -169,9 +169,10 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
     }
   }
 
-  async function handleGenerateRewriteDrafts(options?: { count?: number; append?: boolean }): Promise<DraftItem[]> {
+  async function handleGenerateRewriteDrafts(options?: { count?: number; append?: boolean; refineNote?: string }): Promise<DraftItem[]> {
     const count = Math.max(1, Math.min(options?.count ?? 1, 3));
     const append = Boolean(options?.append);
+    const refineNote = options?.refineNote?.trim() || "";
     if (currentWorkbenchMode !== "rewrite") {
       return [];
     }
@@ -187,6 +188,7 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
         task,
         count,
         existingScripts: append ? drafts.map((item) => item.script) : [],
+        refineNote,
       });
       const baseDrafts = append ? [...drafts] : [];
       const seenScripts = new Set(baseDrafts.map((item) => item.script));

@@ -86,10 +86,10 @@ export function getStepConfig(mode: WorkbenchMode): StepConfigItem[] {
 
   if (mode === "rewrite") {
     return [
-      { step: 1, title: "上传原文", hint: "先上传爆款原文和改写要求。" },
-      { step: 2, title: "生成开头", hint: "生成多个更炸的开头供选择。" },
-      { step: 3, title: "生成成品", hint: "从 1 个开头直接生成 2 版完整仿写。" },
-      { step: 4, title: "查看成品", hint: "查看完整仿写正文和字幕稿。" },
+      { step: 1, title: "输入原文", hint: "粘贴原文并填写改写要求。" },
+      { step: 2, title: "结构预览", hint: "按原文段落预览，保持结构一致。" },
+      { step: 3, title: "生成仿写", hint: "默认生成 1 条，可追加 3 条。" },
+      { step: 4, title: "结果优化", hint: "查看结果并继续优化指令。" },
     ];
   }
 
@@ -134,15 +134,15 @@ export function getWorkbenchCopy(mode: WorkbenchMode): WorkbenchCopy {
     return {
       eyebrow: "爆款仿写",
       title: "爆款仿写工作台",
-      description: "上传爆款原文，生成多个开头，直接出完整仿写成品。",
-      step1Title: "步骤 1 / 上传原文",
-      step1Subtitle: "先点开任务设置，再把爆款原文和补充要求填进去。",
-      step2Title: "步骤 2 / 生成开头",
-      step2Subtitle: "生成多个更炸的开头供选择。",
-      step3Title: "步骤 3 / 生成成品",
-      step3Subtitle: "从 1 个开头直接生成 2 版完整仿写。",
-      step4Title: "步骤 4 / 查看成品",
-      step4Subtitle: "查看完整仿写正文和字幕稿。",
+      description: "粘贴原文，保持结构不变，只改表达和情绪。",
+      step1Title: "步骤 1 / 输入原文",
+      step1Subtitle: "填写原文与改写要求，系统只改表达不改结构。",
+      step2Title: "步骤 2 / 结构预览",
+      step2Subtitle: "按段落预览原文结构，后续仿写保持一致。",
+      step3Title: "步骤 3 / 生成仿写",
+      step3Subtitle: "默认生成 1 条，可继续追加 3 条。",
+      step4Title: "步骤 4 / 结果优化",
+      step4Subtitle: "查看正文与字幕稿，并追加优化指令。",
     };
   }
 
