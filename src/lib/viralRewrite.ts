@@ -46,7 +46,7 @@ function rewriteParagraph(paragraph: string, variantIndex: number, paragraphInde
 function createDraft(versionIndex: number, script: string): DraftItem {
   const variant = VARIANTS[versionIndex % VARIANTS.length];
   const versionName = decodeLabel(variant.versionName);
-  const titleSeed = firstSentence(script).replace(SENTENCE_TRIM_RE, "").trim() || versionName;
+  const titleSeed = firstSentence(script).replace(/[\u3002\uFF01\uFF1F!?\uFF1B;]+$/g, "").trim() || versionName;
   return {
     id: `${REWRITE_SENTINEL_ID}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` ,
     versionName,

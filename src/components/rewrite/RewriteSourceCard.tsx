@@ -1,7 +1,7 @@
 import type { SourceStructureItem } from "../../types";
 import { rewriteCopy } from "../../lib/rewriteCopy";
 
-export default function RewriteSourceCard(props: { item: SourceStructureItem; index: number; onCopy: (text: string) => void }) {
+export default function RewriteSourceCard(props: { item: SourceStructureItem; index: number; onCopy: (text: string, successText: string) => void }) {
   const { item, index, onCopy } = props;
   return (
     <div className="rounded-3xl border border-white/10 bg-[#09101f]/78 p-4">
