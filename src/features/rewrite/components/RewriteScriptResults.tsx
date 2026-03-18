@@ -1,0 +1,122 @@
+import type { RewriteGeneratedScript } from "../types";
+
+interface RewriteScriptResultsProps {
+  scripts: RewriteGeneratedScript[];
+  refineInstruction: string;
+  isAnalyzing: boolean;
+  isRefining: boolean;
+  onRegenerate: () => void;
+  onGenerateMore: () => void;
+  onRefineInstructionChange: (value: string) => void;
+  onRefine: () => void;
+  onReset: () => void;
+  onCopyScript: (text: string) => void;
+}
+
+export default function RewriteScriptResults(props: RewriteScriptResultsProps) {
+  const busy = props.isAnalyzing || props.isRefining;
+
+  return (
+    <div className="relative space-y-6">
+      {busy ? (
+        <div className="absolute inset-x-0 -inset-y-4 z-10 flex flex-col items-center justify-center gap-4 rounded-3xl bg-black/60 backdrop-blur-sm">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#00D4FF]/30 border-t-[#00D4FF]" />
+          <p className="font-bold text-[#00D4FF]">{props.isAnalyzing ? "正在重新分析并生成仿写稿..." : "正在优化并生成更多仿写稿..."}</p>
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h3 className="flex items-center gap-2 text-xl font-bold text-white">
+          <span className="h-6 w-1 rounded-full bg-[#8B5CF6]" />
+          定制化爆款仿写稿
+        </h3>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={props.onRegenerate}
+            disabled={busy}
+            className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 transition-all hover:bg-white/10 disabled:opacity-50"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            重新生成
+          </button>
+          <button
+            onClick={props.onGenerateMore}
+            disabled={busy}
+            className="flex items-center gap-2 rounded-lg border border-[#8B5CF6]/30 bg-[#8B5CF6]/20 px-4 py-2 text-xs text-[#8B5CF6] transition-all hover:bg-[#8B5CF6]/30 disabled:opacity-50"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            生成更多 (3套)
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
+        {props.scripts.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-10 text-center text-slate-500">
+            暂无生成的仿写内容，请尝试重新生成
+          </div>
+        ) : (
+          props.scripts.map((script, index) => (
+            <div key={`${script.title}-${index}`} className="glass-panel rounded-[24px] border border-white/10 p-6 transition-all hover:border-[#00D4FF]/30">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <h4 className="text-lg font-bold text-white">{script.title}</h4>
+                <button
+                  onClick={() => props.onCopyScript(script.content)}
+                  className="rounded-lg bg-white/5 p-2 text-slate-400 transition-all hover:bg-white/10 hover:text-white"
+                  title="复制脚本"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                  </svg>
+                </button>
+              </div>
+              <div className="whitespace-pre-wrap rounded-2xl border border-white/5 bg-black/30 p-4 text-sm leading-7 text-slate-300">
+                {script.content}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="glass-panel rounded-[24px] border border-[#00D4FF]/20 bg-[#00D4FF]/5 p-6">
+        <h4 className="mb-4 flex items-center gap-2 font-bold text-white">
+          <svg className="h-5 w-5 text-[#00D4FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          </svg>
+          继续优化仿写稿
+        </h4>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <input
+            type="text"
+            value={props.refineInstruction}
+            onChange={(event) => props.onRefineInstructionChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                props.onRefine();
+              }
+            }}
+            placeholder="例如：语气更狠一点，但仍然保持字数接近和结构一致..."
+            className="field-input mt-0 flex-1"
+          />
+          <button
+            onClick={props.onRefine}
+            disabled={props.isRefining || !props.refineInstruction.trim()}
+            className="rounded-xl bg-[#00D4FF] px-6 py-3 font-bold text-black transition-all hover:shadow-[0_0_20px_rgba(0,212,255,0.3)] disabled:opacity-50"
+          >
+            {props.isRefining ? "优化中..." : "发送"}
+          </button>
+        </div>
+      </div>
+
+      <div className="flex justify-center pt-2">
+        <button onClick={props.onReset} className="rounded-xl border border-white/10 bg-white/5 px-8 py-3 text-slate-300 transition-all hover:bg-white/10">
+          重新分析新文案
+        </button>
+      </div>
+    </div>
+  );
+}

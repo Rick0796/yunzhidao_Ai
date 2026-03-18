@@ -40,6 +40,7 @@ except ImportError as exc:  # pragma: no cover
 from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
 from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
 from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini, generate_json_with_gemini, generate_text_with_gemini
+from backend.rewrite_copy import analyze_copy_with_gemini, normalize_multiline_text, refine_copy_with_gemini
 
 RUNTIME_PATHS = resolve_runtime_paths()
 ROOT_DIR = RUNTIME_PATHS.root_dir
@@ -3696,6 +3697,66 @@ async def generate_viral_copies(request: Request) -> JSONResponse:
         if not copies:
             raise ValueError("Gemini returned no usable copy variants")
         return JSONResponse(content={"copies": copies})
+    except GeminiVideoError as exc:
+        return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
+
+
+@app.post("/api/rewrite/analyze")
+@app.post("/api/analyze-copy")
+async def analyze_rewrite_copy(request: Request) -> JSONResponse:
+    if not CONFIG["apiKey"]:
+        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key")
+
+    body = await read_request_json(request)
+    original_copy = normalize_multiline_text(body.get("originalCopy") or body.get("original_copy"))
+    if not original_copy:
+        raise HTTPException(status_code=400, detail="originalCopy must not be empty")
+
+    industry = clean_text(body.get("industry"))
+    needs = clean_text(body.get("needs"))
+    user_background = clean_text(body.get("userBackground") or body.get("user_background"))
+
+    try:
+        result = await asyncio.to_thread(
+            analyze_copy_with_gemini,
+            original_copy=original_copy,
+            industry=industry,
+            needs=needs,
+            user_background=user_background,
+            api_key=CONFIG["apiKey"],
+            model=str(body.get("model") or CONFIG["defaultModel"]),
+        )
+        return JSONResponse(content=result)
+    except GeminiVideoError as exc:
+        return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
+
+
+@app.post("/api/rewrite/refine")
+@app.post("/api/refine-copy")
+async def refine_rewrite_copy(request: Request) -> JSONResponse:
+    if not CONFIG["apiKey"]:
+        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key")
+
+    body = await read_request_json(request)
+    current_result = body.get("currentResult") or body.get("current_result")
+    user_instruction = clean_text(body.get("userInstruction") or body.get("user_instruction"))
+    user_background = clean_text(body.get("userBackground") or body.get("user_background"))
+
+    if not isinstance(current_result, dict):
+        raise HTTPException(status_code=400, detail="currentResult must be a JSON object")
+    if not user_instruction:
+        raise HTTPException(status_code=400, detail="userInstruction must not be empty")
+
+    try:
+        result = await asyncio.to_thread(
+            refine_copy_with_gemini,
+            current_result=current_result,
+            user_instruction=user_instruction,
+            user_background=user_background,
+            api_key=CONFIG["apiKey"],
+            model=str(body.get("model") or CONFIG["defaultModel"]),
+        )
+        return JSONResponse(content=result)
     except GeminiVideoError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
     except Exception as exc:

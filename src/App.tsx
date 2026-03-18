@@ -5,11 +5,7 @@ import ParticleBackground from "./components/ParticleBackground";
 import ComposeWorkbench from "./components/ComposeWorkbench";
 import HotspotCenterPanel from "./components/HotspotCenterPanel";
 import VideoAnalysisPanel from "./components/VideoAnalysisPanel";
-import RewriteFlowContainer from "./components/RewriteFlowContainer";
-import RewriteWorkbench from "./components/rewrite/RewriteWorkbench";
-import {
-  buildMockSourceStructure
-} from "./lib/mock";
+import RewriteStudio from "./features/rewrite/RewriteStudio";
 import {
   classNames,
   cloneDeep,
@@ -37,7 +33,6 @@ import {
   displayCtaMode,
   displayEntryType,
   getStepConfig,
-  getWorkbenchCopy,
   isOriginalEntryType,
   type OriginalEntryType,
   type WorkbenchMode
@@ -62,7 +57,6 @@ import type {
   MeatItem,
   ModuleMeta,
   SkeletonItem,
-  SourceStructureItem,
   TaskForm,
   WorkspaceSnapshot
 } from "./types";
@@ -105,9 +99,7 @@ function App() {
   const [isGeneratingStructure, setIsGeneratingStructure] = useState(false);
   const [isGeneratingDrafts, setIsGeneratingDrafts] = useState(false);
   const [draftSignature, setDraftSignature] = useState("");
-  const [rewriteRefineNote, setRewriteRefineNote] = useState("");
   const [structureTab, setStructureTab] = useState<"skeleton" | "meat" | "cta">("skeleton");
-  const [isRewriteStructureCollapsed, setIsRewriteStructureCollapsed] = useState(false);
   const [isWorkbenchIntroHidden, setIsWorkbenchIntroHidden] = useState(false);
   const canCollapseWorkbenchIntro = false;
   const [composeWorkbenchNonce, setComposeWorkbenchNonce] = useState(0);
@@ -206,8 +198,6 @@ function App() {
   const hasRequiredTaskChoices = taskChoiceMissing.length === 0;
   const previousRequiredChoicesRef = useRef(hasRequiredTaskChoices);
   const stepConfig = getStepConfig(currentWorkbenchMode);
-  const workbenchCopy = getWorkbenchCopy(currentWorkbenchMode);
-  const rewriteSourceStructure = useMemo<SourceStructureItem[]>(() => (currentWorkbenchMode === "rewrite" ? buildMockSourceStructure(task) : []), [currentWorkbenchMode, task]);
 
   const selectedHook = useMemo(() => hooks.find((item) => item.id === selectedHookId) ?? hooks[0] ?? null, [hooks, selectedHookId]);
   const selectedSkeleton = useMemo(
@@ -223,7 +213,6 @@ function App() {
 
   useEffect(() => {
     if (currentWorkbenchMode !== "rewrite") return;
-    setIsRewriteStructureCollapsed(drafts.length > 0);
     setHooks([]);
     setSkeletons([]);
     setMeats([]);
@@ -502,7 +491,7 @@ function App() {
     showNotice("success", "热点素材已回填到内容输入区。");
   }
 
-  const { handleGenerateHooks, handleGenerateStructure, handleGenerateDrafts, handleGenerateRewriteDrafts } = useGenerationHandlers({
+  const { handleGenerateHooks, handleGenerateStructure, handleGenerateDrafts } = useGenerationHandlers({
     settings,
     profile,
     task,
@@ -714,18 +703,7 @@ function App() {
     if (target === 4 && canGoStep4) return setWizardStep(4);
   }
 
-  const rewriteStepPanel = (
-    <RewriteWorkbench
-      task={task}
-      settings={settings}
-      onUpdateSourceText={(value) => updateTaskField("sourceText", value)}
-      onUpdateUserNote={(value) => updateTaskField("userNote", value)}
-      showNotice={showNotice}
-    />
-  );
-
   const stepPanel =
-    currentWorkbenchMode === "rewrite" ? rewriteStepPanel :
     wizardStep === 1 ? (
       <GlassCard>
         <div className="space-y-3">
@@ -1017,37 +995,6 @@ function App() {
           </div>
         </div>
         <ModuleMetaHint meta={moduleMeta.hooks} />
-
-        {true ? (
-          <div className="mt-4 rounded-2xl border border-white/10 bg-white/4 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="text-sm font-semibold text-white">原文结构版</div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">{rewriteSourceStructure.length} 段</span>
-                <button
-                  type="button"
-                  className="text-xs text-slate-400 hover:text-white transition"
-                  onClick={() => setIsRewriteStructureCollapsed((value) => !value)}
-                >
-                  {isRewriteStructureCollapsed ? "展开" : "收起"}
-                </button>
-              </div>
-            </div>
-            {isRewriteStructureCollapsed ? (
-              <div className="mt-2 text-xs text-slate-500">原文结构已收起，需要对照时点「展开」。</div>
-            ) : (
-              <div className="mt-3 grid gap-2">
-                {rewriteSourceStructure.length === 0 ? (
-                  <EmptyBlock text="原文还不够完整，贴入原文后这里会自动拆出结构。" />
-                ) : (
-                  rewriteSourceStructure.map((item, index) => (
-                    <SourceStructureCard key={item.id} item={item} index={index + 1} onCopy={(text) => handleCopy(text, "结构段落已复制。")} />
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        ) : null}
 
         {true ? (
           <div className="mt-4">
@@ -1365,16 +1312,18 @@ function App() {
           </button>
 
           <div className="flex items-center gap-2">
-            <button
-              className="ghost-btn !min-h-8 !px-3 !text-xs"
-              onClick={() => setShowHistory(true)}
-              title="历史记录"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="hidden sm:inline">历史</span>
-            </button>
+            {!enteredWorkbench || currentWorkbenchMode !== "rewrite" ? (
+              <button
+                className="ghost-btn !min-h-8 !px-3 !text-xs"
+                onClick={() => setShowHistory(true)}
+                title="历史记录"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="hidden sm:inline">历史</span>
+              </button>
+            ) : null}
             {enteredWorkbench ? (
               <button className="ghost-btn !min-h-8 !px-3 !text-xs" onClick={() => startNewTask()}>
                 + 新任务
@@ -1383,7 +1332,7 @@ function App() {
           </div>
         </div>
 
-        {enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" ? (
+        {enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" && currentWorkbenchMode !== "rewrite" ? (
           <div className="step-bar">
             {stepConfig.map((item) => {
               const available = item.step === 1 ? true : item.step === 2 ? canGoStep2 : item.step === 3 ? canGoStep3 : canGoStep4 || drafts.length > 0;
@@ -1408,7 +1357,7 @@ function App() {
       <HistoryDrawer open={showHistory} history={history} onClose={() => setShowHistory(false)} onRestore={restoreHistory} onDelete={deleteHistory} />
       {notice ? <Notice toast={notice} /> : null}
 
-      <main className="relative z-10 flex-1 px-4 pb-24 md:pb-10" style={{paddingTop: enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" ? "96px" : "56px"}}>
+      <main className="relative z-10 flex-1 px-4 pb-24 md:pb-10" style={{paddingTop: enteredWorkbench && currentWorkbenchMode !== "compose" && currentWorkbenchMode !== "video" && currentWorkbenchMode !== "rewrite" ? "96px" : "56px"}}>
         {!enteredWorkbench ? (
           <Landing onSelectMode={openWorkbench} />
         ) : currentWorkbenchMode === "compose" ? (
@@ -1422,8 +1371,18 @@ function App() {
               onImportToRewrite={(script) => {
                 openWorkbench("rewrite");
                 setTask((prev) => ({ ...prev, sourceText: script }));
-                showNotice("success", "脚本已导入到仿写工作台。");
+                showNotice("success", "脚本已导入到爆款仿写工作台。");
               }}
+              showNotice={showNotice}
+            />
+          </div>
+        ) : currentWorkbenchMode === "rewrite" ? (
+          <div className="mx-auto max-w-5xl">
+            <RewriteStudio
+              settings={settings}
+              initialOriginalCopy={task.sourceText}
+              defaultUserBackground={profile.selfIntro}
+              onOriginalCopyChange={(value) => updateTaskField("sourceText", value)}
               showNotice={showNotice}
             />
           </div>
@@ -1572,7 +1531,7 @@ function Landing({ onSelectMode }: { onSelectMode: (mode: WorkbenchMode) => void
           </div>
           <div className="flex-1">
             <div className="text-sm font-semibold text-white">爆款仿写</div>
-            <div className="mt-0.5 text-xs text-slate-400">拆文案 · 改开头 · 出成稿</div>
+            <div className="mt-0.5 text-xs text-slate-400">深度拆解 · 结构锁定 · 去重改写</div>
           </div>
           <svg className="h-4 w-4 shrink-0 text-slate-600 transition group-hover:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </button>
@@ -1626,29 +1585,6 @@ function Landing({ onSelectMode }: { onSelectMode: (mode: WorkbenchMode) => void
 
 function GlassCard({ children }: { children: ReactNode }) {
   return <div className="glass-panel rounded-[28px] p-4 sm:p-6 md:p-7">{children}</div>;
-}
-
-function SourceStructureCard(props: { item: SourceStructureItem; index: number; onCopy: (text: string) => void }) {
-  const { item, index, onCopy } = props;
-  return (
-    <div className="rounded-3xl border border-white/10 bg-[#09101f]/78 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="inline-flex rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-semibold text-cyan-200">
-            结构 {index}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-white">{item.label}</span>
-            <span className="text-xs text-slate-400">{item.hint}</span>
-          </div>
-        </div>
-        <button className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300 hover:border-cyan-400/25 hover:text-white" onClick={() => onCopy(item.text)}>
-          复制
-        </button>
-      </div>
-      <div className="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-200">{item.text}</div>
-    </div>
-  );
 }
 
 function StepFooter({ children }: { children: ReactNode }) {

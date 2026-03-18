@@ -132,17 +132,17 @@ export function getWorkbenchCopy(mode: WorkbenchMode): WorkbenchCopy {
 
   if (mode === "rewrite") {
     return {
-      eyebrow: "爆款仿写",
-      title: "爆款仿写工作台",
-      description: "粘贴原文，保持结构不变，只改表达和情绪。",
-      step1Title: "步骤 1 / 输入原文",
-      step1Subtitle: "填写原文与改写要求，系统只改表达不改结构。",
-      step2Title: "步骤 2 / 结构预览",
-      step2Subtitle: "按段落预览原文结构，后续仿写保持一致。",
-      step3Title: "步骤 3 / 生成仿写",
-      step3Subtitle: "默认生成 1 条，可继续追加 3 条。",
-      step4Title: "步骤 4 / 结果优化",
-      step4Subtitle: "查看正文与字幕稿，并追加优化指令。",
+      eyebrow: "爆款文案",
+      title: "短视频文案深度分析",
+      description: "字数相近、结构一致，只做去重和改写。",
+      step1Title: "",
+      step1Subtitle: "",
+      step2Title: "",
+      step2Subtitle: "",
+      step3Title: "",
+      step3Subtitle: "",
+      step4Title: "",
+      step4Subtitle: "",
     };
   }
 

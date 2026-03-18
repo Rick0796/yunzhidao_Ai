@@ -24,7 +24,6 @@ import {
   normalizeSkeletonResults
 } from "../lib/normalize";
 import type { WorkbenchMode } from "../lib/workbenchConfig";
-import { generateViralRewriteDrafts } from "../lib/viralRewrite";
 
 interface GenerationHandlersParams {
   settings: ApiSettings;
@@ -56,16 +55,6 @@ interface GenerationHandlersParams {
   showNotice: (tone: "success" | "warning" | "info", text: string) => void;
   clearFrom: (level: "task" | "hook" | "structure") => void;
   saveCurrentHistory: (nextDrafts: DraftItem[], nextSelectedDraftId: string | null, hook: HookItem | null, skeleton: SkeletonItem | null, meat: MeatItem | null, cta: CtaItem | null) => void;
-}
-
-function createViralFallbackSkeleton(): SkeletonItem {
-  return {
-    id: "sk-viral-fallback",
-    name: "原文轻改骨架",
-    scenario: "仿写爆款",
-    summary: "按原文段落顺序逐段轻改，不压缩字数，不改推进。",
-    steps: [{ name: "逐段轻改", purpose: "按原文顺序轻改去重", targetWords: 80 }]
-  };
 }
 
 export function useGenerationHandlers(params: GenerationHandlersParams) {
@@ -169,68 +158,7 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
     }
   }
 
-  async function handleGenerateRewriteDrafts(options?: { count?: number; append?: boolean; refineNote?: string }): Promise<DraftItem[]> {
-    const count = Math.max(1, Math.min(options?.count ?? 1, 3));
-    const append = Boolean(options?.append);
-    const refineNote = options?.refineNote?.trim() || "";
-    if (currentWorkbenchMode !== "rewrite") {
-      return [];
-    }
-    if (!canGoStep2) {
-      showNotice("warning", "先把原文贴进去，再开始生成。");
-      return [];
-    }
-
-    setIsGeneratingDrafts(true);
-    try {
-      const result = await generateViralRewriteDrafts({
-        settings,
-        task,
-        count,
-        existingScripts: append ? drafts.map((item) => item.script) : [],
-        refineNote,
-      });
-      const baseDrafts = append ? [...drafts] : [];
-      const seenScripts = new Set(baseDrafts.map((item) => item.script));
-      const nextItems = result.data.items.filter((item) => !seenScripts.has(item.script));
-      const nextDrafts = append ? [...baseDrafts, ...nextItems] : result.data.items;
-      const nextSelectedDraftId = nextItems[0]?.id ?? nextDrafts[0]?.id ?? null;
-
-      setDrafts(nextDrafts);
-      setSelectedDraftId(nextSelectedDraftId);
-      setDraftSignature("rewrite-direct");
-      setModuleMeta((prev) => ({
-        ...prev,
-        drafts: {
-          source: result.source,
-          updatedAt: new Date().toISOString(),
-          message: result.message,
-        }
-      }));
-      saveCurrentHistory(nextDrafts, nextSelectedDraftId, null, null, null, null);
-
-      if (append) {
-        const addedCount = nextDrafts.length - drafts.length;
-        showNotice(addedCount > 0 ? "success" : "info", addedCount > 0 ? `已追加生成 ${addedCount} 条仿写版本。` : "新生成内容与现有版本太像，已保留原结果。");
-      } else {
-        showNotice("success", nextDrafts.length > 0 ? "已根据原文结构生成完整仿写版本。" : "这次没有生成出可用版本。");
-      }
-
-      return nextDrafts;
-    } catch (error: unknown) {
-      showNotice("warning", `爆款仿写生成失败：${error instanceof Error ? error.message : "未知错误"}`);
-      return [];
-    } finally {
-      setIsGeneratingDrafts(false);
-    }
-  }
-
   async function handleGenerateDrafts(): Promise<void> {
-    if (currentWorkbenchMode === "rewrite") {
-      await handleGenerateRewriteDrafts({ count: 1, append: false });
-      return;
-    }
-
     {
       if (!selectedHook || !selectedSkeleton || !selectedCta || (task.businessMode !== "none" && !selectedMeat)) {
         showNotice("warning", "先把皮、骨、肉、收口都定下来。");
@@ -238,14 +166,9 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
       }
     }
 
-    const effectiveSkeleton = selectedSkeleton ?? createViralFallbackSkeleton();
+    const effectiveSkeleton = selectedSkeleton;
     const effectiveHook = selectedHook;
     const effectiveCta = selectedCta;
-
-    if (!effectiveHook || !effectiveCta) {
-      showNotice("warning", "仿写至少需要先确定开头和收口。");
-      return;
-    }
 
     setIsGeneratingDrafts(true);
     try {
@@ -273,17 +196,7 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
         }
       }));
       saveCurrentHistory(nextDrafts, nextSelectedDraftId, effectiveHook, effectiveSkeleton, selectedMeat, effectiveCta);
-
-      if (task.entryType === "viral") {
-        showNotice(
-          "success",
-          normalizedResult.message
-            ? `已生成 2 个轻改去重版本。${normalizedResult.message}`
-            : "已生成 2 个轻改去重版本。"
-        );
-      } else {
-        showNotice("success", "完整成品已经生成，并写入历史。");
-      }
+      showNotice("success", "完整成品已经生成，并写入历史。");
     } catch (error: unknown) {
       showNotice("warning", `成品生成失败：${error instanceof Error ? error.message : "未知错误"}`);
     } finally {
@@ -295,6 +208,5 @@ export function useGenerationHandlers(params: GenerationHandlersParams) {
     handleGenerateHooks,
     handleGenerateStructure,
     handleGenerateDrafts,
-    handleGenerateRewriteDrafts
   };
 }

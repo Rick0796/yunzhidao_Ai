@@ -19,4 +19,7 @@ export const STORAGE_KEYS = {
   selectedCtaId: "yzd.copy.selected-cta-id",
   selectedDraftId: "yzd.copy.selected-draft-id",
   videoHistory: "yzd.copy.video-analysis-history.v1",
+  rewriteForm: "yzd.copy.rewrite-form.v1",
+  rewriteResult: "yzd.copy.rewrite-result.v1",
+  rewriteHistory: "yzd.copy.rewrite-history.v1",
 } as const;

@@ -141,7 +141,7 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
       return;
     }
     onImportToRewrite(result.script);
-    showNotice("success", "已导入到仿写工作台！");
+    showNotice("success", "已导入到爆款仿写工作台！");
   }, [result, onImportToRewrite, showNotice]);
 
   const handleGenerateSora = useCallback(async (count: number) => {
@@ -396,9 +396,9 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
       {panelState === "result" && result ? (
         <div className="space-y-6">
           <div className="flex gap-3">
-            <button onClick={handleImport} className="flex-1 rounded-xl bg-gradient-to-r from-[#00D4FF] to-[#8B5CF6] py-3 text-sm font-bold text-black transition-all hover:shadow-[0_0_20px_rgba(0,212,255,0.3)]">
-              导入到仿写工作台
-            </button>
+          <button onClick={handleImport} className="flex-1 rounded-xl bg-gradient-to-r from-[#00D4FF] to-[#8B5CF6] py-3 text-sm font-bold text-black transition-all hover:shadow-[0_0_20px_rgba(0,212,255,0.3)]">
+              导入到爆款仿写工作台
+          </button>
             <button onClick={() => { setFile(null); setPanelState("idle"); setResult(null); setSoraPrompts([]); setViralCopies([]); }} className="rounded-xl border border-white/10 px-4 py-3 text-sm text-slate-400 transition-colors hover:border-white/30 hover:text-white">
               重新上传
             </button>
