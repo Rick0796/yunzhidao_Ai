@@ -1,6 +1,6 @@
 import type { ApiSettings } from "../../types";
-import { DEFAULT_GEMINI_MODEL, normalizeGeminiModel } from "../../lib/geminiModels";
 import { normalizeBaseUrl } from "../../lib/http";
+import { REWRITE_PROVIDER_MODEL } from "./constants";
 import type { RewriteCopyResult } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 180000;
@@ -75,7 +75,7 @@ function normalizeScripts(raw: unknown) {
   return raw
     .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
     .map((item, index) => ({
-      title: typeof item.title === "string" && item.title.trim() ? item.title : `文案 ${index + 1}`,
+      title: typeof item.title === "string" && item.title.trim() ? item.title : `Script ${index + 1}`,
       content: typeof item.content === "string" ? item.content : "",
     }))
     .filter((item) => item.content.trim());
@@ -107,10 +107,10 @@ async function postRewriteJson(
     const rawText = await response.text();
     const parsed = safeParseJson(rawText);
     if (!response.ok) {
-      throw new Error(readApiError(parsed, rawText, "请求失败。"));
+      throw new Error(readApiError(parsed, rawText, "Request failed. Please retry."));
     }
     if (!parsed) {
-      throw new Error("返回格式异常，请重试。");
+      throw new Error("The server returned an invalid JSON response.");
     }
     return parsed;
   } finally {
@@ -129,19 +129,10 @@ export async function analyzeRewriteCopy(
   signal?: AbortSignal,
 ): Promise<RewriteCopyResult> {
   if (!settings.useLiveApi) {
-    throw new Error("请先开启实时 API，再使用 Gemini 仿写。");
+    throw new Error("Enable the live API before using rewrite.");
   }
 
-  const parsed = await postRewriteJson(
-    settings,
-    "/rewrite/analyze",
-    {
-      ...payload,
-      model: normalizeGeminiModel(settings.mainModel, DEFAULT_GEMINI_MODEL),
-    },
-    signal,
-  );
-
+  const parsed = await postRewriteJson(settings, "/rewrite/analyze", { ...payload, model: REWRITE_PROVIDER_MODEL }, signal);
   return normalizeRewriteResult(parsed);
 }
 
@@ -155,19 +146,10 @@ export async function refineRewriteCopy(
   signal?: AbortSignal,
 ): Promise<Pick<RewriteCopyResult, "generatedScripts">> {
   if (!settings.useLiveApi) {
-    throw new Error("请先开启实时 API，再使用 Gemini 仿写。");
+    throw new Error("Enable the live API before using rewrite.");
   }
 
-  const parsed = await postRewriteJson(
-    settings,
-    "/rewrite/refine",
-    {
-      ...payload,
-      model: normalizeGeminiModel(settings.mainModel, DEFAULT_GEMINI_MODEL),
-    },
-    signal,
-  );
-
+  const parsed = await postRewriteJson(settings, "/rewrite/refine", { ...payload, model: REWRITE_PROVIDER_MODEL }, signal);
   return {
     generatedScripts: normalizeScripts(parsed.generatedScripts),
   };

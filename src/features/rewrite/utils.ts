@@ -20,7 +20,11 @@ export async function copyText(text: string) {
 }
 
 export function formatRewriteTime(iso: string): string {
-  return new Date(iso).toLocaleString("zh-CN", {
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) {
+    return iso;
+  }
+  return value.toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -32,5 +36,5 @@ export function truncateText(value: string, maxLength: number): string {
   const text = value.trim().replace(/\s+/g, " ");
   if (!text) return "";
   if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+  return `${text.slice(0, maxLength - 3).trimEnd()}...`;
 }

@@ -38,10 +38,11 @@ except ImportError as exc:  # pragma: no cover
 
 
 from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
+from backend.anthropic_client import AnthropicApiError, DEFAULT_ANTHROPIC_MODEL, normalize_anthropic_model_name
 from backend.gemini_models import DEFAULT_GEMINI_MODEL, normalize_gemini_model_name
 from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
 from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini, generate_json_with_gemini, generate_text_with_gemini
-from backend.rewrite_copy import analyze_copy_with_gemini, normalize_multiline_text, refine_copy_with_gemini
+from backend.rewrite_service import analyze_copy_with_claude, normalize_multiline_text, refine_copy_with_claude
 
 RUNTIME_PATHS = resolve_runtime_paths()
 ROOT_DIR = RUNTIME_PATHS.root_dir
@@ -575,6 +576,12 @@ def read_config() -> dict[str, Any]:
         env_text("GEMINI_MODEL") or clean_config_text(config.get("defaultModel", DEFAULT_GEMINI_MODEL)),
         DEFAULT_GEMINI_MODEL,
     )
+    anthropic_base_url = env_text("ANTHROPIC_BASE_URL") or clean_config_text(config.get("anthropicBaseUrl", ""))
+    anthropic_api_key = env_text("ANTHROPIC_API_KEY") or clean_config_text(config.get("anthropicApiKey", ""))
+    anthropic_model = normalize_anthropic_model_name(
+        env_text("ANTHROPIC_MODEL") or clean_config_text(config.get("anthropicModel", DEFAULT_ANTHROPIC_MODEL)),
+        DEFAULT_ANTHROPIC_MODEL,
+    )
     prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
     port = env_int("PORT") or to_int(config.get("port", 8788), 8788)
     retries = env_int("API_RETRIES") or to_int(config.get("retries", 2), 2)
@@ -584,6 +591,9 @@ def read_config() -> dict[str, Any]:
         "baseUrl": base_url,
         "apiKey": api_key,
         "defaultModel": default_model,
+        "anthropicBaseUrl": anthropic_base_url,
+        "anthropicApiKey": anthropic_api_key,
+        "anthropicModel": anthropic_model,
         "port": port,
         "promptVersion": prompt_version,
         "retries": retries,
@@ -596,6 +606,10 @@ CONFIG = read_config()
 
 def resolve_model_name(raw_model: Any) -> str:
     return normalize_gemini_model_name(str(raw_model or ""), CONFIG["defaultModel"])
+
+
+def resolve_rewrite_model_name(raw_model: Any) -> str:
+    return normalize_anthropic_model_name(str(raw_model or ""), CONFIG["anthropicModel"])
 FREE_WORKFLOW_HOT_RANK = {"id": "free_scrapers", "name": "免费热榜兼容入口"}
 FREE_WORKFLOW_MANUAL_SEARCH = {"id": "free_search", "name": "免费搜索兼容入口"}
 
@@ -3712,8 +3726,8 @@ async def generate_viral_copies(request: Request) -> JSONResponse:
 @app.post("/api/rewrite/analyze")
 @app.post("/api/analyze-copy")
 async def analyze_rewrite_copy(request: Request) -> JSONResponse:
-    if not CONFIG["apiKey"]:
-        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key")
+    if not CONFIG["anthropicBaseUrl"] or not CONFIG["anthropicApiKey"]:
+        raise HTTPException(status_code=500, detail="Backend Claude config is missing ANTHROPIC_BASE_URL or ANTHROPIC_API_KEY")
 
     body = await read_request_json(request)
     original_copy = normalize_multiline_text(body.get("originalCopy") or body.get("original_copy"))
@@ -3726,24 +3740,25 @@ async def analyze_rewrite_copy(request: Request) -> JSONResponse:
 
     try:
         result = await asyncio.to_thread(
-            analyze_copy_with_gemini,
+            analyze_copy_with_claude,
             original_copy=original_copy,
             industry=industry,
             needs=needs,
             user_background=user_background,
-            api_key=CONFIG["apiKey"],
-            model=resolve_model_name(body.get("model")),
+            api_key=CONFIG["anthropicApiKey"],
+            base_url=CONFIG["anthropicBaseUrl"],
+            model=resolve_rewrite_model_name(body.get("model")),
         )
         return JSONResponse(content=result)
-    except GeminiVideoError as exc:
+    except AnthropicApiError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 
 
 @app.post("/api/rewrite/refine")
 @app.post("/api/refine-copy")
 async def refine_rewrite_copy(request: Request) -> JSONResponse:
-    if not CONFIG["apiKey"]:
-        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key")
+    if not CONFIG["anthropicBaseUrl"] or not CONFIG["anthropicApiKey"]:
+        raise HTTPException(status_code=500, detail="Backend Claude config is missing ANTHROPIC_BASE_URL or ANTHROPIC_API_KEY")
 
     body = await read_request_json(request)
     current_result = body.get("currentResult") or body.get("current_result")
@@ -3757,15 +3772,16 @@ async def refine_rewrite_copy(request: Request) -> JSONResponse:
 
     try:
         result = await asyncio.to_thread(
-            refine_copy_with_gemini,
+            refine_copy_with_claude,
             current_result=current_result,
             user_instruction=user_instruction,
             user_background=user_background,
-            api_key=CONFIG["apiKey"],
-            model=resolve_model_name(body.get("model")),
+            api_key=CONFIG["anthropicApiKey"],
+            base_url=CONFIG["anthropicBaseUrl"],
+            model=resolve_rewrite_model_name(body.get("model")),
         )
         return JSONResponse(content=result)
-    except GeminiVideoError as exc:
+    except AnthropicApiError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
     except Exception as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
