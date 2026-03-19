@@ -11,6 +11,37 @@ import RewriteScriptResults from "./components/RewriteScriptResults";
 import type { RewriteCopyResult, RewriteFormState, RewriteHistoryItem } from "./types";
 import { copyText, generateRewriteId } from "./utils";
 
+const TEXT = {
+  emptySource: "\u8bf7\u5148\u7c98\u8d34\u9700\u8981\u5206\u6790\u7684\u539f\u59cb\u6587\u6848\u3002",
+  analyzing: "\u6b63\u5728\u901a\u8fc7 ",
+  analyzingTail: " \u5206\u6790\u5e76\u751f\u6210\u4eff\u5199\u7a3f...",
+  analyzeDone: "\u5206\u6790\u4e0e\u4eff\u5199\u751f\u6210\u5df2\u5b8c\u6210\u3002",
+  analyzeFailedFallback: "\u5206\u6790\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
+  analyzeCancelled: "\u672c\u6b21\u5206\u6790\u5df2\u53d6\u6d88\u3002",
+  analyzeFailedPrefix: "\u5206\u6790\u5931\u8d25\uff1a",
+  generatingMore: "\u6b63\u5728\u751f\u6210\u66f4\u591a\u4eff\u5199\u7a3f...",
+  refining: "\u6b63\u5728\u6839\u636e\u4f60\u7684\u8981\u6c42\u4f18\u5316\u4eff\u5199\u7a3f...",
+  generateDone: "\u66f4\u591a\u4eff\u5199\u7a3f\u5df2\u751f\u6210\u3002",
+  refineDone: "\u4eff\u5199\u7a3f\u5df2\u4f18\u5316\u5b8c\u6210\u3002",
+  refineFailedFallback: "\u4f18\u5316\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
+  generateFailedPrefix: "\u751f\u6210\u5931\u8d25\uff1a",
+  refineFailedPrefix: "\u4f18\u5316\u5931\u8d25\uff1a",
+  copyDone: "\u811a\u672c\u5df2\u590d\u5236\u3002",
+  copyFailed: "\u590d\u5236\u5931\u8d25\uff0c\u8bf7\u624b\u52a8\u590d\u5236\u3002",
+  historyLoaded: "\u5df2\u52a0\u8f7d\u5386\u53f2\u4eff\u5199\u8bb0\u5f55\u3002",
+  title: "\u7206\u6b3e\u4eff\u5199\u5de5\u4f5c\u53f0",
+  intro:
+    "\u8fd9\u4e2a\u6a21\u5757\u4fdd\u7559\u51e1\u54e5\u7684\u5206\u6790\u903b\u8f91\uff0c\u5f53\u524d\u4eff\u5199\u7edf\u4e00\u8d70 ",
+  introTail:
+    "\uff08",
+  introTail2:
+    "\uff09\uff0c\u53ea\u505a\u5b57\u6570\u63a5\u8fd1\u3001\u7ed3\u6784\u4e00\u81f4\u3001\u53bb\u91cd\u6539\u5199\uff0c\u4e0d\u6539\u547d\u9898\u3002",
+  history: "\u5386\u53f2\u8bb0\u5f55",
+  clearHistory: "\u786e\u5b9a\u6e05\u7a7a\u6240\u6709\u4eff\u5199\u5386\u53f2\u8bb0\u5f55\u5417\uff1f",
+  generateMoreInstruction:
+    "\u8bf7\u518d\u751f\u6210 3 \u6761\u8868\u8fbe\u4e0d\u540c\u7684\u4eff\u5199\u7a3f\uff0c\u4f46\u4ecd\u7136\u4fdd\u6301\u5b57\u6570\u63a5\u8fd1\u3001\u7ed3\u6784\u4e00\u81f4\u3001\u53ea\u505a\u53bb\u91cd\u6539\u5199\u3002",
+} as const;
+
 interface RewriteStudioProps {
   settings: ApiSettings;
   initialOriginalCopy: string;
@@ -83,12 +114,12 @@ export default function RewriteStudio(props: RewriteStudioProps) {
 
   async function handleAnalyze() {
     if (!form.originalCopy.trim()) {
-      props.showNotice("warning", "Paste the source copy before running rewrite.");
+      props.showNotice("warning", TEXT.emptySource);
       return;
     }
 
     setIsAnalyzing(true);
-    props.showNotice("info", `Analyzing with ${REWRITE_PROVIDER_LABEL} and generating rewrite scripts...`);
+    props.showNotice("info", `${TEXT.analyzing}${REWRITE_PROVIDER_LABEL}${TEXT.analyzingTail}`);
 
     const controller = new AbortController();
     requestAbortRef.current = controller;
@@ -111,14 +142,14 @@ export default function RewriteStudio(props: RewriteStudioProps) {
       setResult(normalizedResult);
       setForm((prev) => ({ ...prev, refineInstruction: "" }));
       pushHistory(normalizedResult);
-      props.showNotice("success", "Analysis and rewrite generation completed.");
+      props.showNotice("success", TEXT.analyzeDone);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Analysis failed. Please retry.";
+      const message = error instanceof Error ? error.message : TEXT.analyzeFailedFallback;
       const aborted = error instanceof DOMException && error.name === "AbortError";
       if (aborted || message.includes("aborted") || message.includes("AbortError")) {
-        props.showNotice("info", "The current analysis request was cancelled.");
+        props.showNotice("info", TEXT.analyzeCancelled);
       } else {
-        props.showNotice("warning", `Analysis failed: ${message}`);
+        props.showNotice("warning", `${TEXT.analyzeFailedPrefix}${message}`);
       }
     } finally {
       setIsAnalyzing(false);
@@ -133,7 +164,7 @@ export default function RewriteStudio(props: RewriteStudioProps) {
     }
 
     setIsRefining(true);
-    props.showNotice("info", userInstruction ? "Generating more rewrite scripts..." : "Refining the current rewrite scripts...");
+    props.showNotice("info", userInstruction ? TEXT.generatingMore : TEXT.refining);
 
     const controller = new AbortController();
     requestAbortRef.current = controller;
@@ -155,12 +186,12 @@ export default function RewriteStudio(props: RewriteStudioProps) {
       if (!userInstruction) {
         setForm((prev) => ({ ...prev, refineInstruction: "" }));
       }
-      props.showNotice("success", userInstruction ? "More rewrite scripts generated." : "Rewrite scripts refined.");
+      props.showNotice("success", userInstruction ? TEXT.generateDone : TEXT.refineDone);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Refine failed. Please retry.";
+      const message = error instanceof Error ? error.message : TEXT.refineFailedFallback;
       const aborted = error instanceof DOMException && error.name === "AbortError";
       if (!(aborted || message.includes("aborted") || message.includes("AbortError"))) {
-        props.showNotice("warning", userInstruction ? `Generation failed: ${message}` : `Refine failed: ${message}`);
+        props.showNotice("warning", userInstruction ? `${TEXT.generateFailedPrefix}${message}` : `${TEXT.refineFailedPrefix}${message}`);
       }
     } finally {
       setIsRefining(false);
@@ -171,9 +202,9 @@ export default function RewriteStudio(props: RewriteStudioProps) {
   async function handleCopyScript(text: string) {
     try {
       await copyText(text);
-      props.showNotice("success", "Script copied.");
+      props.showNotice("success", TEXT.copyDone);
     } catch {
-      props.showNotice("warning", "Copy failed. Please copy manually.");
+      props.showNotice("warning", TEXT.copyFailed);
     }
   }
 
@@ -198,17 +229,20 @@ export default function RewriteStudio(props: RewriteStudioProps) {
     props.onOriginalCopyChange(item.originalCopy);
     setResult(item.result);
     setShowHistory(false);
-    props.showNotice("success", "History item loaded.");
+    props.showNotice("success", TEXT.historyLoaded);
   }
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">Viral Rewrite Studio</h2>
+          <h2 className="text-xl font-bold text-white">{TEXT.title}</h2>
           <p className="mt-1 text-sm text-slate-400">
-            This module keeps the Fange-style analysis flow, but the rewrite stage now runs only on {REWRITE_PROVIDER_LABEL} (
-            {REWRITE_PROVIDER_MODEL}). It rewrites for deduplication only: similar length, same structure, no topic drift.
+            {TEXT.intro}
+            {REWRITE_PROVIDER_LABEL}
+            {TEXT.introTail}
+            {REWRITE_PROVIDER_MODEL}
+            {TEXT.introTail2}
           </p>
         </div>
         <button
@@ -218,7 +252,7 @@ export default function RewriteStudio(props: RewriteStudioProps) {
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          {`History${history.length > 0 ? ` (${history.length})` : ""}`}
+          {`${TEXT.history}${history.length > 0 ? ` (${history.length})` : ""}`}
         </button>
       </div>
 
@@ -228,7 +262,7 @@ export default function RewriteStudio(props: RewriteStudioProps) {
           onLoad={handleLoadHistory}
           onDelete={(id) => setHistory((prev) => prev.filter((item) => item.id !== id))}
           onClear={() => {
-            if (window.confirm("Clear all rewrite history?")) {
+            if (window.confirm(TEXT.clearHistory)) {
               setHistory([]);
             }
           }}
@@ -259,9 +293,7 @@ export default function RewriteStudio(props: RewriteStudioProps) {
             isRefining={isRefining}
             onRegenerate={() => void handleAnalyze()}
             onGenerateMore={() =>
-              void handleRefine(
-                "Generate 3 more rewrites with different wording, but keep the length close, keep the structure locked, and only rewrite for deduplication.",
-              )
+              void handleRefine(TEXT.generateMoreInstruction)
             }
             onRefineInstructionChange={(value) => updateForm("refineInstruction", value)}
             onRefine={() => void handleRefine()}

@@ -4,6 +4,9 @@ import { REWRITE_PROVIDER_MODEL } from "./constants";
 import type { RewriteCopyResult } from "./types";
 
 const DEFAULT_TIMEOUT_MS = 180000;
+const ERROR_ENABLE_LIVE_API = "\u8bf7\u5148\u5f00\u542f\u5b9e\u65f6 API\uff0c\u518d\u4f7f\u7528\u7206\u6b3e\u4eff\u5199\u3002";
+const ERROR_REQUEST_FAILED = "\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002";
+const ERROR_INVALID_JSON = "\u670d\u52a1\u7aef\u8fd4\u56de\u683c\u5f0f\u5f02\u5e38\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002";
 
 function safeParseJson(text: string): Record<string, unknown> | null {
   const trimmed = text.trim();
@@ -107,10 +110,10 @@ async function postRewriteJson(
     const rawText = await response.text();
     const parsed = safeParseJson(rawText);
     if (!response.ok) {
-      throw new Error(readApiError(parsed, rawText, "Request failed. Please retry."));
+      throw new Error(readApiError(parsed, rawText, ERROR_REQUEST_FAILED));
     }
     if (!parsed) {
-      throw new Error("The server returned an invalid JSON response.");
+      throw new Error(ERROR_INVALID_JSON);
     }
     return parsed;
   } finally {
@@ -129,7 +132,7 @@ export async function analyzeRewriteCopy(
   signal?: AbortSignal,
 ): Promise<RewriteCopyResult> {
   if (!settings.useLiveApi) {
-    throw new Error("Enable the live API before using rewrite.");
+    throw new Error(ERROR_ENABLE_LIVE_API);
   }
 
   const parsed = await postRewriteJson(settings, "/rewrite/analyze", { ...payload, model: REWRITE_PROVIDER_MODEL }, signal);
@@ -146,7 +149,7 @@ export async function refineRewriteCopy(
   signal?: AbortSignal,
 ): Promise<Pick<RewriteCopyResult, "generatedScripts">> {
   if (!settings.useLiveApi) {
-    throw new Error("Enable the live API before using rewrite.");
+    throw new Error(ERROR_ENABLE_LIVE_API);
   }
 
   const parsed = await postRewriteJson(settings, "/rewrite/refine", { ...payload, model: REWRITE_PROVIDER_MODEL }, signal);

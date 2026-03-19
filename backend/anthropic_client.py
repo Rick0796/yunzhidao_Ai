@@ -165,7 +165,7 @@ def _request_message(
             timeout=180,
         )
     except requests.RequestException as exc:
-        raise AnthropicApiError(f"Claude request failed: {exc}") from exc
+        raise AnthropicApiError(f"\u8bf7\u6c42 Claude \u5931\u8d25\uff1a{exc}") from exc
 
     if not response.ok:
         raise AnthropicApiError(_read_error_message(response))
@@ -173,11 +173,11 @@ def _request_message(
     try:
         payload = response.json()
     except ValueError as exc:
-        raise AnthropicApiError("Claude returned an invalid response envelope.") from exc
+        raise AnthropicApiError("\u0043laude \u8fd4\u56de\u4e86\u5f02\u5e38\u7684\u54cd\u5e94\u683c\u5f0f\u3002") from exc
 
     text = _collect_text_blocks(payload)
     if not text:
-        raise AnthropicApiError("Claude returned empty content. Please retry.")
+        raise AnthropicApiError("\u0043laude \u8fd4\u56de\u5185\u5bb9\u4e3a\u7a7a\uff0c\u8bf7\u91cd\u8bd5\u3002")
     return text
 
 
@@ -216,4 +216,4 @@ def generate_json_with_anthropic(
                 "Do not include markdown, code fences, explanations, or extra text."
             )
 
-    raise AnthropicApiError("Claude did not return valid JSON. Please retry.")
+    raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u5408\u6cd5\u7684 JSON\uff0c\u8bf7\u91cd\u8bd5\u3002")

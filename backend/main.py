@@ -576,10 +576,14 @@ def read_config() -> dict[str, Any]:
         env_text("GEMINI_MODEL") or clean_config_text(config.get("defaultModel", DEFAULT_GEMINI_MODEL)),
         DEFAULT_GEMINI_MODEL,
     )
-    anthropic_base_url = env_text("ANTHROPIC_BASE_URL") or clean_config_text(config.get("anthropicBaseUrl", ""))
-    anthropic_api_key = env_text("ANTHROPIC_API_KEY") or clean_config_text(config.get("anthropicApiKey", ""))
+    anthropic_base_url = env_text("ANTHROPIC_BASE_URL", "CLAUDE_BASE_URL") or clean_config_text(
+        config.get("anthropicBaseUrl") or config.get("claudeBaseUrl", "")
+    )
+    anthropic_api_key = env_text("ANTHROPIC_API_KEY", "CLAUDE_API_KEY") or clean_config_text(
+        config.get("anthropicApiKey") or config.get("claudeApiKey", "")
+    )
     anthropic_model = normalize_anthropic_model_name(
-        env_text("ANTHROPIC_MODEL") or clean_config_text(config.get("anthropicModel", DEFAULT_ANTHROPIC_MODEL)),
+        env_text("ANTHROPIC_MODEL", "CLAUDE_MODEL") or clean_config_text(config.get("anthropicModel", DEFAULT_ANTHROPIC_MODEL)),
         DEFAULT_ANTHROPIC_MODEL,
     )
     prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
@@ -3727,12 +3731,15 @@ async def generate_viral_copies(request: Request) -> JSONResponse:
 @app.post("/api/analyze-copy")
 async def analyze_rewrite_copy(request: Request) -> JSONResponse:
     if not CONFIG["anthropicBaseUrl"] or not CONFIG["anthropicApiKey"]:
-        raise HTTPException(status_code=500, detail="Backend Claude config is missing ANTHROPIC_BASE_URL or ANTHROPIC_API_KEY")
+        raise HTTPException(
+            status_code=500,
+            detail="\u540e\u7aef\u672a\u914d\u7f6e Claude \u4eff\u5199\u670d\u52a1\uff0c\u8bf7\u8bbe\u7f6e ANTHROPIC_BASE_URL \u548c ANTHROPIC_API_KEY\u3002",
+        )
 
     body = await read_request_json(request)
     original_copy = normalize_multiline_text(body.get("originalCopy") or body.get("original_copy"))
     if not original_copy:
-        raise HTTPException(status_code=400, detail="originalCopy must not be empty")
+        raise HTTPException(status_code=400, detail="\u539f\u59cb\u6587\u6848\u4e0d\u80fd\u4e3a\u7a7a\u3002")
 
     industry = clean_text(body.get("industry"))
     needs = clean_text(body.get("needs"))
@@ -3758,7 +3765,10 @@ async def analyze_rewrite_copy(request: Request) -> JSONResponse:
 @app.post("/api/refine-copy")
 async def refine_rewrite_copy(request: Request) -> JSONResponse:
     if not CONFIG["anthropicBaseUrl"] or not CONFIG["anthropicApiKey"]:
-        raise HTTPException(status_code=500, detail="Backend Claude config is missing ANTHROPIC_BASE_URL or ANTHROPIC_API_KEY")
+        raise HTTPException(
+            status_code=500,
+            detail="\u540e\u7aef\u672a\u914d\u7f6e Claude \u4eff\u5199\u670d\u52a1\uff0c\u8bf7\u8bbe\u7f6e ANTHROPIC_BASE_URL \u548c ANTHROPIC_API_KEY\u3002",
+        )
 
     body = await read_request_json(request)
     current_result = body.get("currentResult") or body.get("current_result")
@@ -3766,9 +3776,9 @@ async def refine_rewrite_copy(request: Request) -> JSONResponse:
     user_background = clean_text(body.get("userBackground") or body.get("user_background"))
 
     if not isinstance(current_result, dict):
-        raise HTTPException(status_code=400, detail="currentResult must be a JSON object")
+        raise HTTPException(status_code=400, detail="\u5f53\u524d\u4eff\u5199\u7ed3\u679c\u683c\u5f0f\u4e0d\u6b63\u786e\u3002")
     if not user_instruction:
-        raise HTTPException(status_code=400, detail="userInstruction must not be empty")
+        raise HTTPException(status_code=400, detail="\u4f18\u5316\u6307\u4ee4\u4e0d\u80fd\u4e3a\u7a7a\u3002")
 
     try:
         result = await asyncio.to_thread(

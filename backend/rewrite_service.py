@@ -183,10 +183,10 @@ def _filter_rewrite_scripts(
     if len(kept) >= min_required:
         return kept
     if dropped_for_source:
-        raise AnthropicApiError("Claude rewrites were too close to the source. Please retry.")
+        raise AnthropicApiError("\u4eff\u5199\u7ed3\u679c\u4e0e\u539f\u6587\u8fc7\u4e8e\u63a5\u8fd1\uff0c\u8bf7\u91cd\u8bd5\u3002")
     if dropped_for_peer:
-        raise AnthropicApiError("Claude rewrites were too similar to each other. Please retry.")
-    raise AnthropicApiError("Claude did not return any usable rewrite scripts.")
+        raise AnthropicApiError("\u591a\u6761\u4eff\u5199\u7ed3\u679c\u4e4b\u95f4\u8fc7\u4e8e\u76f8\u4f3c\uff0c\u8bf7\u91cd\u8bd5\u3002")
+    raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4eff\u5199\u7a3f\u3002")
 
 
 def normalize_copy_analysis_result(parsed: Any, *, original_copy: str) -> dict[str, Any]:
@@ -196,7 +196,7 @@ def normalize_copy_analysis_result(parsed: Any, *, original_copy: str) -> dict[s
     scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=original_copy, min_required=2)
 
     if not scripts:
-        raise AnthropicApiError("Claude did not return any usable rewrite scripts.")
+        raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4eff\u5199\u7a3f\u3002")
 
     return {
         "originalCopy": original_copy,
@@ -210,7 +210,7 @@ def normalize_copy_refine_result(parsed: Any, *, original_copy: str = "") -> dic
     source_text = normalize_multiline_text(original_copy or payload.get("originalCopy"))
     scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=source_text, min_required=2)
     if not scripts:
-        raise AnthropicApiError("Claude did not return any usable refined scripts.")
+        raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4f18\u5316\u7a3f\u3002")
     return {"generatedScripts": scripts}
 
 
