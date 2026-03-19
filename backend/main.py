@@ -3755,6 +3755,7 @@ async def analyze_rewrite_copy(request: Request) -> JSONResponse:
             api_key=CONFIG["anthropicApiKey"],
             base_url=CONFIG["anthropicBaseUrl"],
             model=resolve_rewrite_model_name(body.get("model")),
+            timeout_seconds=max(20, min(CONFIG["timeoutSeconds"], 95)),
         )
         return JSONResponse(content=result)
     except AnthropicApiError as exc:
@@ -3789,6 +3790,7 @@ async def refine_rewrite_copy(request: Request) -> JSONResponse:
             api_key=CONFIG["anthropicApiKey"],
             base_url=CONFIG["anthropicBaseUrl"],
             model=resolve_rewrite_model_name(body.get("model")),
+            timeout_seconds=max(20, min(CONFIG["timeoutSeconds"], 95)),
         )
         return JSONResponse(content=result)
     except AnthropicApiError as exc:

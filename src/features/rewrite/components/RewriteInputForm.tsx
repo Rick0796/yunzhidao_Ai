@@ -13,10 +13,6 @@ interface RewriteInputFormProps {
 }
 
 const TEXT = {
-  badge: "\u4ec5\u505a\u4eff\u5199",
-  title: "\u77ed\u89c6\u9891\u6587\u6848\u6df1\u5ea6\u5206\u6790",
-  intro:
-    "\u8fd9\u91cc\u4fdd\u7559\u51e1\u54e5\u539f\u6765\u7684\u5206\u6790\u903b\u8f91\uff0c\u4f46\u751f\u6210\u9636\u6bb5\u53ea\u505a\u4eff\u5199\uff1a\u5b57\u6570\u63a5\u8fd1\u3001\u7ed3\u6784\u4e00\u81f4\u3001\u53ea\u505a\u53bb\u91cd\u6539\u5199\uff0c\u4e0d\u6269\u5199\uff0c\u4e0d\u6362\u547d\u9898\u3002",
   sourceLabel: "\u539f\u59cb\u7206\u6b3e\u6587\u6848",
   sourcePlaceholder: "\u8bf7\u7c98\u8d34\u9700\u8981\u5206\u6790\u548c\u4eff\u5199\u7684\u539f\u59cb\u77ed\u89c6\u9891\u6587\u6848",
   backgroundLabel: "\u4f60\u7684\u4e2a\u4eba / \u4e1a\u52a1\u4ecb\u7ecd",
@@ -34,12 +30,6 @@ export default function RewriteInputForm(props: RewriteInputFormProps) {
   return (
     <div className="glass-panel rounded-[28px] p-5 sm:p-7">
       <div className="space-y-6">
-        <div className="rounded-3xl border border-cyan-400/15 bg-cyan-400/8 p-5">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">{TEXT.badge}</div>
-          <h2 className="mt-3 text-2xl font-bold text-white">{TEXT.title}</h2>
-          <p className="mt-2 text-sm leading-7 text-slate-300">{TEXT.intro}</p>
-        </div>
-
         <div className="space-y-5">
           <div>
             <label className="field-label">{TEXT.sourceLabel}</label>

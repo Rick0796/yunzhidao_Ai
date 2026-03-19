@@ -112,10 +112,27 @@ def _read_error_message(response: requests.Response) -> str:
     if isinstance(payload, dict):
         error = payload.get("error")
         if isinstance(error, dict) and isinstance(error.get("message"), str) and error["message"].strip():
-            return error["message"].strip()
+            return _translate_upstream_error(error["message"].strip())
         if isinstance(error, str) and error.strip():
-            return error.strip()
-    return response.text[:240].strip() or f"HTTP {response.status_code}"
+            return _translate_upstream_error(error.strip())
+    return _translate_upstream_error(response.text[:240].strip() or f"HTTP {response.status_code}")
+
+
+def _translate_upstream_error(message: str) -> str:
+    lowered = message.lower()
+    if "empty output" in lowered:
+        return "\u0043laude \u4ee3\u7406\u8fd9\u6b21\u6ca1\u6709\u8fd4\u56de\u5185\u5bb9\uff0c\u8bf7\u91cd\u8bd5\u3002"
+    if "rate limit" in lowered:
+        return "\u0043laude \u4ee3\u7406\u9891\u7387\u8d85\u9650\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+    if "timed out" in lowered or "timeout" in lowered:
+        return "\u0043laude \u4ee3\u7406\u54cd\u5e94\u8d85\u65f6\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+    return message
+
+
+def _is_retryable_proxy_error(message: str) -> bool:
+    lowered = message.lower()
+    retryable_tokens = ("empty output", "rate limit", "timed out", "timeout", "temporarily unavailable", "bad gateway")
+    return any(token in lowered for token in retryable_tokens)
 
 
 def _collect_text_blocks(payload: Any) -> str:
@@ -145,6 +162,7 @@ def _request_message(
     system_prompt: str,
     user_prompt: str,
     max_tokens: int,
+    timeout_seconds: float = 90,
     temperature: float | None = None,
 ) -> str:
     try:
@@ -162,7 +180,7 @@ def _request_message(
                 "messages": [{"role": "user", "content": user_prompt}],
                 **({"temperature": temperature} if temperature is not None else {}),
             },
-            timeout=180,
+            timeout=max(15, timeout_seconds),
         )
     except requests.RequestException as exc:
         raise AnthropicApiError(f"\u8bf7\u6c42 Claude \u5931\u8d25\uff1a{exc}") from exc
@@ -189,21 +207,28 @@ def generate_json_with_anthropic(
     system_prompt: str,
     user_prompt: str,
     max_tokens: int = 4096,
+    timeout_seconds: float = 90,
     temperature: float | None = None,
 ) -> Any:
     resolved_model = normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL)
     prompt = user_prompt
 
     for attempt in range(2):
-        text = _request_message(
-            base_url=base_url,
-            api_key=api_key,
-            model=resolved_model,
-            system_prompt=system_prompt,
-            user_prompt=prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
+        try:
+            text = _request_message(
+                base_url=base_url,
+                api_key=api_key,
+                model=resolved_model,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+                temperature=temperature,
+            )
+        except AnthropicApiError as exc:
+            if attempt == 0 and _is_retryable_proxy_error(str(exc)):
+                continue
+            raise
         parsed = _extract_json_payload(text)
         if parsed is not None:
             return parsed
@@ -217,3 +242,40 @@ def generate_json_with_anthropic(
             )
 
     raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u5408\u6cd5\u7684 JSON\uff0c\u8bf7\u91cd\u8bd5\u3002")
+
+
+def generate_text_with_anthropic(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str | None,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int = 4096,
+    timeout_seconds: float = 90,
+    temperature: float | None = None,
+) -> str:
+    resolved_model = normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL)
+    last_error: AnthropicApiError | None = None
+
+    for attempt in range(2):
+        try:
+            return _request_message(
+                base_url=base_url,
+                api_key=api_key,
+                model=resolved_model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+                temperature=temperature,
+            )
+        except AnthropicApiError as exc:
+            last_error = exc
+            if attempt == 0 and _is_retryable_proxy_error(str(exc)):
+                continue
+            raise
+
+    if last_error is not None:
+        raise last_error
+    raise AnthropicApiError("\u0043laude \u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5\u3002")

@@ -3,7 +3,6 @@ import type { ApiSettings } from "../../types";
 import { useStoredState } from "../../lib/workbenchHelpers";
 import { STORAGE_KEYS } from "../../lib/workbenchStorage";
 import { analyzeRewriteCopy, refineRewriteCopy } from "./api";
-import { REWRITE_PROVIDER_LABEL, REWRITE_PROVIDER_MODEL } from "./constants";
 import RewriteAnalysisGrid from "./components/RewriteAnalysisGrid";
 import RewriteHistoryPanel from "./components/RewriteHistoryPanel";
 import RewriteInputForm from "./components/RewriteInputForm";
@@ -13,8 +12,7 @@ import { copyText, generateRewriteId } from "./utils";
 
 const TEXT = {
   emptySource: "\u8bf7\u5148\u7c98\u8d34\u9700\u8981\u5206\u6790\u7684\u539f\u59cb\u6587\u6848\u3002",
-  analyzing: "\u6b63\u5728\u901a\u8fc7 ",
-  analyzingTail: " \u5206\u6790\u5e76\u751f\u6210\u4eff\u5199\u7a3f...",
+  analyzing: "\u6b63\u5728\u5206\u6790\u5e76\u751f\u6210\u4eff\u5199\u7a3f...",
   analyzeDone: "\u5206\u6790\u4e0e\u4eff\u5199\u751f\u6210\u5df2\u5b8c\u6210\u3002",
   analyzeFailedFallback: "\u5206\u6790\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
   analyzeCancelled: "\u672c\u6b21\u5206\u6790\u5df2\u53d6\u6d88\u3002",
@@ -30,16 +28,10 @@ const TEXT = {
   copyFailed: "\u590d\u5236\u5931\u8d25\uff0c\u8bf7\u624b\u52a8\u590d\u5236\u3002",
   historyLoaded: "\u5df2\u52a0\u8f7d\u5386\u53f2\u4eff\u5199\u8bb0\u5f55\u3002",
   title: "\u7206\u6b3e\u4eff\u5199\u5de5\u4f5c\u53f0",
-  intro:
-    "\u8fd9\u4e2a\u6a21\u5757\u4fdd\u7559\u51e1\u54e5\u7684\u5206\u6790\u903b\u8f91\uff0c\u5f53\u524d\u4eff\u5199\u7edf\u4e00\u8d70 ",
-  introTail:
-    "\uff08",
-  introTail2:
-    "\uff09\uff0c\u53ea\u505a\u5b57\u6570\u63a5\u8fd1\u3001\u7ed3\u6784\u4e00\u81f4\u3001\u53bb\u91cd\u6539\u5199\uff0c\u4e0d\u6539\u547d\u9898\u3002",
   history: "\u5386\u53f2\u8bb0\u5f55",
   clearHistory: "\u786e\u5b9a\u6e05\u7a7a\u6240\u6709\u4eff\u5199\u5386\u53f2\u8bb0\u5f55\u5417\uff1f",
   generateMoreInstruction:
-    "\u8bf7\u518d\u751f\u6210 3 \u6761\u8868\u8fbe\u4e0d\u540c\u7684\u4eff\u5199\u7a3f\uff0c\u4f46\u4ecd\u7136\u4fdd\u6301\u5b57\u6570\u63a5\u8fd1\u3001\u7ed3\u6784\u4e00\u81f4\u3001\u53ea\u505a\u53bb\u91cd\u6539\u5199\u3002",
+    "\u8bf7\u518d\u751f\u6210\u4e00\u6279\u65b0\u7684\u4eff\u5199\u7a3f\uff0c\u4f46\u4ecd\u7136\u4fdd\u6301\u5b57\u6570\u63a5\u8fd1\u3001\u7ed3\u6784\u4e00\u81f4\u3001\u53ea\u505a\u53bb\u91cd\u6539\u5199\u3002",
 } as const;
 
 interface RewriteStudioProps {
@@ -62,7 +54,6 @@ export default function RewriteStudio(props: RewriteStudioProps) {
   const [form, setForm] = useStoredState<RewriteFormState>(STORAGE_KEYS.rewriteForm, DEFAULT_FORM);
   const [result, setResult] = useStoredState<RewriteCopyResult | null>(STORAGE_KEYS.rewriteResult, null);
   const [history, setHistory] = useStoredState<RewriteHistoryItem[]>(STORAGE_KEYS.rewriteHistory, []);
-  const [showHistory, setShowHistory] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
 
@@ -119,7 +110,7 @@ export default function RewriteStudio(props: RewriteStudioProps) {
     }
 
     setIsAnalyzing(true);
-    props.showNotice("info", `${TEXT.analyzing}${REWRITE_PROVIDER_LABEL}${TEXT.analyzingTail}`);
+    props.showNotice("info", TEXT.analyzing);
 
     const controller = new AbortController();
     requestAbortRef.current = controller;
@@ -228,46 +219,12 @@ export default function RewriteStudio(props: RewriteStudioProps) {
     });
     props.onOriginalCopyChange(item.originalCopy);
     setResult(item.result);
-    setShowHistory(false);
     props.showNotice("success", TEXT.historyLoaded);
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white">{TEXT.title}</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            {TEXT.intro}
-            {REWRITE_PROVIDER_LABEL}
-            {TEXT.introTail}
-            {REWRITE_PROVIDER_MODEL}
-            {TEXT.introTail2}
-          </p>
-        </div>
-        <button
-          onClick={() => setShowHistory((value) => !value)}
-          className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-slate-400 transition-all hover:border-white/20 hover:text-white"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          {`${TEXT.history}${history.length > 0 ? ` (${history.length})` : ""}`}
-        </button>
-      </div>
-
-      {showHistory ? (
-        <RewriteHistoryPanel
-          history={history}
-          onLoad={handleLoadHistory}
-          onDelete={(id) => setHistory((prev) => prev.filter((item) => item.id !== id))}
-          onClear={() => {
-            if (window.confirm(TEXT.clearHistory)) {
-              setHistory([]);
-            }
-          }}
-        />
-      ) : null}
+      <h2 className="text-xl font-bold text-white">{TEXT.title}</h2>
 
       {!result ? (
         <RewriteInputForm
@@ -302,6 +259,19 @@ export default function RewriteStudio(props: RewriteStudioProps) {
           />
         </div>
       )}
+
+      {history.length > 0 ? (
+        <RewriteHistoryPanel
+          history={history}
+          onLoad={handleLoadHistory}
+          onDelete={(id) => setHistory((prev) => prev.filter((item) => item.id !== id))}
+          onClear={() => {
+            if (window.confirm(TEXT.clearHistory)) {
+              setHistory([]);
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }

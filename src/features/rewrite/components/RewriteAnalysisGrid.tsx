@@ -6,9 +6,6 @@ const TEXT = {
   audienceAndSellingPoints: "\u53d7\u4f17\u4e0e\u5356\u70b9",
   audience: "\u76ee\u6807\u53d7\u4f17",
   sellingPoints: "\u6838\u5fc3\u5356\u70b9",
-  summary: "\u5206\u6790\u603b\u7ed3",
-  summaryBody:
-    "\u8fd9\u4e00\u9875\u5148\u56fa\u5b9a\u539f\u6587\u7684\u7206\u6b3e\u7ed3\u6784\uff0c\u518d\u57fa\u4e8e\u76f8\u540c\u7684\u63a8\u8fdb\u8282\u594f\u505a\u8868\u8fbe\u53bb\u91cd\u3002\u540e\u7eed\u6240\u6709\u4eff\u5199\u7a3f\u90fd\u53ea\u5728\u8868\u8fbe\u5c42\u505a\u91cd\u5199\uff0c\u4e0d\u4f1a\u628a\u6709\u6548\u7ed3\u6784\u6539\u6563\u3002",
 } as const;
 
 const PRIMARY_ITEMS: Array<{ key: keyof RewriteCopyResult["analysis"]; title: string; color: string }> = [
@@ -44,24 +41,17 @@ export default function RewriteAnalysisGrid({ result }: { result: RewriteCopyRes
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="glass-panel rounded-[28px] p-5 sm:p-6">
-            <div className="text-sm font-semibold text-white">{TEXT.audienceAndSellingPoints}</div>
-            <div className="mt-4 space-y-4">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <h4 className="mb-2 text-xs font-bold uppercase text-[#8B5CF6]">{TEXT.audience}</h4>
-                <p className="text-sm leading-7 text-slate-300">{result.analysis.targetAudience || ""}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <h4 className="mb-2 text-xs font-bold uppercase text-[#8B5CF6]">{TEXT.sellingPoints}</h4>
-                <p className="text-sm leading-7 text-slate-300">{result.analysis.sellingPoints || ""}</p>
-              </div>
+        <div className="glass-panel rounded-[28px] p-5 sm:p-6">
+          <div className="text-sm font-semibold text-white">{TEXT.audienceAndSellingPoints}</div>
+          <div className="mt-4 space-y-4">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <h4 className="mb-2 text-xs font-bold uppercase text-[#8B5CF6]">{TEXT.audience}</h4>
+              <p className="text-sm leading-7 text-slate-300">{result.analysis.targetAudience || ""}</p>
             </div>
-          </div>
-
-          <div className="rounded-3xl border border-[#00D4FF]/30 bg-gradient-to-br from-[#00D4FF]/20 to-[#8B5CF6]/20 p-6">
-            <h3 className="font-bold text-white">{TEXT.summary}</h3>
-            <p className="mt-2 text-sm leading-7 text-slate-300">{TEXT.summaryBody}</p>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <h4 className="mb-2 text-xs font-bold uppercase text-[#8B5CF6]">{TEXT.sellingPoints}</h4>
+              <p className="text-sm leading-7 text-slate-300">{result.analysis.sellingPoints || ""}</p>
+            </div>
           </div>
         </div>
       </div>
