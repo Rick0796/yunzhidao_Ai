@@ -1,6 +1,37 @@
 from __future__ import annotations
 
-from backend.anthropic_client import generate_text_with_anthropic
+from backend.anthropic_client import _collect_text_blocks, generate_text_with_anthropic
+
+
+def test_collect_text_blocks_supports_anthropic_content_list() -> None:
+    payload = {
+        "content": [
+            {"type": "text", "text": "第一段"},
+            {"type": "text", "text": "第二段"},
+        ]
+    }
+
+    assert _collect_text_blocks(payload) == "第一段\n第二段"
+
+
+def test_collect_text_blocks_supports_openai_compatible_choices() -> None:
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": "这是 OpenAI 兼容格式返回的正文。"
+                }
+            }
+        ]
+    }
+
+    assert _collect_text_blocks(payload) == "这是 OpenAI 兼容格式返回的正文。"
+
+
+def test_collect_text_blocks_supports_direct_completion_fields() -> None:
+    assert _collect_text_blocks({"completion": "直接 completion"}) == "直接 completion"
+    assert _collect_text_blocks({"output_text": "直接 output_text"}) == "直接 output_text"
+    assert _collect_text_blocks({"text": "直接 text"}) == "直接 text"
 
 
 def test_generate_text_with_anthropic_retries_on_generic_intro(monkeypatch) -> None:

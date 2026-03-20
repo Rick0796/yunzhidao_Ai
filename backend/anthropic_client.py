@@ -150,20 +150,78 @@ def _looks_like_generic_assistant_intro(text: str) -> bool:
 def _collect_text_blocks(payload: Any) -> str:
     if not isinstance(payload, dict):
         return ""
+
+    direct_text_candidates = (
+        payload.get("completion"),
+        payload.get("output_text"),
+        payload.get("text"),
+    )
+    for candidate in direct_text_candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+
     content = payload.get("content")
-    if not isinstance(content, list):
-        return ""
+    if isinstance(content, str) and content.strip():
+        return content.strip()
 
     parts: list[str] = []
-    for item in content:
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") != "text":
-            continue
-        text = item.get("text")
-        if isinstance(text, str) and text.strip():
-            parts.append(text.strip())
-    return "\n".join(parts).strip()
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, str) and item.strip():
+                parts.append(item.strip())
+                continue
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text":
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+                    continue
+            nested_text = item.get("content")
+            if isinstance(nested_text, str) and nested_text.strip():
+                parts.append(nested_text.strip())
+                continue
+            if isinstance(nested_text, list):
+                for nested_item in nested_text:
+                    if isinstance(nested_item, dict):
+                        nested_value = nested_item.get("text") or nested_item.get("content")
+                        if isinstance(nested_value, str) and nested_value.strip():
+                            parts.append(nested_value.strip())
+                    elif isinstance(nested_item, str) and nested_item.strip():
+                        parts.append(nested_item.strip())
+    if parts:
+        return "\n".join(parts).strip()
+
+    choices = payload.get("choices")
+    if isinstance(choices, list):
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            message = choice.get("message")
+            if isinstance(message, dict):
+                message_content = message.get("content")
+                if isinstance(message_content, str) and message_content.strip():
+                    return message_content.strip()
+                if isinstance(message_content, list):
+                    nested_parts: list[str] = []
+                    for item in message_content:
+                        if isinstance(item, dict):
+                            nested_value = item.get("text") or item.get("content")
+                            if isinstance(nested_value, str) and nested_value.strip():
+                                nested_parts.append(nested_value.strip())
+                        elif isinstance(item, str) and item.strip():
+                            nested_parts.append(item.strip())
+                    if nested_parts:
+                        return "\n".join(nested_parts).strip()
+            delta = choice.get("delta")
+            if isinstance(delta, dict):
+                delta_content = delta.get("content")
+                if isinstance(delta_content, str) and delta_content.strip():
+                    return delta_content.strip()
+            choice_text = choice.get("text")
+            if isinstance(choice_text, str) and choice_text.strip():
+                return choice_text.strip()
+    return ""
 
 
 def _request_message(
