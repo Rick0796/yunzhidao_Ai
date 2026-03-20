@@ -23,6 +23,43 @@ ANALYSIS_TAG_MAP = {
     "targetAudience": "analysis_target_audience",
     "sellingPoints": "analysis_selling_points",
 }
+ACTION_TERMS = (
+    "\u8bc4\u8bba\u533a",
+    "\u8bc4\u8bba",
+    "\u7559\u8a00",
+    "\u5173\u952e\u8bcd",
+    "\u4e3b\u9875",
+    "\u76f4\u64ad",
+    "\u516c\u5f00\u8bfe",
+    "\u8bad\u7ec3\u8425",
+    "\u5165\u53e3",
+    "\u53d1\u9001\u79c1\u4fe1",
+    "\u79c1\u4fe1",
+    "\u5934\u50cf",
+    "\u5173\u6ce8",
+    "\u5c0f\u7ea2\u5fc3",
+    "\u70b9\u4e2a\u5c0f\u7ea2\u5fc3",
+    "\u6211\u8981\u770b\u76f4\u64ad",
+)
+CORE_TERMS = (
+    "\u0041\u0049\u65f6\u4ee3",
+    "\u0041\u0049",
+    "\u5468\u8001\u5e08",
+    "\u666e\u901a\u4eba",
+    "\u5b9e\u4f53\u8001\u677f",
+    "\u4e2d\u5c0f\u4f01\u4e1a",
+    "\u521b\u4e1a\u8005",
+    "\u8bad\u7ec3\u8425",
+    "\u76f4\u64ad\u95f4",
+    "\u76f4\u64ad\u5165\u53e3",
+)
+DATE_TOKEN_PATTERN = re.compile(r"\d{1,2}\u6708\d{1,2}\u65e5(?:\u5230\d{1,2}\u6708\d{1,2}\u65e5)?")
+NAME_TOKEN_PATTERN = re.compile(r"[\u4e00-\u9fff]{1,4}(?:\u8001\u5e08|\u603b|\u4e3b\u4efb|\u9662\u957f|\u6821\u957f|\u535a\u58eb|\u6559\u6388)")
+STAGE_TOKEN_PATTERN = re.compile(r"\u7b2c[一二三四五六七八九十0-9]+(?:\u5929|\u6b65|\u6761|\u8bfe)")
+HARD_TOKEN_PATTERN = re.compile(
+    r"(?:\d{4}\u5e74|\d+(?:\.\d+)?%?|\d+(?:\.\d+)?(?:\u4e07|\u4ebf|\u5143|\u5757|\u500d|\u5929|\u4e2a\u6708|\u6708|\u5e74|\u5c0f\u65f6|\u5206\u949f)|[一二三四五六七八九十百千万两零半]+(?:\u5e74|\u4e2a\u6708|\u6708|\u5929|\u6b21|\u4e2a|\u6761|\u500d|\u4e07|\u4ebf|\u5143|\u5757|\u5c0f\u65f6|\u5206\u949f|\u6210|%))"
+)
+ENGLISH_TOKEN_PATTERN = re.compile(r"\b[A-Za-z]{2,}(?:[-_][A-Za-z0-9]+)*\b")
 
 
 def _normalize_text(value: Any) -> str:
@@ -41,6 +78,179 @@ def normalize_multiline_text(value: Any) -> str:
     while normalized and normalized[-1] == "":
         normalized.pop()
     return "\n".join(normalized).strip()
+
+
+def _split_sentences(text: str) -> list[str]:
+    return [item.strip() for item in re.split(r"(?<=[\u3002\uff01\uff1f!?；;])|\n+", normalize_multiline_text(text)) if item.strip()]
+
+
+def _clip_text(text: str, max_chars: int = 56) -> str:
+    normalized = normalize_multiline_text(text)
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[: max(10, max_chars - 1)].rstrip() + "\u2026"
+
+
+def _extract_present_terms(text: str, terms: tuple[str, ...]) -> list[str]:
+    normalized = normalize_multiline_text(text).lower()
+    return [term for term in terms if term.lower() in normalized]
+
+
+def _collect_unique_tokens(groups: list[list[str]], *, limit: int = 16) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for token in group:
+            cleaned = normalize_multiline_text(token)
+            key = _comparison_text(cleaned)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            ordered.append(cleaned)
+            if len(ordered) >= limit:
+                return ordered
+    return ordered
+
+
+def _extract_required_tokens(text: str) -> list[str]:
+    raw_text = normalize_multiline_text(text)
+    return _collect_unique_tokens(
+        [
+            DATE_TOKEN_PATTERN.findall(raw_text),
+            NAME_TOKEN_PATTERN.findall(raw_text),
+            STAGE_TOKEN_PATTERN.findall(raw_text),
+            _extract_present_terms(raw_text, ACTION_TERMS),
+            _extract_present_terms(raw_text, CORE_TERMS),
+            HARD_TOKEN_PATTERN.findall(raw_text),
+            ENGLISH_TOKEN_PATTERN.findall(raw_text),
+        ],
+        limit=12,
+    )
+
+
+def _select_sentence_by_keywords(sentences: list[str], keyword_groups: tuple[tuple[str, ...], ...]) -> str:
+    lowered_sentences = [(sentence, normalize_multiline_text(sentence).lower()) for sentence in sentences]
+    for keywords in keyword_groups:
+        for sentence, lowered in lowered_sentences:
+            if all(keyword.lower() in lowered for keyword in keywords):
+                return sentence
+    for keywords in keyword_groups:
+        for sentence, lowered in lowered_sentences:
+            if any(keyword.lower() in lowered for keyword in keywords):
+                return sentence
+    return ""
+
+
+def _infer_target_audience(text: str) -> str:
+    hits = _extract_present_terms(
+        text,
+        (
+            "\u666e\u901a\u4eba",
+            "\u5b9e\u4f53\u8001\u677f",
+            "\u4e2d\u5c0f\u4f01\u4e1a",
+            "\u521b\u4e1a\u8005",
+            "\u8001\u677f",
+            "\u884c\u52a8\u6d3e",
+            "\u6b63\u5728\u627e\u673a\u4f1a\u7684\u4eba",
+        ),
+    )
+    if hits:
+        return "\u76f8\u5173\u53d7\u4f17\u662f\uff1a" + "\u3001".join(hits[:5]) + "\u3002"
+    return "\u53d7\u4f17\u662f\u60f3\u6293\u4f4f\u673a\u4f1a\u3001\u60f3\u9760 AI \u6539\u53d8\u6536\u5165\u7684\u666e\u901a\u4eba\u548c\u521b\u4e1a\u8005\u3002"
+
+
+def _infer_selling_points(text: str) -> str:
+    day_markers = [token for token in _extract_required_tokens(text) if token.startswith("\u7b2c")]
+    selling_terms = _extract_present_terms(
+        text,
+        (
+            "\u8d5a\u94b1\u8d5b\u9053",
+            "\u6279\u91cf\u751f\u4ea7\u5185\u5bb9",
+            "\u83b7\u53d6\u6d41\u91cf",
+            "\u0041\u0049\u667a\u80fd\u52a9\u624b",
+            "\u6570\u5b57\u5316",
+            "\u7ec8\u8eab\u8d44\u4ea7",
+            "\u5b9e\u6218\u8bad\u7ec3\u8425",
+        ),
+    )
+    parts: list[str] = []
+    if day_markers:
+        parts.append("\u8bfe\u7a0b\u4fdd\u7559\u201c" + "\u3001".join(day_markers[:4]) + "\u201d\u7684\u9010\u5929\u63a8\u8fdb\u7ed3\u6784")
+    if selling_terms:
+        parts.append("\u6838\u5fc3\u5356\u70b9\u662f\uff1a" + "\u3001".join(selling_terms[:5]))
+    if parts:
+        return "\uff1b".join(parts) + "\u3002"
+    return "\u5356\u70b9\u96c6\u4e2d\u5728 AI \u53d8\u73b0\u8def\u5f84\u3001\u5185\u5bb9\u6548\u7387\u63d0\u5347\u548c\u6570\u5b57\u8d44\u4ea7\u79ef\u7d2f\u3002"
+
+
+def _build_local_analysis(original_copy: str) -> dict[str, str]:
+    sentences = _split_sentences(original_copy)
+    if not sentences:
+        return _empty_analysis()
+
+    hook_sentence = _clip_text("".join(sentences[:2]), 64)
+    contrast_sentence = _clip_text(
+        _select_sentence_by_keywords(
+            sentences,
+            (
+                ("\u4e0d\u662f", "\u800c\u662f"),
+                ("\u4f1a\u7528AI", "\u4e0d\u4f1a\u7528"),
+                ("\u5929\u58e4\u4e4b\u522b",),
+            ),
+        )
+        or sentences[min(1, len(sentences) - 1)],
+        64,
+    )
+    value_sentence = _clip_text(
+        _select_sentence_by_keywords(
+            sentences,
+            (
+                ("\u6700\u9ad8\u6548", "\u8def\u5f84"),
+                ("\u8d5a\u94b1", "\u0041\u0049"),
+                ("\u8bad\u7ec3\u8425",),
+                ("\u6559\u4f60",),
+            ),
+        )
+        or sentences[min(2, len(sentences) - 1)],
+        72,
+    )
+    trust_sentence = _clip_text(
+        _select_sentence_by_keywords(
+            sentences,
+            (
+                ("\u5468\u8001\u5e08",),
+                ("\u89c2\u5bdf",),
+                ("\u5b9e\u6218",),
+                ("\u96f6\u57fa\u7840",),
+            ),
+        )
+        or sentences[min(3, len(sentences) - 1)],
+        72,
+    )
+    cta_sentence = _clip_text(
+        _select_sentence_by_keywords(
+            list(reversed(sentences)),
+            (
+                ("\u79c1\u4fe1",),
+                ("\u6211\u8981\u770b\u76f4\u64ad",),
+                ("\u70b9", "\u5c0f\u7ea2\u5fc3"),
+                ("\u70b9\u51fb", "\u5934\u50cf"),
+                ("\u5173\u6ce8",),
+            ),
+        )
+        or sentences[-1],
+        72,
+    )
+
+    return {
+        "hook": f"\u5f00\u5934\u5148\u7528\u65e5\u671f + \u60ca\u559c/\u795d\u798f\u611f\u505a\u6293\u505c\uff0c\u6838\u5fc3\u53e5\u662f\uff1a{hook_sentence}",
+        "contrast": f"\u53cd\u5dee\u6838\u5fc3\u662f\u628a\u201c\u4f1a\u4e0d\u4f1a\u7528 AI\u201d\u7684\u7ed3\u679c\u5dee\u8ddd\u62c9\u5f00\uff0c\u91cd\u70b9\u53e5\u662f\uff1a{contrast_sentence}",
+        "value": f"\u4ef7\u503c\u627f\u8bfa\u805a\u7126\u5728 AI \u7ffb\u8eab\u8def\u5f84 + \u5b9e\u6218\u65b9\u6cd5\uff0c\u91cd\u70b9\u53e5\u662f\uff1a{value_sentence}",
+        "trust": f"\u4fe1\u4efb\u611f\u4e3b\u8981\u9760\u201c\u89c2\u5bdf\u5df2\u4e45 + \u5468\u8001\u5e08 + \u56db\u5929\u5b9e\u6218\u8bad\u7ec3\u8425\u201d\u6765\u652f\u6491\uff0c\u91cd\u70b9\u53e5\u662f\uff1a{trust_sentence}",
+        "cta": f"\u6536\u53e3 CTA \u662f\u201c\u70b9\u5c0f\u7ea2\u5fc3 / \u5173\u6ce8 / \u79c1\u4fe1\u6211\u8981\u770b\u76f4\u64ad\u201d\uff0c\u91cd\u70b9\u53e5\u662f\uff1a{cta_sentence}",
+        "targetAudience": _infer_target_audience(original_copy),
+        "sellingPoints": _infer_selling_points(original_copy),
+    }
 
 
 def _estimate_length_bounds(text: str) -> tuple[int, int]:
@@ -62,24 +272,17 @@ def _rewrite_char_length(text: str) -> int:
 
 
 def _target_script_count(text: str) -> int:
-    length = _rewrite_char_length(text)
-    if length >= 650:
-        return 1
-    return 2
+    return 1
 
 
 def _target_max_tokens(text: str, script_count: int) -> int:
     length = _rewrite_char_length(text)
-    estimated = 600 + (length * max(1, script_count)) + 500
-    return max(1400, min(3200, estimated))
-
-
-def _should_use_staged_generation(text: str, script_count: int) -> bool:
-    return script_count <= 1 or _rewrite_char_length(text) >= 650
+    estimated = 320 + (length * max(1, script_count)) + 240
+    return max(700, min(2200, estimated))
 
 
 def _staged_timeout_seconds(timeout_seconds: float) -> float:
-    return max(15, min(timeout_seconds, 25))
+    return max(20, min(timeout_seconds, 30))
 
 
 def _empty_analysis() -> dict[str, str]:
@@ -200,39 +403,42 @@ def _extract_tag_content(text: str, tag: str) -> str:
     return normalize_multiline_text(match.group(1))
 
 
-def _parse_analysis_tag_response(raw_text: str, *, script_count: int) -> dict[str, Any]:
-    analysis = {key: _extract_tag_content(raw_text, tag) for key, tag in ANALYSIS_TAG_MAP.items()}
-    scripts: list[dict[str, str]] = []
-    for index in range(1, script_count + 1):
-        title = _extract_tag_content(raw_text, f"script_{index}_title") or f"Script {index}"
-        content = _extract_tag_content(raw_text, f"script_{index}_content")
-        if content:
-            scripts.append({"title": title, "content": content})
-
-    return {
-        "analysis": analysis,
-        "generatedScripts": scripts,
-    }
-
-
-def _parse_refine_tag_response(raw_text: str, *, script_count: int) -> dict[str, Any]:
-    scripts: list[dict[str, str]] = []
-    for index in range(1, script_count + 1):
-        title = _extract_tag_content(raw_text, f"script_{index}_title") or f"Script {index}"
-        content = _extract_tag_content(raw_text, f"script_{index}_content")
-        if content:
-            scripts.append({"title": title, "content": content})
-    return {"generatedScripts": scripts}
-
-
 def _parse_single_script_response(raw_text: str) -> dict[str, str]:
     title = _extract_tag_content(raw_text, "script_title") or "Script"
     content = _extract_tag_content(raw_text, "script_content")
+    if not content:
+        fallback = normalize_multiline_text(raw_text)
+        lowered = fallback.lower()
+        if fallback and "<script_" not in lowered and "i'm claude" not in lowered and "i am claude" not in lowered:
+            content = fallback
     return {"title": title, "content": content}
 
 
-def _parse_analysis_only_response(raw_text: str) -> dict[str, str]:
-    return {key: _extract_tag_content(raw_text, tag) for key, tag in ANALYSIS_TAG_MAP.items()}
+def _candidate_length_is_close(candidate: str, source: str) -> bool:
+    min_length, max_length = _estimate_length_bounds(source)
+    candidate_length = len(re.sub(r"\s+", "", normalize_multiline_text(candidate)))
+    return min_length <= candidate_length <= max_length
+
+
+def _missing_required_tokens(candidate: str, source: str) -> list[str]:
+    candidate_compare = _comparison_text(candidate)
+    missing: list[str] = []
+    for token in _extract_required_tokens(source):
+        token_compare = _comparison_text(token)
+        if token_compare and token_compare not in candidate_compare:
+            missing.append(token)
+    return missing
+
+
+def _validate_candidate_against_source(candidate: str, source: str) -> str | None:
+    if not _candidate_length_is_close(candidate, source):
+        return "\u4eff\u5199\u7ed3\u679c\u7684\u5b57\u6570\u548c\u539f\u6587\u504f\u5dee\u8fc7\u5927\u3002"
+    missing_tokens = _missing_required_tokens(candidate, source)
+    if missing_tokens:
+        return "\u4eff\u5199\u7ed3\u679c\u4e22\u6389\u4e86\u539f\u6587\u91cc\u7684\u5173\u952e\u951a\u70b9\uff1a" + "\u3001".join(missing_tokens[:4]) + "\u3002"
+    if re.search(r"[\uff1f?]", source) and not re.search(r"[\uff1f?]", candidate):
+        return "\u539f\u6587\u5f00\u5934\u6709\u63d0\u95ee\u6293\u505c\uff0c\u4eff\u5199\u540e\u4e0d\u80fd\u628a\u95ee\u611f\u6d17\u6389\u3002"
+    return None
 
 
 def _filter_rewrite_scripts(
@@ -246,9 +452,17 @@ def _filter_rewrite_scripts(
     kept_compare: list[str] = []
     dropped_for_source = 0
     dropped_for_peer = 0
+    dropped_for_guard = 0
+    guard_reason = ""
 
     for script in scripts:
-        candidate_compare = _comparison_text(script.get("content"))
+        candidate_text = normalize_multiline_text(script.get("content"))
+        guard_message = _validate_candidate_against_source(candidate_text, source_text)
+        if guard_message:
+            dropped_for_guard += 1
+            guard_reason = guard_message
+            continue
+        candidate_compare = _comparison_text(candidate_text)
         if not candidate_compare:
             continue
         if _too_close_to_source(candidate_compare, source_compare):
@@ -262,6 +476,8 @@ def _filter_rewrite_scripts(
 
     if len(kept) >= min_required:
         return kept
+    if dropped_for_guard:
+        raise AnthropicApiError(guard_reason or "\u4eff\u5199\u7ed3\u679c\u6ca1\u6709\u4fdd\u4f4f\u539f\u6587\u7684\u5173\u952e\u7ed3\u6784\u548c\u951a\u70b9\u3002")
     if dropped_for_source:
         raise AnthropicApiError("\u4eff\u5199\u7ed3\u679c\u4e0e\u539f\u6587\u8fc7\u4e8e\u63a5\u8fd1\uff0c\u8bf7\u91cd\u8bd5\u3002")
     if dropped_for_peer:
@@ -270,7 +486,10 @@ def _filter_rewrite_scripts(
 
 
 def _is_usable_script(candidate: dict[str, str], source_text: str, existing_scripts: list[dict[str, str]]) -> bool:
-    candidate_compare = _comparison_text(candidate.get("content"))
+    candidate_text = normalize_multiline_text(candidate.get("content"))
+    if _validate_candidate_against_source(candidate_text, source_text):
+        return False
+    candidate_compare = _comparison_text(candidate_text)
     if not candidate_compare:
         return False
     source_compare = _comparison_text(source_text)
@@ -287,7 +506,8 @@ def normalize_copy_analysis_result(parsed: Any, *, original_copy: str, script_co
     analysis_raw = payload.get("analysis") if isinstance(payload.get("analysis"), dict) else {}
     analysis = {key: _normalize_text(analysis_raw.get(key)) for key in DEFAULT_ANALYSIS_KEYS}
     target_count = max(1, script_count or _target_script_count(original_copy))
-    scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=original_copy, min_required=target_count)
+    required_count = 1 if target_count > 1 else target_count
+    scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=original_copy, min_required=required_count)
 
     if not scripts:
         raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4eff\u5199\u7a3f\u3002")
@@ -303,7 +523,8 @@ def normalize_copy_refine_result(parsed: Any, *, original_copy: str = "", script
     payload = parsed if isinstance(parsed, dict) else {}
     source_text = normalize_multiline_text(original_copy or payload.get("originalCopy"))
     target_count = max(1, script_count or _target_script_count(source_text))
-    scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=source_text, min_required=target_count)
+    required_count = 1 if target_count > 1 else target_count
+    scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=source_text, min_required=required_count)
     if not scripts:
         raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4f18\u5316\u7a3f\u3002")
     return {"generatedScripts": scripts}
@@ -346,7 +567,7 @@ def build_copy_analysis_prompt(*, original_copy: str, industry: str, needs: str,
         "3. Rewrite only. Do not change the topic. Do not expand into a different argument. Do not add new claims that are not in the source.\n"
         "4. Every paragraph must be substantially rewritten. Do not just swap a few synonyms. Do not copy long consecutive phrases.\n"
         "5. Reject near-copy behavior: if a sentence only changes a few words, rewrite it again until it is clearly different.\n"
-        "6. The three generated scripts must also be clearly different from each other, not just minor wording changes.\n"
+        "6. If multiple scripts are requested, they must also be clearly different from each other, not just minor wording changes.\n"
         "7. Every script content block must contain only the final rewritten copy, with no notes or labels.\n"
         "8. Fill every analysis tag with useful content.\n"
         "9. Output only the requested XML-like tags, and nothing else.\n"
@@ -383,7 +604,7 @@ def build_copy_refine_prompt(*, current_result: Any, user_instruction: str, user
         f"3. Keep the length close to the source, between {min_length} and {max_length} Chinese characters.\n"
         "4. Every paragraph must be substantially rewritten. Do not just replace a few words.\n"
         "5. Reject near-copy behavior: if a sentence only changes a few words, rewrite it again until it is clearly different.\n"
-        "6. The three generated scripts must also be clearly different from each other.\n"
+        "6. If multiple scripts are requested, they must also be clearly different from each other.\n"
         "7. Every script content block must contain only the final rewritten copy.\n"
         "8. Output only the requested XML-like tags, and nothing else.\n"
         "9. The rewritten scripts must be in Simplified Chinese.\n\n"
@@ -393,24 +614,6 @@ def build_copy_refine_prompt(*, current_result: Any, user_instruction: str, user
         f"{current_result_json}\n\n"
         "Required output tags:\n"
         f"{json.dumps(schema_example, ensure_ascii=True, indent=2)}"
-    )
-
-
-def build_analysis_only_prompt(*, original_copy: str, industry: str, needs: str, user_background: str) -> str:
-    tag_lines = "\n".join(f"<{tag}>...</{tag}>" for tag in ANALYSIS_TAG_MAP.values())
-    return (
-        "Analyze the source short-video copy only.\n\n"
-        "Rules:\n"
-        "1. Fill every requested tag in Simplified Chinese.\n"
-        "2. Keep each tag concise and useful.\n"
-        "3. Output only the requested tags, and nothing else.\n\n"
-        f"User background: {user_background or 'Not provided'}\n"
-        f"Industry: {industry or 'General'}\n"
-        f"Specific need: {needs or 'Keep similar length and structure, rewrite only for deduplication'}\n\n"
-        "Required tags:\n"
-        f"{tag_lines}\n\n"
-        "Source copy:\n"
-        f"{original_copy}"
     )
 
 
@@ -436,25 +639,38 @@ def build_single_script_prompt(
 ) -> str:
     min_length, max_length = _estimate_length_bounds(original_copy)
     paragraph_count = _count_paragraphs(original_copy)
-    analysis_json = json.dumps(analysis, ensure_ascii=True)
     existing_notes = _build_existing_script_notes(existing_scripts)
+    required_tokens = _extract_required_tokens(original_copy)
+    required_tokens_line = " / ".join(required_tokens[:12]) if required_tokens else "Keep all explicit dates, names, numbers, and action paths from the source."
+    analysis_line = " | ".join(
+        part
+        for part in [
+            f"hook={analysis.get('hook', '')}",
+            f"value={analysis.get('value', '')}",
+            f"trust={analysis.get('trust', '')}",
+            f"cta={analysis.get('cta', '')}",
+        ]
+        if part.split("=", 1)[1]
+    )
+    existing_section = f"Existing scripts to avoid repeating:\n{existing_notes}\n\n" if existing_scripts else ""
     return (
-        f"Generate rewrite script {script_index} only.\n\n"
-        "Rules:\n"
-        f"1. Keep the total length close to the source, between {min_length} and {max_length} Chinese characters.\n"
-        f"2. Keep the same viral structure, same progression order, and roughly {paragraph_count} paragraphs.\n"
-        "3. Rewrite only. Do not change the topic. Do not add new claims.\n"
-        "4. Every paragraph must be clearly rewritten. Do not just replace a few words.\n"
-        "5. The new script must be clearly different from the source and from any existing scripts.\n"
-        "6. Output only <script_title> and <script_content> tags.\n"
-        "7. script_content must contain only the final rewritten copy in Simplified Chinese.\n\n"
+        f"Rewrite script {script_index}.\n\n"
+        "Output only:\n"
+        "<script_title>...</script_title>\n<script_content>...</script_content>\n\n"
+        "Hard rules:\n"
+        f"- Length between {min_length} and {max_length} Chinese characters.\n"
+        f"- Keep about {paragraph_count} paragraphs and the same progression order.\n"
+        "- Rewrite deeply. Do not only swap a few words.\n"
+        "- Keep the same topic. Do not add new claims.\n"
+        "- Keep all dates, names, stage markers, important numbers, and CTA path.\n"
+        "- Keep the same hook function and closing function.\n"
+        "- Use Simplified Chinese only.\n\n"
         f"User background: {user_background or 'Not provided'}\n"
         f"Industry: {industry or 'General'}\n"
         f"Specific need: {needs or 'Keep similar length and structure, rewrite only for deduplication'}\n"
-        f"Analysis reference: {analysis_json}\n"
-        f"Existing scripts to avoid repeating:\n{existing_notes}\n\n"
-        "Required tags:\n"
-        "<script_title>...</script_title>\n<script_content>...</script_content>\n\n"
+        f"Required anchors to preserve: {required_tokens_line}\n"
+        f"Analysis reference: {analysis_line or 'Keep the original hook, value, trust, and CTA functions.'}\n\n"
+        f"{existing_section}"
         "Source copy:\n"
         f"{original_copy}"
     )
@@ -471,57 +687,27 @@ def build_single_refine_script_prompt(
     min_length, max_length = _estimate_length_bounds(original_copy)
     paragraph_count = _count_paragraphs(original_copy)
     existing_notes = _build_existing_script_notes(existing_scripts)
+    required_tokens = _extract_required_tokens(original_copy)
+    required_tokens_line = " / ".join(required_tokens[:12]) if required_tokens else "Keep all explicit dates, names, numbers, and action paths from the source."
+    existing_section = f"Existing scripts to avoid repeating:\n{existing_notes}\n\n" if existing_scripts else ""
     return (
-        f"Generate refined rewrite script {script_index} only.\n\n"
-        "Rules:\n"
-        "1. Rewrite only. Do not change the topic. Do not introduce new claims.\n"
-        f"2. Keep the same viral structure, same progression order, and roughly {paragraph_count} paragraphs.\n"
-        f"3. Keep the total length close to the source, between {min_length} and {max_length} Chinese characters.\n"
-        "4. Every paragraph must be clearly rewritten. Do not just replace a few words.\n"
-        "5. The new script must be clearly different from the source and from any existing scripts.\n"
-        "6. Output only <script_title> and <script_content> tags.\n"
-        "7. script_content must contain only the final rewritten copy in Simplified Chinese.\n\n"
+        f"Refine rewrite script {script_index}.\n\n"
+        "Output only:\n"
+        "<script_title>...</script_title>\n<script_content>...</script_content>\n\n"
+        "Hard rules:\n"
+        "- Rewrite only. Do not change the topic or add new claims.\n"
+        f"- Keep about {paragraph_count} paragraphs and the same progression order.\n"
+        f"- Length between {min_length} and {max_length} Chinese characters.\n"
+        "- Keep all dates, names, stage markers, important numbers, and CTA path.\n"
+        "- Rewrite deeply. Do not only swap a few words.\n"
+        "- Use Simplified Chinese only.\n\n"
         f"User background: {user_background or 'Not provided'}\n"
         f"Extra instruction: {user_instruction}\n"
-        f"Existing scripts to avoid repeating:\n{existing_notes}\n\n"
-        "Required tags:\n"
-        "<script_title>...</script_title>\n<script_content>...</script_content>\n\n"
+        f"Required anchors to preserve: {required_tokens_line}\n"
+        f"{existing_section}"
         "Source copy:\n"
         f"{original_copy}"
     )
-
-
-def _generate_analysis_only(
-    *,
-    original_copy: str,
-    industry: str,
-    needs: str,
-    user_background: str,
-    api_key: str,
-    base_url: str,
-    model: str | None,
-    timeout_seconds: float,
-) -> dict[str, str]:
-    try:
-        raw_text = generate_text_with_anthropic(
-            base_url=base_url,
-            api_key=api_key,
-            model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
-            system_prompt=build_rewrite_system_prompt(),
-            user_prompt=build_analysis_only_prompt(
-                original_copy=original_copy,
-                industry=industry,
-                needs=needs,
-                user_background=user_background,
-            ),
-            max_tokens=1200,
-            timeout_seconds=_staged_timeout_seconds(timeout_seconds),
-            temperature=0,
-        )
-        analysis = _parse_analysis_only_response(raw_text)
-        return analysis if any(value for value in analysis.values()) else _empty_analysis()
-    except AnthropicApiError:
-        return _empty_analysis()
 
 
 def _generate_scripts_sequentially(
@@ -539,7 +725,8 @@ def _generate_scripts_sequentially(
     scripts: list[dict[str, str]] = []
     existing_scripts = list(blocked_scripts or [])
     last_error: AnthropicApiError | None = None
-    attempt_limit = max(4, target_count * 4)
+    request_retry_count = 2 if target_count <= 1 else 1
+    attempt_limit = 1 if target_count <= 1 else max(2, min(3, target_count + 1))
 
     for _attempt in range(attempt_limit):
         if len(scripts) >= target_count:
@@ -554,6 +741,7 @@ def _generate_scripts_sequentially(
                 max_tokens=max_tokens,
                 timeout_seconds=_staged_timeout_seconds(timeout_seconds),
                 temperature=0,
+                retry_count=request_retry_count,
             )
         except AnthropicApiError as exc:
             last_error = exc
@@ -585,40 +773,7 @@ def analyze_copy_with_claude(
 ) -> dict[str, Any]:
     original_copy = normalize_multiline_text(original_copy)
     script_count = _target_script_count(original_copy)
-    if not _should_use_staged_generation(original_copy, script_count):
-        max_tokens = _target_max_tokens(original_copy, script_count)
-        try:
-            raw_text = generate_text_with_anthropic(
-                base_url=base_url,
-                api_key=api_key,
-                model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
-                system_prompt=build_rewrite_system_prompt(),
-                user_prompt=build_copy_analysis_prompt(
-                    original_copy=original_copy,
-                    industry=industry,
-                    needs=needs,
-                    user_background=user_background,
-                    script_count=script_count,
-                ),
-                max_tokens=max_tokens,
-                timeout_seconds=timeout_seconds,
-                temperature=0,
-            )
-            parsed = _parse_analysis_tag_response(raw_text, script_count=script_count)
-            return normalize_copy_analysis_result(parsed, original_copy=original_copy, script_count=script_count)
-        except AnthropicApiError:
-            pass
-
-    analysis = _generate_analysis_only(
-        original_copy=original_copy,
-        industry=industry,
-        needs=needs,
-        user_background=user_background,
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        timeout_seconds=timeout_seconds,
-    )
+    local_analysis = _build_local_analysis(original_copy)
     scripts = _generate_scripts_sequentially(
         source_text=original_copy,
         target_count=script_count,
@@ -627,7 +782,7 @@ def analyze_copy_with_claude(
             industry=industry,
             needs=needs,
             user_background=user_background,
-            analysis=analysis,
+            analysis=local_analysis,
             script_index=script_index,
             existing_scripts=existing_scripts,
         ),
@@ -639,7 +794,7 @@ def analyze_copy_with_claude(
     )
     return normalize_copy_analysis_result(
         {
-            "analysis": analysis,
+            "analysis": local_analysis,
             "generatedScripts": scripts,
         },
         original_copy=original_copy,
@@ -659,29 +814,6 @@ def refine_copy_with_claude(
 ) -> dict[str, Any]:
     original_copy = normalize_multiline_text(current_result.get("originalCopy") if isinstance(current_result, dict) else "")
     script_count = _target_script_count(original_copy)
-    if not _should_use_staged_generation(original_copy, script_count):
-        max_tokens = _target_max_tokens(original_copy, script_count)
-        try:
-            raw_text = generate_text_with_anthropic(
-                base_url=base_url,
-                api_key=api_key,
-                model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
-                system_prompt=build_rewrite_system_prompt(),
-                user_prompt=build_copy_refine_prompt(
-                    current_result=current_result,
-                    user_instruction=user_instruction,
-                    user_background=user_background,
-                    script_count=script_count,
-                ),
-                max_tokens=max_tokens,
-                timeout_seconds=timeout_seconds,
-                temperature=0,
-            )
-            parsed = _parse_refine_tag_response(raw_text, script_count=script_count)
-            return normalize_copy_refine_result(parsed, original_copy=original_copy, script_count=script_count)
-        except AnthropicApiError:
-            pass
-
     blocked_scripts = _normalize_scripts(current_result.get("generatedScripts") if isinstance(current_result, dict) else [])
     scripts = _generate_scripts_sequentially(
         source_text=original_copy,

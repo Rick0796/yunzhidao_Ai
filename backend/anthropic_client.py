@@ -131,8 +131,20 @@ def _translate_upstream_error(message: str) -> str:
 
 def _is_retryable_proxy_error(message: str) -> bool:
     lowered = message.lower()
-    retryable_tokens = ("empty output", "rate limit", "timed out", "timeout", "temporarily unavailable", "bad gateway")
+    retryable_tokens = ("empty output", "rate limit", "timed out", "timeout", "temporarily unavailable", "bad gateway", "invalid assistant intro")
     return any(token in lowered for token in retryable_tokens)
+
+
+def _looks_like_generic_assistant_intro(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    intro_markers = (
+        "i am claude",
+        "i'm claude",
+        "made by anthropic",
+        "i'm an ai assistant",
+        "i am an ai assistant",
+    )
+    return any(marker in lowered for marker in intro_markers)
 
 
 def _collect_text_blocks(payload: Any) -> str:
@@ -256,25 +268,40 @@ def generate_text_with_anthropic(
     max_tokens: int = 4096,
     timeout_seconds: float = 90,
     temperature: float | None = None,
+    retry_count: int = 2,
 ) -> str:
     resolved_model = normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL)
     last_error: AnthropicApiError | None = None
+    attempt_count = max(1, retry_count)
+    prompt = user_prompt
 
-    for attempt in range(2):
+    for attempt in range(attempt_count):
         try:
-            return _request_message(
+            text = _request_message(
                 base_url=base_url,
                 api_key=api_key,
                 model=resolved_model,
                 system_prompt=system_prompt,
-                user_prompt=user_prompt,
+                user_prompt=prompt,
                 max_tokens=max_tokens,
                 timeout_seconds=timeout_seconds,
                 temperature=temperature,
             )
+            if _looks_like_generic_assistant_intro(text):
+                last_error = AnthropicApiError("invalid assistant intro")
+                if attempt < attempt_count - 1:
+                    prompt = (
+                        f"{user_prompt}\n\n"
+                        "Important correction: do not introduce yourself. "
+                        "Do not say who you are or what you can do. "
+                        "Return only the requested final output."
+                    )
+                    continue
+                raise last_error
+            return text
         except AnthropicApiError as exc:
             last_error = exc
-            if attempt == 0 and _is_retryable_proxy_error(str(exc)):
+            if attempt < attempt_count - 1 and _is_retryable_proxy_error(str(exc)):
                 continue
             raise
 

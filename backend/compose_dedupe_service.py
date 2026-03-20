@@ -134,7 +134,7 @@ def _max_tokens_for_block(text: str) -> int:
 
 
 def _request_timeout_seconds(timeout_seconds: float) -> float:
-    return max(18, min(timeout_seconds, 28))
+    return max(15, min(timeout_seconds, 16))
 
 
 def _build_single_block_prompt(theme: str, block: dict[str, Any], rejection_note: str = "") -> str:
@@ -350,11 +350,12 @@ def _dedupe_single_block_with_claude(
     base_url: str,
     model: str | None,
     timeout_seconds: float,
+    max_attempts: int = 1,
 ) -> dict[str, Any]:
     rejection_note = ""
     last_error: AnthropicApiError | None = None
 
-    for _attempt in range(3):
+    for _attempt in range(max(1, max_attempts)):
         try:
             raw_text = generate_text_with_anthropic(
                 base_url=base_url,
@@ -371,6 +372,7 @@ def _dedupe_single_block_with_claude(
                 max_tokens=_max_tokens_for_block(str(block.get("content") or "")),
                 timeout_seconds=_request_timeout_seconds(timeout_seconds),
                 temperature=0,
+                retry_count=1,
             )
         except AnthropicApiError as exc:
             last_error = exc
@@ -436,6 +438,9 @@ def dedupe_compose_blocks_with_claude(
     guarded_count = 0
     error_count = 0
     last_api_error = ""
+    selected_count = sum(1 for item in normalized_blocks if item["id"] in selected_ids)
+    per_block_timeout = 16 if selected_count <= 1 else 15
+    max_attempts = 2 if selected_count <= 1 else 1
 
     for index, block in enumerate(normalized_blocks):
         if block["id"] not in selected_ids:
@@ -446,7 +451,8 @@ def dedupe_compose_blocks_with_claude(
             api_key=api_key,
             base_url=base_url,
             model=model,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=min(timeout_seconds, per_block_timeout),
+            max_attempts=max_attempts,
         )
         next_blocks[index] = resolved["block"]
         if resolved.get("changed"):

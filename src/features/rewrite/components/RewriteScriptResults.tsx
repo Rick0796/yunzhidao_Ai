@@ -15,10 +15,10 @@ interface RewriteScriptResultsProps {
 
 const TEXT = {
   reanalyzing: "\u6b63\u5728\u91cd\u65b0\u5206\u6790\u5e76\u751f\u6210\u4eff\u5199\u7a3f...",
-  refiningBusy: "\u6b63\u5728\u4f18\u5316\u5e76\u751f\u6210\u66f4\u591a\u4eff\u5199\u7a3f...",
+  refiningBusy: "\u6b63\u5728\u4f18\u5316\u5e76\u751f\u6210\u65b0\u4eff\u5199\u7a3f...",
   title: "\u5b9a\u5236\u5316\u7206\u6b3e\u4eff\u5199\u7a3f",
   regenerate: "\u91cd\u65b0\u751f\u6210",
-  generateMore: "\u518d\u751f\u6210\u4e00\u6279",
+  generateMore: "\u518d\u751f\u6210 1 \u6761",
   empty: "\u6682\u65e0\u751f\u6210\u7684\u4eff\u5199\u5185\u5bb9\uff0c\u8bf7\u91cd\u65b0\u751f\u6210\u3002",
   copy: "\u590d\u5236\u811a\u672c",
   refineTitle: "\u7ee7\u7eed\u4f18\u5316\u4eff\u5199\u7a3f",
@@ -30,13 +30,14 @@ const TEXT = {
 
 export default function RewriteScriptResults(props: RewriteScriptResultsProps) {
   const busy = props.isAnalyzing || props.isRefining;
+  const busyText = props.isAnalyzing ? TEXT.reanalyzing : TEXT.refiningBusy;
 
   return (
-    <div className="relative space-y-6">
+    <div className="space-y-6">
       {busy ? (
-        <div className="absolute inset-x-0 -inset-y-4 z-10 flex flex-col items-center justify-center gap-4 rounded-3xl bg-black/60 backdrop-blur-sm">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#00D4FF]/30 border-t-[#00D4FF]" />
-          <p className="font-bold text-[#00D4FF]">{props.isAnalyzing ? TEXT.reanalyzing : TEXT.refiningBusy}</p>
+        <div className="flex items-center gap-3 rounded-2xl border border-[#00D4FF]/20 bg-[#00D4FF]/10 px-4 py-3 text-sm text-slate-100">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#00D4FF]/30 border-t-[#00D4FF]" />
+          <p className="font-medium text-[#9BE7FF]">{busyText}</p>
         </div>
       ) : null}
 

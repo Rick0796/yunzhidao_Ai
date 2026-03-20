@@ -170,22 +170,26 @@ def test_rewrite_validation_rejects_near_copy_output() -> None:
                 "analysis": {},
                 "generatedScripts": [
                     {"title": "Script 1", "content": "现在真正拉开差距的，不是你懂不懂AI，而是你会不会用AI帮你做内容拿结果。"},
-                    {"title": "Script 2", "content": "现在真正拉开差距的，不是你懂不懂AI，而是你会不会用AI帮你做内容并拿结果。"},
+                    {"title": "Script 2", "content": "现在真正拉开差距的，不是你懂不懂AI，而是你会不会用AI帮你做内容并拿到结果。"},
                 ],
             },
             original_copy=original_copy,
         )
 
 
-def test_rewrite_validation_rejects_peer_duplicates() -> None:
+def test_rewrite_validation_keeps_first_when_peer_duplicates_exist(monkeypatch) -> None:
     original_copy = "现在真正拉开差距的，不是你懂不懂AI，而是你会不会用AI帮你做内容拿结果。"
-    with pytest.raises(AnthropicApiError):
-        normalize_copy_refine_result(
-            {
-                "generatedScripts": [
-                    {"title": "Script 1", "content": "真正决定差距的，不是你知不知道AI，而是你敢不敢让AI替你干活、替你产出内容。"},
-                    {"title": "Script 2", "content": "真正决定差距的，不是你知不知道AI，而是你敢不敢让AI替你干活，并替你产出内容。"},
-                ],
-            },
-            original_copy=original_copy,
-        )
+    monkeypatch.setattr("backend.rewrite_service._validate_candidate_against_source", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("backend.rewrite_service._too_close_to_source", lambda *_args, **_kwargs: False)
+    result = normalize_copy_refine_result(
+        {
+            "generatedScripts": [
+                {"title": "Script 1", "content": "真正拉开差距的，不是你知不知道AI，而是你敢不敢让AI替你做内容并拿结果。"},
+                {"title": "Script 2", "content": "真正拉开差距的，不是你知不知道AI，而是你敢不敢让AI替你做内容并持续拿结果。"},
+            ],
+        },
+        original_copy=original_copy,
+    )
+
+    assert len(result["generatedScripts"]) == 1
+    assert result["generatedScripts"][0]["title"] == "Script 1"
