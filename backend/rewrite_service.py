@@ -676,6 +676,35 @@ def build_single_script_prompt(
     )
 
 
+def build_compact_single_script_prompt(
+    *,
+    original_copy: str,
+    needs: str,
+    script_index: int,
+    existing_scripts: list[dict[str, str]],
+) -> str:
+    min_length, max_length = _estimate_length_bounds(original_copy)
+    required_tokens = _extract_required_tokens(original_copy)
+    required_tokens_line = " / ".join(required_tokens[:10]) if required_tokens else "保留原文中的日期、人名、数字和动作路径。"
+    existing_notes = _build_existing_script_notes(existing_scripts)
+    existing_section = f"\n避免和已有仿写重复：\n{existing_notes}\n" if existing_scripts else "\n"
+    return (
+        f"第{script_index}条仿写。\n"
+        "只输出最终文案正文，不要标题，不要解释，不要标签。\n"
+        "要求：\n"
+        f"1. 字数控制在{min_length}-{max_length}字。\n"
+        "2. 只做去重改写，不换主题，不新增结论。\n"
+        "3. 保持原文的大体段落顺序、钩子作用和收口动作。\n"
+        f"4. 必须保留这些锚点：{required_tokens_line}\n"
+        "5. 每一段都要重写，不能只改几个词。\n"
+        "6. 只用简体中文。\n"
+        f"补充需求：{needs or '字数接近，结构一致，只做去重改写。'}\n"
+        f"{existing_section}"
+        "原文：\n"
+        f"{original_copy}"
+    )
+
+
 def build_single_refine_script_prompt(
     *,
     original_copy: str,
@@ -710,11 +739,41 @@ def build_single_refine_script_prompt(
     )
 
 
+def build_compact_single_refine_script_prompt(
+    *,
+    original_copy: str,
+    user_instruction: str,
+    script_index: int,
+    existing_scripts: list[dict[str, str]],
+) -> str:
+    min_length, max_length = _estimate_length_bounds(original_copy)
+    required_tokens = _extract_required_tokens(original_copy)
+    required_tokens_line = " / ".join(required_tokens[:10]) if required_tokens else "保留原文中的日期、人名、数字和动作路径。"
+    existing_notes = _build_existing_script_notes(existing_scripts)
+    existing_section = f"\n避免和已有仿写重复：\n{existing_notes}\n" if existing_scripts else "\n"
+    return (
+        f"第{script_index}条优化仿写。\n"
+        "只输出最终文案正文，不要标题，不要解释，不要标签。\n"
+        "要求：\n"
+        f"1. 字数控制在{min_length}-{max_length}字。\n"
+        "2. 只做去重改写，不换主题，不新增结论。\n"
+        "3. 保持原文的大体段落顺序和收口动作。\n"
+        f"4. 必须保留这些锚点：{required_tokens_line}\n"
+        "5. 每一段都要重写，不能只改几个词。\n"
+        "6. 只用简体中文。\n"
+        f"补充优化要求：{user_instruction}\n"
+        f"{existing_section}"
+        "原文：\n"
+        f"{original_copy}"
+    )
+
+
 def _generate_scripts_sequentially(
     *,
     source_text: str,
     target_count: int,
     prompt_builder: Callable[[int, list[dict[str, str]]], str],
+    compact_prompt_builder: Callable[[int, list[dict[str, str]]], str] | None,
     api_key: str,
     base_url: str,
     model: str | None,
@@ -725,20 +784,21 @@ def _generate_scripts_sequentially(
     scripts: list[dict[str, str]] = []
     existing_scripts = list(blocked_scripts or [])
     last_error: AnthropicApiError | None = None
-    request_retry_count = 2 if target_count <= 1 else 1
-    attempt_limit = 1 if target_count <= 1 else max(2, min(3, target_count + 1))
+    request_retry_count = 1
+    attempt_limit = 2 if target_count <= 1 else max(2, min(3, target_count + 1))
 
-    for _attempt in range(attempt_limit):
+    for attempt_index in range(attempt_limit):
         if len(scripts) >= target_count:
             break
+        use_compact_prompt = compact_prompt_builder is not None and attempt_index > 0
         try:
             raw_text = generate_text_with_anthropic(
                 base_url=base_url,
                 api_key=api_key,
                 model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
                 system_prompt=build_rewrite_system_prompt(),
-                user_prompt=prompt_builder(len(scripts) + 1, [*existing_scripts, *scripts]),
-                max_tokens=max_tokens,
+                user_prompt=(compact_prompt_builder if use_compact_prompt else prompt_builder)(len(scripts) + 1, [*existing_scripts, *scripts]),
+                max_tokens=max(640, min(max_tokens, 1400)) if use_compact_prompt else max_tokens,
                 timeout_seconds=_staged_timeout_seconds(timeout_seconds),
                 temperature=0,
                 retry_count=request_retry_count,
@@ -786,6 +846,12 @@ def analyze_copy_with_claude(
             script_index=script_index,
             existing_scripts=existing_scripts,
         ),
+        compact_prompt_builder=lambda script_index, existing_scripts: build_compact_single_script_prompt(
+            original_copy=original_copy,
+            needs=needs,
+            script_index=script_index,
+            existing_scripts=existing_scripts,
+        ),
         api_key=api_key,
         base_url=base_url,
         model=model,
@@ -822,6 +888,12 @@ def refine_copy_with_claude(
             original_copy=original_copy,
             user_instruction=user_instruction,
             user_background=user_background,
+            script_index=script_index,
+            existing_scripts=existing_scripts,
+        ),
+        compact_prompt_builder=lambda script_index, existing_scripts: build_compact_single_refine_script_prompt(
+            original_copy=original_copy,
+            user_instruction=user_instruction,
             script_index=script_index,
             existing_scripts=existing_scripts,
         ),

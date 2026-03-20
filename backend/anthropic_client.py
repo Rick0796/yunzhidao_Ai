@@ -9,6 +9,33 @@ import requests
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 ANTHROPIC_API_VERSION = "2023-06-01"
+TEXT_LIKE_RESPONSE_KEYS = (
+    "completion",
+    "output_text",
+    "text",
+    "content",
+    "response",
+    "answer",
+    "message",
+    "result",
+    "output",
+)
+IGNORED_RESPONSE_KEYS = {
+    "id",
+    "model",
+    "role",
+    "type",
+    "object",
+    "usage",
+    "stop_reason",
+    "finish_reason",
+    "input_tokens",
+    "output_tokens",
+    "prompt",
+    "system",
+    "messages",
+    "index",
+}
 
 MODEL_ALIAS_MAP = {
     "sonnet-4.6": DEFAULT_ANTHROPIC_MODEL,
@@ -147,7 +174,70 @@ def _looks_like_generic_assistant_intro(text: str) -> bool:
     return any(marker in lowered for marker in intro_markers)
 
 
+def _clean_text_candidate(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    cleaned = value.strip()
+    if not cleaned:
+        return ""
+    if cleaned.lower() in {"assistant", "user", "system", "text"}:
+        return ""
+    return cleaned
+
+
+def _score_text_candidate(text: str) -> int:
+    cleaned = _clean_text_candidate(text)
+    if not cleaned:
+        return -1
+    score = len(cleaned)
+    lowered = cleaned.lower()
+    if re.search(r"[\u4e00-\u9fff]", cleaned):
+        score += 20
+    if "\n" in cleaned:
+        score += 10
+    if re.search(r"[。！？.!?]", cleaned):
+        score += 5
+    if cleaned.startswith("{") or cleaned.startswith("["):
+        score -= 40
+    if lowered.startswith("http://") or lowered.startswith("https://"):
+        score -= 30
+    if re.fullmatch(r"[A-Za-z0-9._:/-]+", cleaned):
+        score -= 25
+    return score
+
+
+def _collect_recursive_text_candidates(value: Any, *, parent_key: str = "") -> list[str]:
+    if isinstance(value, str):
+        candidate = _clean_text_candidate(value)
+        return [candidate] if candidate else []
+
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            parts.extend(_collect_recursive_text_candidates(item, parent_key=parent_key))
+        return parts
+
+    if not isinstance(value, dict):
+        return []
+
+    parts: list[str] = []
+    for key in TEXT_LIKE_RESPONSE_KEYS:
+        if key in value:
+            parts.extend(_collect_recursive_text_candidates(value[key], parent_key=key))
+    for key, nested in value.items():
+        lowered = str(key).lower()
+        if lowered in IGNORED_RESPONSE_KEYS or lowered in TEXT_LIKE_RESPONSE_KEYS:
+            continue
+        parts.extend(_collect_recursive_text_candidates(nested, parent_key=lowered))
+    return parts
+
+
 def _collect_text_blocks(payload: Any) -> str:
+    if isinstance(payload, str):
+        return _clean_text_candidate(payload)
+    if isinstance(payload, list):
+        candidates = _collect_recursive_text_candidates(payload)
+        return max(candidates, key=_score_text_candidate, default="")
     if not isinstance(payload, dict):
         return ""
 
@@ -177,6 +267,10 @@ def _collect_text_blocks(payload: Any) -> str:
                 if isinstance(text, str) and text.strip():
                     parts.append(text.strip())
                     continue
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+                continue
             nested_text = item.get("content")
             if isinstance(nested_text, str) and nested_text.strip():
                 parts.append(nested_text.strip())
@@ -221,7 +315,9 @@ def _collect_text_blocks(payload: Any) -> str:
             choice_text = choice.get("text")
             if isinstance(choice_text, str) and choice_text.strip():
                 return choice_text.strip()
-    return ""
+
+    candidates = _collect_recursive_text_candidates(payload)
+    return max(candidates, key=_score_text_candidate, default="")
 
 
 def _request_message(
@@ -263,6 +359,9 @@ def _request_message(
     try:
         payload = response.json()
     except ValueError as exc:
+        plain_text = response.text.strip()
+        if plain_text and not plain_text.lstrip().startswith("<"):
+            return plain_text
         raise AnthropicApiError("\u0043laude \u8fd4\u56de\u4e86\u5f02\u5e38\u7684\u54cd\u5e94\u683c\u5f0f\u3002") from exc
 
     text = _collect_text_blocks(payload)

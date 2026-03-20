@@ -99,14 +99,14 @@ def test_analyze_copy_with_claude_uses_local_analysis_for_long_source(monkeypatc
 
 def test_analyze_copy_with_claude_accepts_plain_text_fallback(monkeypatch) -> None:
     def fake_generate_text_with_anthropic(**_kwargs):
-        return "这是直接返回的纯文本仿写结果，保留原来主题和收口动作。"
+        return "This is a direct plain-text rewrite result that keeps the same topic and keeps the call to action."
 
     monkeypatch.setattr("backend.rewrite_service.generate_text_with_anthropic", fake_generate_text_with_anthropic)
     monkeypatch.setattr("backend.rewrite_service._is_usable_script", lambda *_args, **_kwargs: True)
     monkeypatch.setattr("backend.rewrite_service._filter_rewrite_scripts", lambda scripts, **_kwargs: scripts)
 
     result = analyze_copy_with_claude(
-        original_copy="3月14日到3月17日，这几天你可能会遇到一些惊喜。私信“我要看直播”。",
+        original_copy="March 14 to March 17. Keep the same topic and keep the CTA path.",
         industry="AI growth",
         needs="Keep the same structure",
         user_background="We help business owners",
@@ -117,4 +117,42 @@ def test_analyze_copy_with_claude_accepts_plain_text_fallback(monkeypatch) -> No
     )
 
     assert len(result["generatedScripts"]) == 1
-    assert result["generatedScripts"][0]["content"].startswith("这是直接返回的纯文本仿写结果")
+    assert result["generatedScripts"][0]["content"].startswith("This is a direct plain-text rewrite result")
+
+
+def test_analyze_copy_with_claude_uses_compact_prompt_after_empty_response(monkeypatch) -> None:
+    captured_prompts: list[str] = []
+    responses = iter(
+        [
+            AnthropicApiError("Claude returned empty content, please retry."),
+            "Compact fallback rewrite content with the same structure and a different wording path.",
+        ]
+    )
+
+    def fake_generate_text_with_anthropic(**kwargs):
+        captured_prompts.append(kwargs["user_prompt"])
+        value = next(responses)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    monkeypatch.setattr("backend.rewrite_service.generate_text_with_anthropic", fake_generate_text_with_anthropic)
+    monkeypatch.setattr("backend.rewrite_service._is_usable_script", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("backend.rewrite_service._filter_rewrite_scripts", lambda scripts, **_kwargs: scripts)
+
+    result = analyze_copy_with_claude(
+        original_copy="March 14 to March 17. Keep the same topic and keep the CTA path.",
+        industry="AI growth",
+        needs="Keep the same structure",
+        user_background="We help business owners",
+        api_key="test-key",
+        base_url="http://proxy.example.com/back",
+        model="claude-sonnet-4-6",
+        timeout_seconds=20,
+    )
+
+    assert len(result["generatedScripts"]) == 1
+    assert len(captured_prompts) == 2
+    assert "Output only:" in captured_prompts[0]
+    assert "Output only:" not in captured_prompts[1]
+    assert len(captured_prompts[1]) < len(captured_prompts[0])

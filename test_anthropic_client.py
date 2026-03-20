@@ -6,12 +6,12 @@ from backend.anthropic_client import _collect_text_blocks, generate_text_with_an
 def test_collect_text_blocks_supports_anthropic_content_list() -> None:
     payload = {
         "content": [
-            {"type": "text", "text": "第一段"},
-            {"type": "text", "text": "第二段"},
+            {"type": "text", "text": "first block"},
+            {"type": "text", "text": "second block"},
         ]
     }
 
-    assert _collect_text_blocks(payload) == "第一段\n第二段"
+    assert _collect_text_blocks(payload) == "first block\nsecond block"
 
 
 def test_collect_text_blocks_supports_openai_compatible_choices() -> None:
@@ -19,26 +19,42 @@ def test_collect_text_blocks_supports_openai_compatible_choices() -> None:
         "choices": [
             {
                 "message": {
-                    "content": "这是 OpenAI 兼容格式返回的正文。"
+                    "content": "openai compatible body",
                 }
             }
         ]
     }
 
-    assert _collect_text_blocks(payload) == "这是 OpenAI 兼容格式返回的正文。"
+    assert _collect_text_blocks(payload) == "openai compatible body"
+
+
+def test_collect_text_blocks_supports_nested_proxy_wrappers() -> None:
+    payload = {
+        "data": {
+            "result": {
+                "message": {
+                    "content": [
+                        {"type": "output_text", "text": "nested proxy body"},
+                    ]
+                }
+            }
+        }
+    }
+
+    assert _collect_text_blocks(payload) == "nested proxy body"
 
 
 def test_collect_text_blocks_supports_direct_completion_fields() -> None:
-    assert _collect_text_blocks({"completion": "直接 completion"}) == "直接 completion"
-    assert _collect_text_blocks({"output_text": "直接 output_text"}) == "直接 output_text"
-    assert _collect_text_blocks({"text": "直接 text"}) == "直接 text"
+    assert _collect_text_blocks({"completion": "direct completion"}) == "direct completion"
+    assert _collect_text_blocks({"output_text": "direct output_text"}) == "direct output_text"
+    assert _collect_text_blocks({"text": "direct text"}) == "direct text"
 
 
 def test_generate_text_with_anthropic_retries_on_generic_intro(monkeypatch) -> None:
     responses = iter(
         [
             "I am Claude, made by Anthropic. I'm an AI assistant designed to be helpful, harmless, and honest.",
-            "<script_title>Script 1</script_title><script_content>这是修正后的正式输出。</script_content>",
+            "<script_title>Script 1</script_title><script_content>usable final output</script_content>",
         ]
     )
     captured_prompts: list[str] = []
@@ -61,6 +77,6 @@ def test_generate_text_with_anthropic_retries_on_generic_intro(monkeypatch) -> N
         retry_count=2,
     )
 
-    assert "正式输出" in text
+    assert "usable final output" in text
     assert len(captured_prompts) == 2
     assert "do not introduce yourself" in captured_prompts[1].lower()
