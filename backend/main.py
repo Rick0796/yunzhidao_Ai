@@ -42,6 +42,7 @@ from backend.anthropic_client import AnthropicApiError, DEFAULT_ANTHROPIC_MODEL,
 from backend.gemini_models import DEFAULT_GEMINI_MODEL, normalize_gemini_model_name
 from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
 from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini, generate_json_with_gemini, generate_text_with_gemini
+from backend.compose_dedupe_service import dedupe_compose_blocks_with_claude
 from backend.rewrite_service import analyze_copy_with_claude, normalize_multiline_text, refine_copy_with_claude
 
 RUNTIME_PATHS = resolve_runtime_paths()
@@ -2326,6 +2327,45 @@ async def list_library_compose_candidates(request: Request) -> dict[str, Any]:
             "limitPerSlot": limit_per_slot,
         },
     }
+
+
+@app.post("/api/library/compose-dedupe")
+@app.post("/api/library/compose_dedupe")
+async def dedupe_library_compose_blocks(request: Request) -> JSONResponse:
+    if not CONFIG["anthropicBaseUrl"] or not CONFIG["anthropicApiKey"]:
+        raise HTTPException(
+            status_code=500,
+            detail="\u540e\u7aef\u672a\u914d\u7f6e Claude \u53bb\u91cd\u670d\u52a1\uff0c\u8bf7\u8bbe\u7f6e ANTHROPIC_BASE_URL \u548c ANTHROPIC_API_KEY\u3002",
+        )
+
+    body = await read_request_json(request)
+    theme = clean_text(body.get("theme"))
+    blocks = body.get("blocks")
+    block_ids = body.get("blockIds") or body.get("block_ids")
+
+    if not theme:
+        raise HTTPException(status_code=400, detail="\u4e3b\u9898\u4e0d\u80fd\u4e3a\u7a7a\u3002")
+    if not isinstance(blocks, list):
+        raise HTTPException(status_code=400, detail="\u5f53\u524d\u7ec4\u5408\u677f\u5757\u683c\u5f0f\u4e0d\u6b63\u786e\u3002")
+    if not isinstance(block_ids, list):
+        raise HTTPException(status_code=400, detail="\u53bb\u91cd\u677f\u5757\u5217\u8868\u683c\u5f0f\u4e0d\u6b63\u786e\u3002")
+
+    try:
+        result = await asyncio.to_thread(
+            dedupe_compose_blocks_with_claude,
+            theme=theme,
+            blocks=blocks,
+            block_ids=block_ids,
+            api_key=CONFIG["anthropicApiKey"],
+            base_url=CONFIG["anthropicBaseUrl"],
+            model=resolve_rewrite_model_name(body.get("model")),
+            timeout_seconds=max(20, min(CONFIG["timeoutSeconds"], 60)),
+        )
+        return JSONResponse(content=result)
+    except AnthropicApiError as exc:
+        return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/library/scripts/{original_id}")

@@ -33,6 +33,10 @@
       "destination": "/api/library/compose_candidates"
     },
     {
+      "source": "/api/library/compose-dedupe",
+      "destination": "/api/library/compose_dedupe"
+    },
+    {
       "source": "/api/generate-json",
       "destination": "/api/generate_json"
     },
