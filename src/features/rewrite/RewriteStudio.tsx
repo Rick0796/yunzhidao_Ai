@@ -56,9 +56,11 @@ export default function RewriteStudio(props: RewriteStudioProps) {
   const [history, setHistory] = useStoredState<RewriteHistoryItem[]>(STORAGE_KEYS.rewriteHistory, []);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   const requestAbortRef = useRef<AbortController | null>(null);
   const lastImportedCopyRef = useRef("");
+  const historyPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const imported = props.initialOriginalCopy.trim();
@@ -77,6 +79,27 @@ export default function RewriteStudio(props: RewriteStudioProps) {
     if (!background) return;
     setForm((prev) => (prev.userBackground.trim() ? prev : { ...prev, userBackground: background }));
   }, [props.defaultUserBackground, setForm]);
+
+  useEffect(() => {
+    if (!isHistoryOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!historyPanelRef.current?.contains(event.target as Node)) {
+        setIsHistoryOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isHistoryOpen]);
+
+  useEffect(() => {
+    if (history.length === 0) {
+      setIsHistoryOpen(false);
+    }
+  }, [history.length]);
 
   function updateForm<K extends keyof RewriteFormState>(key: K, value: RewriteFormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -219,12 +242,43 @@ export default function RewriteStudio(props: RewriteStudioProps) {
     });
     props.onOriginalCopyChange(item.originalCopy);
     setResult(item.result);
+    setIsHistoryOpen(false);
     props.showNotice("success", TEXT.historyLoaded);
   }
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold text-white">{TEXT.title}</h2>
+      <div className="relative flex items-start justify-between gap-4" ref={historyPanelRef}>
+        <h2 className="text-xl font-bold text-white">{TEXT.title}</h2>
+        <button
+          type="button"
+          onClick={() => setIsHistoryOpen((prev) => !prev)}
+          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition-all hover:bg-white/10"
+        >
+          <svg className="h-4 w-4 text-[#00D4FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>{TEXT.history}</span>
+          {history.length > 0 ? (
+            <span className="rounded-full bg-[#00D4FF]/20 px-2 py-0.5 text-xs font-semibold text-[#00D4FF]">{history.length}</span>
+          ) : null}
+        </button>
+
+        {isHistoryOpen ? (
+          <div className="absolute right-0 top-full z-20 mt-3 w-full max-w-md">
+            <RewriteHistoryPanel
+              history={history}
+              onLoad={handleLoadHistory}
+              onDelete={(id) => setHistory((prev) => prev.filter((item) => item.id !== id))}
+              onClear={() => {
+                if (window.confirm(TEXT.clearHistory)) {
+                  setHistory([]);
+                }
+              }}
+            />
+          </div>
+        ) : null}
+      </div>
 
       {!result ? (
         <RewriteInputForm
@@ -259,19 +313,6 @@ export default function RewriteStudio(props: RewriteStudioProps) {
           />
         </div>
       )}
-
-      {history.length > 0 ? (
-        <RewriteHistoryPanel
-          history={history}
-          onLoad={handleLoadHistory}
-          onDelete={(id) => setHistory((prev) => prev.filter((item) => item.id !== id))}
-          onClear={() => {
-            if (window.confirm(TEXT.clearHistory)) {
-              setHistory([]);
-            }
-          }}
-        />
-      ) : null}
     </div>
   );
 }
