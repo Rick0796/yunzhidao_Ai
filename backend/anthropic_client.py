@@ -166,22 +166,24 @@ def _request_message(
     temperature: float | None = None,
 ) -> str:
     try:
-        response = requests.post(
-            f"{base_url.rstrip('/')}/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": ANTHROPIC_API_VERSION,
-                "content-type": "application/json; charset=utf-8",
-            },
-            json={
-                "model": normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
-                "system": system_prompt,
-                "max_tokens": max(256, max_tokens),
-                "messages": [{"role": "user", "content": user_prompt}],
-                **({"temperature": temperature} if temperature is not None else {}),
-            },
-            timeout=max(15, timeout_seconds),
-        )
+        with requests.Session() as session:
+            session.trust_env = False
+            response = session.post(
+                f"{base_url.rstrip('/')}/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": ANTHROPIC_API_VERSION,
+                    "content-type": "application/json; charset=utf-8",
+                },
+                json={
+                    "model": normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
+                    "system": system_prompt,
+                    "max_tokens": max(256, max_tokens),
+                    "messages": [{"role": "user", "content": user_prompt}],
+                    **({"temperature": temperature} if temperature is not None else {}),
+                },
+                timeout=max(15, timeout_seconds),
+            )
     except requests.RequestException as exc:
         raise AnthropicApiError(f"\u8bf7\u6c42 Claude \u5931\u8d25\uff1a{exc}") from exc
 

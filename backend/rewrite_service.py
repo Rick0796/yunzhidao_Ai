@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, Callable
 
 from backend.anthropic_client import (
     AnthropicApiError,
@@ -72,6 +72,18 @@ def _target_max_tokens(text: str, script_count: int) -> int:
     length = _rewrite_char_length(text)
     estimated = 600 + (length * max(1, script_count)) + 500
     return max(1400, min(3200, estimated))
+
+
+def _should_use_staged_generation(text: str, script_count: int) -> bool:
+    return script_count <= 1 or _rewrite_char_length(text) >= 650
+
+
+def _staged_timeout_seconds(timeout_seconds: float) -> float:
+    return max(15, min(timeout_seconds, 25))
+
+
+def _empty_analysis() -> dict[str, str]:
+    return {key: "" for key in DEFAULT_ANALYSIS_KEYS}
 
 
 def _comparison_text(value: Any) -> str:
@@ -213,6 +225,16 @@ def _parse_refine_tag_response(raw_text: str, *, script_count: int) -> dict[str,
     return {"generatedScripts": scripts}
 
 
+def _parse_single_script_response(raw_text: str) -> dict[str, str]:
+    title = _extract_tag_content(raw_text, "script_title") or "Script"
+    content = _extract_tag_content(raw_text, "script_content")
+    return {"title": title, "content": content}
+
+
+def _parse_analysis_only_response(raw_text: str) -> dict[str, str]:
+    return {key: _extract_tag_content(raw_text, tag) for key, tag in ANALYSIS_TAG_MAP.items()}
+
+
 def _filter_rewrite_scripts(
     scripts: list[dict[str, str]],
     *,
@@ -247,13 +269,25 @@ def _filter_rewrite_scripts(
     raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4eff\u5199\u7a3f\u3002")
 
 
+def _is_usable_script(candidate: dict[str, str], source_text: str, existing_scripts: list[dict[str, str]]) -> bool:
+    candidate_compare = _comparison_text(candidate.get("content"))
+    if not candidate_compare:
+        return False
+    source_compare = _comparison_text(source_text)
+    if _too_close_to_source(candidate_compare, source_compare):
+        return False
+    for existing in existing_scripts:
+        if _too_close_to_peer(candidate_compare, _comparison_text(existing.get("content"))):
+            return False
+    return True
+
+
 def normalize_copy_analysis_result(parsed: Any, *, original_copy: str, script_count: int | None = None) -> dict[str, Any]:
     payload = parsed if isinstance(parsed, dict) else {}
     analysis_raw = payload.get("analysis") if isinstance(payload.get("analysis"), dict) else {}
     analysis = {key: _normalize_text(analysis_raw.get(key)) for key in DEFAULT_ANALYSIS_KEYS}
     target_count = max(1, script_count or _target_script_count(original_copy))
-    min_required = 1 if target_count == 1 else 2
-    scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=original_copy, min_required=min_required)
+    scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=original_copy, min_required=target_count)
 
     if not scripts:
         raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4eff\u5199\u7a3f\u3002")
@@ -269,8 +303,7 @@ def normalize_copy_refine_result(parsed: Any, *, original_copy: str = "", script
     payload = parsed if isinstance(parsed, dict) else {}
     source_text = normalize_multiline_text(original_copy or payload.get("originalCopy"))
     target_count = max(1, script_count or _target_script_count(source_text))
-    min_required = 1 if target_count == 1 else 2
-    scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=source_text, min_required=min_required)
+    scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=source_text, min_required=target_count)
     if not scripts:
         raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4f18\u5316\u7a3f\u3002")
     return {"generatedScripts": scripts}
@@ -363,6 +396,182 @@ def build_copy_refine_prompt(*, current_result: Any, user_instruction: str, user
     )
 
 
+def build_analysis_only_prompt(*, original_copy: str, industry: str, needs: str, user_background: str) -> str:
+    tag_lines = "\n".join(f"<{tag}>...</{tag}>" for tag in ANALYSIS_TAG_MAP.values())
+    return (
+        "Analyze the source short-video copy only.\n\n"
+        "Rules:\n"
+        "1. Fill every requested tag in Simplified Chinese.\n"
+        "2. Keep each tag concise and useful.\n"
+        "3. Output only the requested tags, and nothing else.\n\n"
+        f"User background: {user_background or 'Not provided'}\n"
+        f"Industry: {industry or 'General'}\n"
+        f"Specific need: {needs or 'Keep similar length and structure, rewrite only for deduplication'}\n\n"
+        "Required tags:\n"
+        f"{tag_lines}\n\n"
+        "Source copy:\n"
+        f"{original_copy}"
+    )
+
+
+def _build_existing_script_notes(existing_scripts: list[dict[str, str]]) -> str:
+    if not existing_scripts:
+        return "None"
+    lines: list[str] = []
+    for index, item in enumerate(existing_scripts, start=1):
+        preview = normalize_multiline_text(item.get("content"))[:120]
+        lines.append(f"{index}. {preview}")
+    return "\n".join(lines)
+
+
+def build_single_script_prompt(
+    *,
+    original_copy: str,
+    industry: str,
+    needs: str,
+    user_background: str,
+    analysis: dict[str, str],
+    script_index: int,
+    existing_scripts: list[dict[str, str]],
+) -> str:
+    min_length, max_length = _estimate_length_bounds(original_copy)
+    paragraph_count = _count_paragraphs(original_copy)
+    analysis_json = json.dumps(analysis, ensure_ascii=True)
+    existing_notes = _build_existing_script_notes(existing_scripts)
+    return (
+        f"Generate rewrite script {script_index} only.\n\n"
+        "Rules:\n"
+        f"1. Keep the total length close to the source, between {min_length} and {max_length} Chinese characters.\n"
+        f"2. Keep the same viral structure, same progression order, and roughly {paragraph_count} paragraphs.\n"
+        "3. Rewrite only. Do not change the topic. Do not add new claims.\n"
+        "4. Every paragraph must be clearly rewritten. Do not just replace a few words.\n"
+        "5. The new script must be clearly different from the source and from any existing scripts.\n"
+        "6. Output only <script_title> and <script_content> tags.\n"
+        "7. script_content must contain only the final rewritten copy in Simplified Chinese.\n\n"
+        f"User background: {user_background or 'Not provided'}\n"
+        f"Industry: {industry or 'General'}\n"
+        f"Specific need: {needs or 'Keep similar length and structure, rewrite only for deduplication'}\n"
+        f"Analysis reference: {analysis_json}\n"
+        f"Existing scripts to avoid repeating:\n{existing_notes}\n\n"
+        "Required tags:\n"
+        "<script_title>...</script_title>\n<script_content>...</script_content>\n\n"
+        "Source copy:\n"
+        f"{original_copy}"
+    )
+
+
+def build_single_refine_script_prompt(
+    *,
+    original_copy: str,
+    user_instruction: str,
+    user_background: str,
+    script_index: int,
+    existing_scripts: list[dict[str, str]],
+) -> str:
+    min_length, max_length = _estimate_length_bounds(original_copy)
+    paragraph_count = _count_paragraphs(original_copy)
+    existing_notes = _build_existing_script_notes(existing_scripts)
+    return (
+        f"Generate refined rewrite script {script_index} only.\n\n"
+        "Rules:\n"
+        "1. Rewrite only. Do not change the topic. Do not introduce new claims.\n"
+        f"2. Keep the same viral structure, same progression order, and roughly {paragraph_count} paragraphs.\n"
+        f"3. Keep the total length close to the source, between {min_length} and {max_length} Chinese characters.\n"
+        "4. Every paragraph must be clearly rewritten. Do not just replace a few words.\n"
+        "5. The new script must be clearly different from the source and from any existing scripts.\n"
+        "6. Output only <script_title> and <script_content> tags.\n"
+        "7. script_content must contain only the final rewritten copy in Simplified Chinese.\n\n"
+        f"User background: {user_background or 'Not provided'}\n"
+        f"Extra instruction: {user_instruction}\n"
+        f"Existing scripts to avoid repeating:\n{existing_notes}\n\n"
+        "Required tags:\n"
+        "<script_title>...</script_title>\n<script_content>...</script_content>\n\n"
+        "Source copy:\n"
+        f"{original_copy}"
+    )
+
+
+def _generate_analysis_only(
+    *,
+    original_copy: str,
+    industry: str,
+    needs: str,
+    user_background: str,
+    api_key: str,
+    base_url: str,
+    model: str | None,
+    timeout_seconds: float,
+) -> dict[str, str]:
+    try:
+        raw_text = generate_text_with_anthropic(
+            base_url=base_url,
+            api_key=api_key,
+            model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
+            system_prompt=build_rewrite_system_prompt(),
+            user_prompt=build_analysis_only_prompt(
+                original_copy=original_copy,
+                industry=industry,
+                needs=needs,
+                user_background=user_background,
+            ),
+            max_tokens=1200,
+            timeout_seconds=_staged_timeout_seconds(timeout_seconds),
+            temperature=0,
+        )
+        analysis = _parse_analysis_only_response(raw_text)
+        return analysis if any(value for value in analysis.values()) else _empty_analysis()
+    except AnthropicApiError:
+        return _empty_analysis()
+
+
+def _generate_scripts_sequentially(
+    *,
+    source_text: str,
+    target_count: int,
+    prompt_builder: Callable[[int, list[dict[str, str]]], str],
+    api_key: str,
+    base_url: str,
+    model: str | None,
+    timeout_seconds: float,
+    max_tokens: int,
+    blocked_scripts: list[dict[str, str]] | None = None,
+) -> list[dict[str, str]]:
+    scripts: list[dict[str, str]] = []
+    existing_scripts = list(blocked_scripts or [])
+    last_error: AnthropicApiError | None = None
+    attempt_limit = max(4, target_count * 4)
+
+    for _attempt in range(attempt_limit):
+        if len(scripts) >= target_count:
+            break
+        try:
+            raw_text = generate_text_with_anthropic(
+                base_url=base_url,
+                api_key=api_key,
+                model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
+                system_prompt=build_rewrite_system_prompt(),
+                user_prompt=prompt_builder(len(scripts) + 1, [*existing_scripts, *scripts]),
+                max_tokens=max_tokens,
+                timeout_seconds=_staged_timeout_seconds(timeout_seconds),
+                temperature=0,
+            )
+        except AnthropicApiError as exc:
+            last_error = exc
+            continue
+
+        candidate = _parse_single_script_response(raw_text)
+        if _is_usable_script(candidate, source_text, [*existing_scripts, *scripts]):
+            if not candidate["title"]:
+                candidate["title"] = f"Script {len(scripts) + 1}"
+            scripts.append(candidate)
+
+    if scripts:
+        return scripts
+    if last_error is not None:
+        raise last_error
+    raise AnthropicApiError("\u0043laude \u4ee3\u7406\u8fd9\u6b21\u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u5185\u5bb9\uff0c\u8bf7\u91cd\u8bd5\u3002")
+
+
 def analyze_copy_with_claude(
     *,
     original_copy: str,
@@ -374,26 +583,68 @@ def analyze_copy_with_claude(
     model: str | None = None,
     timeout_seconds: float = 90,
 ) -> dict[str, Any]:
+    original_copy = normalize_multiline_text(original_copy)
     script_count = _target_script_count(original_copy)
-    max_tokens = _target_max_tokens(original_copy, script_count)
-    raw_text = generate_text_with_anthropic(
-        base_url=base_url,
+    if not _should_use_staged_generation(original_copy, script_count):
+        max_tokens = _target_max_tokens(original_copy, script_count)
+        try:
+            raw_text = generate_text_with_anthropic(
+                base_url=base_url,
+                api_key=api_key,
+                model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
+                system_prompt=build_rewrite_system_prompt(),
+                user_prompt=build_copy_analysis_prompt(
+                    original_copy=original_copy,
+                    industry=industry,
+                    needs=needs,
+                    user_background=user_background,
+                    script_count=script_count,
+                ),
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+                temperature=0,
+            )
+            parsed = _parse_analysis_tag_response(raw_text, script_count=script_count)
+            return normalize_copy_analysis_result(parsed, original_copy=original_copy, script_count=script_count)
+        except AnthropicApiError:
+            pass
+
+    analysis = _generate_analysis_only(
+        original_copy=original_copy,
+        industry=industry,
+        needs=needs,
+        user_background=user_background,
         api_key=api_key,
-        model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
-        system_prompt=build_rewrite_system_prompt(),
-        user_prompt=build_copy_analysis_prompt(
+        base_url=base_url,
+        model=model,
+        timeout_seconds=timeout_seconds,
+    )
+    scripts = _generate_scripts_sequentially(
+        source_text=original_copy,
+        target_count=script_count,
+        prompt_builder=lambda script_index, existing_scripts: build_single_script_prompt(
             original_copy=original_copy,
             industry=industry,
             needs=needs,
             user_background=user_background,
-            script_count=script_count,
+            analysis=analysis,
+            script_index=script_index,
+            existing_scripts=existing_scripts,
         ),
-        max_tokens=max_tokens,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
         timeout_seconds=timeout_seconds,
-        temperature=0,
+        max_tokens=_target_max_tokens(original_copy, 1),
     )
-    parsed = _parse_analysis_tag_response(raw_text, script_count=script_count)
-    return normalize_copy_analysis_result(parsed, original_copy=original_copy, script_count=script_count)
+    return normalize_copy_analysis_result(
+        {
+            "analysis": analysis,
+            "generatedScripts": scripts,
+        },
+        original_copy=original_copy,
+        script_count=script_count,
+    )
 
 
 def refine_copy_with_claude(
@@ -408,21 +659,51 @@ def refine_copy_with_claude(
 ) -> dict[str, Any]:
     original_copy = normalize_multiline_text(current_result.get("originalCopy") if isinstance(current_result, dict) else "")
     script_count = _target_script_count(original_copy)
-    max_tokens = _target_max_tokens(original_copy, script_count)
-    raw_text = generate_text_with_anthropic(
-        base_url=base_url,
-        api_key=api_key,
-        model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
-        system_prompt=build_rewrite_system_prompt(),
-        user_prompt=build_copy_refine_prompt(
-            current_result=current_result,
+    if not _should_use_staged_generation(original_copy, script_count):
+        max_tokens = _target_max_tokens(original_copy, script_count)
+        try:
+            raw_text = generate_text_with_anthropic(
+                base_url=base_url,
+                api_key=api_key,
+                model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
+                system_prompt=build_rewrite_system_prompt(),
+                user_prompt=build_copy_refine_prompt(
+                    current_result=current_result,
+                    user_instruction=user_instruction,
+                    user_background=user_background,
+                    script_count=script_count,
+                ),
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+                temperature=0,
+            )
+            parsed = _parse_refine_tag_response(raw_text, script_count=script_count)
+            return normalize_copy_refine_result(parsed, original_copy=original_copy, script_count=script_count)
+        except AnthropicApiError:
+            pass
+
+    blocked_scripts = _normalize_scripts(current_result.get("generatedScripts") if isinstance(current_result, dict) else [])
+    scripts = _generate_scripts_sequentially(
+        source_text=original_copy,
+        target_count=script_count,
+        prompt_builder=lambda script_index, existing_scripts: build_single_refine_script_prompt(
+            original_copy=original_copy,
             user_instruction=user_instruction,
             user_background=user_background,
-            script_count=script_count,
+            script_index=script_index,
+            existing_scripts=existing_scripts,
         ),
-        max_tokens=max_tokens,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
         timeout_seconds=timeout_seconds,
-        temperature=0,
+        max_tokens=_target_max_tokens(original_copy, 1),
+        blocked_scripts=blocked_scripts,
     )
-    parsed = _parse_refine_tag_response(raw_text, script_count=script_count)
-    return normalize_copy_refine_result(parsed, original_copy=original_copy, script_count=script_count)
+    return normalize_copy_refine_result(
+        {
+            "generatedScripts": scripts,
+        },
+        original_copy=original_copy,
+        script_count=script_count,
+    )
