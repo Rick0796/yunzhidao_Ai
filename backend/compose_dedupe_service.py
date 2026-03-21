@@ -3,11 +3,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from backend.anthropic_client import (
-    AnthropicApiError,
-    DEFAULT_ANTHROPIC_MODEL,
-    generate_text_with_anthropic,
-    normalize_anthropic_model_name,
+from backend.qwen_client import (
+    DEFAULT_QWEN_MODEL,
+    QwenApiError,
+    generate_text_with_qwen,
+    normalize_qwen_model_name,
 )
 from backend.platform_utils import clean_text
 from backend.rewrite_service import normalize_multiline_text
@@ -342,7 +342,7 @@ def _normalize_block_payload(block: Any) -> dict[str, Any]:
     }
 
 
-def _dedupe_single_block_with_claude(
+def _dedupe_single_block_with_qwen(
     *,
     theme: str,
     block: dict[str, Any],
@@ -353,14 +353,14 @@ def _dedupe_single_block_with_claude(
     max_attempts: int = 1,
 ) -> dict[str, Any]:
     rejection_note = ""
-    last_error: AnthropicApiError | None = None
+    last_error: QwenApiError | None = None
 
     for _attempt in range(max(1, max_attempts)):
         try:
-            raw_text = generate_text_with_anthropic(
+            raw_text = generate_text_with_qwen(
                 base_url=base_url,
                 api_key=api_key,
-                model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
+                model=normalize_qwen_model_name(model, DEFAULT_QWEN_MODEL),
                 system_prompt=(
                     "You are a short-video compose-block rewrite engine. "
                     "Rewrite exactly one block. "
@@ -374,7 +374,7 @@ def _dedupe_single_block_with_claude(
                 temperature=0,
                 retry_count=1,
             )
-        except AnthropicApiError as exc:
+        except QwenApiError as exc:
             last_error = exc
             rejection_note = str(exc)
             continue
@@ -402,17 +402,17 @@ def _dedupe_single_block_with_claude(
 
 def _build_result_warning(*, changed_count: int, guarded_count: int, error_count: int) -> str | None:
     if error_count > 0 and changed_count > 0:
-        return f"\u5176\u4e2d {error_count} \u6bb5 Claude \u8fd4\u56de\u4e0d\u7a33\u5b9a\uff0c\u5df2\u4fdd\u7559\u539f\u6587\u3002"
+        return f"\u5176\u4e2d {error_count} \u6bb5\u5343\u95ee\u8fd4\u56de\u4e0d\u7a33\u5b9a\uff0c\u5df2\u4fdd\u7559\u539f\u6587\u3002"
     if guarded_count > 0 and changed_count > 0:
         return f"\u5176\u4e2d {guarded_count} \u6bb5\u672a\u901a\u8fc7\u4fdd\u771f\u6821\u9a8c\uff0c\u5df2\u4fdd\u7559\u539f\u6587\u3002"
     if error_count > 0:
-        return "\u0043laude \u672c\u6b21\u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u53bb\u91cd\u7ed3\u679c\uff0c\u8bf7\u91cd\u8bd5\u3002"
+        return "\u5343\u95ee\u672c\u6b21\u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u53bb\u91cd\u7ed3\u679c\uff0c\u8bf7\u91cd\u8bd5\u3002"
     if guarded_count > 0:
         return "\u53bb\u91cd\u7ed3\u679c\u548c\u539f\u6587\u8fc7\u4e8e\u63a5\u8fd1\u6216\u504f\u79bb\u8fc7\u5927\uff0c\u5df2\u4fdd\u7559\u539f\u6587\u3002"
     return None
 
 
-def dedupe_compose_blocks_with_claude(
+def dedupe_compose_blocks_with_qwen(
     *,
     theme: str,
     blocks: list[Any],
@@ -445,7 +445,7 @@ def dedupe_compose_blocks_with_claude(
     for index, block in enumerate(normalized_blocks):
         if block["id"] not in selected_ids:
             continue
-        resolved = _dedupe_single_block_with_claude(
+        resolved = _dedupe_single_block_with_qwen(
             theme=theme,
             block=block,
             api_key=api_key,
@@ -468,7 +468,7 @@ def dedupe_compose_blocks_with_claude(
             guarded_count += 1
 
     if changed_count == 0 and error_count > 0 and guarded_count == 0 and last_api_error:
-        raise AnthropicApiError(last_api_error)
+        raise QwenApiError(last_api_error)
 
     return {
         "blocks": next_blocks,

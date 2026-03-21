@@ -13,15 +13,15 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import requests
-from duckduckgo_search import DDGS
+try:
+    from ddgs import DDGS
+except ImportError:
+    from duckduckgo_search import DDGS
 
 try:
     from .platform_utils import clean_text, looks_like_upstream_error
 except ImportError:
     from platform_utils import clean_text, looks_like_upstream_error
-
-warnings.filterwarnings("ignore", message="This package (`duckduckgo_search`) has been renamed to `ddgs`!.*", category=RuntimeWarning)
-
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 REQUEST_HEADERS = {
@@ -346,7 +346,11 @@ def has_chinese(text: str) -> bool:
 
 def create_ddgs() -> DDGS:
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.filterwarnings(
+            "ignore",
+            message=r"This package \(`duckduckgo_search`\) has been renamed to `ddgs`!.*",
+            category=RuntimeWarning,
+        )
         return DDGS()
 
 
@@ -610,8 +614,11 @@ def fetch_clean_content(url: str, timeout: int = 10) -> str:
         response = SESSION.get(clean_url, timeout=timeout)
         response.encoding = "utf-8"
         return normalize_reader_content(response.text)
+    except requests.Timeout:
+        return ""
     except Exception as exc:
-        print(f"Jina Reader 内容获取失败: {exc}")
+        if "timed out" not in str(exc).lower():
+            print(f"Jina Reader 内容获取失败: {exc}")
         return ""
 
 

@@ -5,11 +5,11 @@ import re
 from difflib import SequenceMatcher
 from typing import Any, Callable
 
-from backend.anthropic_client import (
-    AnthropicApiError,
-    DEFAULT_ANTHROPIC_MODEL,
-    generate_text_with_anthropic,
-    normalize_anthropic_model_name,
+from backend.qwen_client import (
+    DEFAULT_QWEN_MODEL,
+    QwenApiError,
+    generate_text_with_qwen,
+    normalize_qwen_model_name,
 )
 from backend.platform_utils import clean_text
 
@@ -275,6 +275,11 @@ def _target_script_count(text: str) -> int:
     return 1
 
 
+def _should_prefer_chunked_rewrite(text: str) -> bool:
+    normalized = normalize_multiline_text(text)
+    return _rewrite_char_length(normalized) >= 260 or len(_split_sentences(normalized)) >= 8
+
+
 def _target_max_tokens(text: str, script_count: int) -> int:
     length = _rewrite_char_length(text)
     estimated = 320 + (length * max(1, script_count)) + 240
@@ -409,7 +414,7 @@ def _parse_single_script_response(raw_text: str) -> dict[str, str]:
     if not content:
         fallback = normalize_multiline_text(raw_text)
         lowered = fallback.lower()
-        if fallback and "<script_" not in lowered and "i'm claude" not in lowered and "i am claude" not in lowered:
+        if fallback and "<script_" not in lowered and "i'm an ai assistant" not in lowered and "i am an ai assistant" not in lowered:
             content = fallback
     return {"title": title, "content": content}
 
@@ -436,8 +441,6 @@ def _validate_candidate_against_source(candidate: str, source: str) -> str | Non
     missing_tokens = _missing_required_tokens(candidate, source)
     if missing_tokens:
         return "\u4eff\u5199\u7ed3\u679c\u4e22\u6389\u4e86\u539f\u6587\u91cc\u7684\u5173\u952e\u951a\u70b9\uff1a" + "\u3001".join(missing_tokens[:4]) + "\u3002"
-    if re.search(r"[\uff1f?]", source) and not re.search(r"[\uff1f?]", candidate):
-        return "\u539f\u6587\u5f00\u5934\u6709\u63d0\u95ee\u6293\u505c\uff0c\u4eff\u5199\u540e\u4e0d\u80fd\u628a\u95ee\u611f\u6d17\u6389\u3002"
     return None
 
 
@@ -477,12 +480,12 @@ def _filter_rewrite_scripts(
     if len(kept) >= min_required:
         return kept
     if dropped_for_guard:
-        raise AnthropicApiError(guard_reason or "\u4eff\u5199\u7ed3\u679c\u6ca1\u6709\u4fdd\u4f4f\u539f\u6587\u7684\u5173\u952e\u7ed3\u6784\u548c\u951a\u70b9\u3002")
+        raise QwenApiError(guard_reason or "\u4eff\u5199\u7ed3\u679c\u6ca1\u6709\u4fdd\u4f4f\u539f\u6587\u7684\u5173\u952e\u7ed3\u6784\u548c\u951a\u70b9\u3002")
     if dropped_for_source:
-        raise AnthropicApiError("\u4eff\u5199\u7ed3\u679c\u4e0e\u539f\u6587\u8fc7\u4e8e\u63a5\u8fd1\uff0c\u8bf7\u91cd\u8bd5\u3002")
+        raise QwenApiError("\u4eff\u5199\u7ed3\u679c\u4e0e\u539f\u6587\u8fc7\u4e8e\u63a5\u8fd1\uff0c\u8bf7\u91cd\u8bd5\u3002")
     if dropped_for_peer:
-        raise AnthropicApiError("\u591a\u6761\u4eff\u5199\u7ed3\u679c\u4e4b\u95f4\u8fc7\u4e8e\u76f8\u4f3c\uff0c\u8bf7\u91cd\u8bd5\u3002")
-    raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4eff\u5199\u7a3f\u3002")
+        raise QwenApiError("\u591a\u6761\u4eff\u5199\u7ed3\u679c\u4e4b\u95f4\u8fc7\u4e8e\u76f8\u4f3c\uff0c\u8bf7\u91cd\u8bd5\u3002")
+    raise QwenApiError("\u5343\u95ee\u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4eff\u5199\u7a3f\u3002")
 
 
 def _is_usable_script(candidate: dict[str, str], source_text: str, existing_scripts: list[dict[str, str]]) -> bool:
@@ -510,7 +513,7 @@ def normalize_copy_analysis_result(parsed: Any, *, original_copy: str, script_co
     scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=original_copy, min_required=required_count)
 
     if not scripts:
-        raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4eff\u5199\u7a3f\u3002")
+        raise QwenApiError("\u5343\u95ee\u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4eff\u5199\u7a3f\u3002")
 
     return {
         "originalCopy": original_copy,
@@ -526,7 +529,7 @@ def normalize_copy_refine_result(parsed: Any, *, original_copy: str = "", script
     required_count = 1 if target_count > 1 else target_count
     scripts = _filter_rewrite_scripts(_normalize_scripts(payload.get("generatedScripts")), source_text=source_text, min_required=required_count)
     if not scripts:
-        raise AnthropicApiError("\u0043laude \u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4f18\u5316\u7a3f\u3002")
+        raise QwenApiError("\u5343\u95ee\u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u7684\u4f18\u5316\u7a3f\u3002")
     return {"generatedScripts": scripts}
 
 
@@ -768,6 +771,204 @@ def build_compact_single_refine_script_prompt(
     )
 
 
+def _group_sentences_for_chunk_rewrite(text: str) -> list[list[str]]:
+    sentences = _split_sentences(text)
+    if not sentences:
+        return []
+    chunk_size = 2
+    return [sentences[index : index + chunk_size] for index in range(0, len(sentences), chunk_size)]
+
+
+def _sentence_length_bounds(text: str) -> tuple[int, int]:
+    length = len(re.sub(r"\s+", "", normalize_multiline_text(text)))
+    if length <= 0:
+        return (6, 24)
+    min_length = max(6, int(length * 0.72))
+    max_length = max(min_length + 4, int(length * 1.3))
+    return (min_length, max_length)
+
+
+def _validate_chunk_line(candidate: str, source_line: str) -> str | None:
+    normalized_candidate = normalize_multiline_text(candidate)
+    if not normalized_candidate:
+        return "分块改写结果为空。"
+
+    candidate_compare = _comparison_text(normalized_candidate)
+    source_compare = _comparison_text(source_line)
+    if candidate_compare == source_compare:
+        return "分块改写和原句几乎一样。"
+    return None
+
+
+def _parse_chunk_rewrite_lines(raw_text: str, expected_count: int) -> list[str]:
+    tagged: list[str] = []
+    for index in range(1, expected_count + 1):
+        line = _extract_tag_content(raw_text, f"line_{index}")
+        if line:
+            tagged.append(line)
+    if len(tagged) == expected_count:
+        return tagged
+
+    fallback_lines = [normalize_multiline_text(part) for part in re.split(r"\n+", raw_text or "") if normalize_multiline_text(part)]
+    if len(fallback_lines) >= expected_count:
+        return fallback_lines[:expected_count]
+    if expected_count == 1 and normalize_multiline_text(raw_text):
+        return [normalize_multiline_text(raw_text)]
+    return tagged
+
+
+def build_chunk_rewrite_prompt(
+    *,
+    original_copy: str,
+    chunk_sentences: list[str],
+    chunk_index: int,
+    total_chunks: int,
+    needs: str,
+    user_background: str,
+    industry: str,
+    extra_instruction: str = "",
+    rejection_note: str = "",
+) -> str:
+    output_tags = "\n".join(
+        f"<line_{index}>...</line_{index}>"
+        for index in range(1, len(chunk_sentences) + 1)
+    )
+    sentence_blocks: list[str] = []
+    for index, sentence in enumerate(chunk_sentences, start=1):
+        required_tokens = _extract_required_tokens(sentence)
+        question_rule = "保留疑问语气。" if re.search(r"[\uff1f?]", sentence) else "保持原句语气。"
+        token_line = " / ".join(required_tokens[:8]) if required_tokens else "无额外锚点。"
+        sentence_blocks.append(
+            "\n".join(
+                [
+                    f"第{index}句原文：{sentence}",
+                    f"第{index}句必须保留：{token_line}",
+                    f"第{index}句要求：{question_rule}",
+                ]
+            )
+        )
+    role_text = "开头抓停" if chunk_index == 1 else ("结尾收口" if chunk_index == total_chunks else "中段承接")
+    rejection_block = f"\n上一次失败原因：{rejection_note}\n这次必须修正这个问题。\n" if rejection_note else ""
+    extra_instruction_block = f"\n补充要求：{extra_instruction}\n" if extra_instruction else ""
+    return (
+        f"请逐句改写下面这{len(chunk_sentences)}句短视频文案。\n"
+        f"当前段落角色：{role_text}。\n"
+        "总要求：\n"
+        "1. 只做去重改写，不换主题，不新增信息，不改变命题。\n"
+        "2. 保留日期、人名、数字、动作入口、结果感和原句顺序。\n"
+        "3. 每一句都要整句重写，不能只换几个词。\n"
+        "4. 每一句字数和原句接近，但可以正常口语化调整。\n"
+        "5. 只按标签输出，不要解释，不要标题，不要备注。\n"
+        f"用户背景：{user_background or '未提供'}\n"
+        f"行业：{industry or '通用'}\n"
+        f"去重要求：{needs or '字数相近，结构一致，只做去重和改写'}\n"
+        f"{extra_instruction_block}"
+        f"{rejection_block}\n"
+        "逐句原文：\n"
+        f"{chr(10).join(sentence_blocks)}\n\n"
+        "输出格式：\n"
+        f"{output_tags}"
+    )
+
+
+def _generate_chunked_script_with_qwen(
+    *,
+    original_copy: str,
+    industry: str,
+    needs: str,
+    user_background: str,
+    extra_instruction: str,
+    blocked_scripts: list[dict[str, str]],
+    api_key: str,
+    base_url: str,
+    model: str | None,
+    timeout_seconds: float,
+) -> list[dict[str, str]]:
+    chunks = _group_sentences_for_chunk_rewrite(original_copy)
+    if not chunks:
+        raise QwenApiError("原始文案为空，无法分块改写。")
+    total_chunks = len(chunks)
+    last_error: QwenApiError | None = None
+
+    for overall_attempt in range(2):
+        rewritten_lines: list[str] = []
+        overall_extra_instruction = extra_instruction
+        if overall_attempt > 0:
+            extra_note = "上一版整篇和原文过于接近，这一版必须整句换表达，不能只替换少数词，但仍要保留原命题、关键锚点和收口路径。"
+            overall_extra_instruction = f"{extra_instruction}\n{extra_note}".strip()
+
+        for chunk_index, chunk_sentences in enumerate(chunks, start=1):
+            rejection_note = ""
+            accepted_lines: list[str] | None = None
+
+            for _attempt in range(2):
+                try:
+                    raw_text = generate_text_with_qwen(
+                        base_url=base_url,
+                        api_key=api_key,
+                        model=normalize_qwen_model_name(model, DEFAULT_QWEN_MODEL),
+                        system_prompt=(
+                            "你是短视频爆款文案去重改写助手。"
+                            "你只能输出用户要求的标签内容。"
+                            "不要解释，不要补充说明，不要输出 markdown。"
+                        ),
+                        user_prompt=build_chunk_rewrite_prompt(
+                            original_copy=original_copy,
+                            chunk_sentences=chunk_sentences,
+                            chunk_index=chunk_index,
+                            total_chunks=total_chunks,
+                            needs=needs,
+                            user_background=user_background,
+                            industry=industry,
+                            extra_instruction=overall_extra_instruction,
+                            rejection_note=rejection_note,
+                        ),
+                        max_tokens=max(300, min(900, 140 + sum(len(item) for item in chunk_sentences) * 2)),
+                        timeout_seconds=_staged_timeout_seconds(timeout_seconds),
+                        temperature=0,
+                        retry_count=1,
+                    )
+                except QwenApiError as exc:
+                    last_error = exc
+                    rejection_note = str(exc)
+                    continue
+
+                parsed_lines = _parse_chunk_rewrite_lines(raw_text, len(chunk_sentences))
+                if len(parsed_lines) != len(chunk_sentences):
+                    last_error = QwenApiError("分块改写没有按要求返回每一句的结果。")
+                    rejection_note = str(last_error)
+                    continue
+
+                validation_error = ""
+                for source_line, candidate_line in zip(chunk_sentences, parsed_lines):
+                    validation_error = _validate_chunk_line(candidate_line, source_line) or ""
+                    if validation_error:
+                        break
+                if validation_error:
+                    last_error = QwenApiError(validation_error)
+                    rejection_note = validation_error
+                    continue
+
+                accepted_lines = parsed_lines
+                break
+
+            if not accepted_lines:
+                if last_error is not None:
+                    raise last_error
+                raise QwenApiError("分块改写失败，请重试。")
+
+            rewritten_lines.extend(accepted_lines)
+
+        candidate = {"title": "Script 1", "content": "".join(rewritten_lines).strip()}
+        if _is_usable_script(candidate, original_copy, blocked_scripts):
+            return [candidate]
+        last_error = QwenApiError("分块改写仍然和原句过于接近。")
+
+    if last_error is not None:
+        raise last_error
+    raise QwenApiError("分块改写失败，请重试。")
+
+
 def _generate_scripts_sequentially(
     *,
     source_text: str,
@@ -783,7 +984,7 @@ def _generate_scripts_sequentially(
 ) -> list[dict[str, str]]:
     scripts: list[dict[str, str]] = []
     existing_scripts = list(blocked_scripts or [])
-    last_error: AnthropicApiError | None = None
+    last_error: QwenApiError | None = None
     request_retry_count = 1
     attempt_limit = 2 if target_count <= 1 else max(2, min(3, target_count + 1))
 
@@ -792,10 +993,10 @@ def _generate_scripts_sequentially(
             break
         use_compact_prompt = compact_prompt_builder is not None and attempt_index > 0
         try:
-            raw_text = generate_text_with_anthropic(
+            raw_text = generate_text_with_qwen(
                 base_url=base_url,
                 api_key=api_key,
-                model=normalize_anthropic_model_name(model, DEFAULT_ANTHROPIC_MODEL),
+                model=normalize_qwen_model_name(model, DEFAULT_QWEN_MODEL),
                 system_prompt=build_rewrite_system_prompt(),
                 user_prompt=(compact_prompt_builder if use_compact_prompt else prompt_builder)(len(scripts) + 1, [*existing_scripts, *scripts]),
                 max_tokens=max(640, min(max_tokens, 1400)) if use_compact_prompt else max_tokens,
@@ -803,7 +1004,7 @@ def _generate_scripts_sequentially(
                 temperature=0,
                 retry_count=request_retry_count,
             )
-        except AnthropicApiError as exc:
+        except QwenApiError as exc:
             last_error = exc
             continue
 
@@ -817,10 +1018,10 @@ def _generate_scripts_sequentially(
         return scripts
     if last_error is not None:
         raise last_error
-    raise AnthropicApiError("\u0043laude \u4ee3\u7406\u8fd9\u6b21\u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u5185\u5bb9\uff0c\u8bf7\u91cd\u8bd5\u3002")
+    raise QwenApiError("\u5343\u95ee\u8fd9\u6b21\u6ca1\u6709\u8fd4\u56de\u53ef\u7528\u5185\u5bb9\uff0c\u8bf7\u91cd\u8bd5\u3002")
 
 
-def analyze_copy_with_claude(
+def analyze_copy_with_qwen(
     *,
     original_copy: str,
     industry: str,
@@ -834,30 +1035,85 @@ def analyze_copy_with_claude(
     original_copy = normalize_multiline_text(original_copy)
     script_count = _target_script_count(original_copy)
     local_analysis = _build_local_analysis(original_copy)
-    scripts = _generate_scripts_sequentially(
-        source_text=original_copy,
-        target_count=script_count,
-        prompt_builder=lambda script_index, existing_scripts: build_single_script_prompt(
-            original_copy=original_copy,
-            industry=industry,
-            needs=needs,
-            user_background=user_background,
-            analysis=local_analysis,
-            script_index=script_index,
-            existing_scripts=existing_scripts,
-        ),
-        compact_prompt_builder=lambda script_index, existing_scripts: build_compact_single_script_prompt(
-            original_copy=original_copy,
-            needs=needs,
-            script_index=script_index,
-            existing_scripts=existing_scripts,
-        ),
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        timeout_seconds=timeout_seconds,
-        max_tokens=_target_max_tokens(original_copy, 1),
-    )
+    prefer_chunked = _should_prefer_chunked_rewrite(original_copy)
+    if prefer_chunked:
+        try:
+            scripts = _generate_chunked_script_with_qwen(
+                original_copy=original_copy,
+                industry=industry,
+                needs=needs,
+                user_background=user_background,
+                extra_instruction="",
+                blocked_scripts=[],
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                timeout_seconds=timeout_seconds,
+            )
+        except QwenApiError:
+            scripts = _generate_scripts_sequentially(
+                source_text=original_copy,
+                target_count=script_count,
+                prompt_builder=lambda script_index, existing_scripts: build_single_script_prompt(
+                    original_copy=original_copy,
+                    industry=industry,
+                    needs=needs,
+                    user_background=user_background,
+                    analysis=local_analysis,
+                    script_index=script_index,
+                    existing_scripts=existing_scripts,
+                ),
+                compact_prompt_builder=lambda script_index, existing_scripts: build_compact_single_script_prompt(
+                    original_copy=original_copy,
+                    needs=needs,
+                    script_index=script_index,
+                    existing_scripts=existing_scripts,
+                ),
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                timeout_seconds=timeout_seconds,
+                max_tokens=_target_max_tokens(original_copy, 1),
+            )
+    else:
+        try:
+            scripts = _generate_scripts_sequentially(
+                source_text=original_copy,
+                target_count=script_count,
+                prompt_builder=lambda script_index, existing_scripts: build_single_script_prompt(
+                    original_copy=original_copy,
+                    industry=industry,
+                    needs=needs,
+                    user_background=user_background,
+                    analysis=local_analysis,
+                    script_index=script_index,
+                    existing_scripts=existing_scripts,
+                ),
+                compact_prompt_builder=lambda script_index, existing_scripts: build_compact_single_script_prompt(
+                    original_copy=original_copy,
+                    needs=needs,
+                    script_index=script_index,
+                    existing_scripts=existing_scripts,
+                ),
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                timeout_seconds=timeout_seconds,
+                max_tokens=_target_max_tokens(original_copy, 1),
+            )
+        except QwenApiError:
+            scripts = _generate_chunked_script_with_qwen(
+                original_copy=original_copy,
+                industry=industry,
+                needs=needs,
+                user_background=user_background,
+                extra_instruction="",
+                blocked_scripts=[],
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                timeout_seconds=timeout_seconds,
+            )
     return normalize_copy_analysis_result(
         {
             "analysis": local_analysis,
@@ -868,7 +1124,7 @@ def analyze_copy_with_claude(
     )
 
 
-def refine_copy_with_claude(
+def refine_copy_with_qwen(
     *,
     current_result: Any,
     user_instruction: str,
@@ -881,29 +1137,83 @@ def refine_copy_with_claude(
     original_copy = normalize_multiline_text(current_result.get("originalCopy") if isinstance(current_result, dict) else "")
     script_count = _target_script_count(original_copy)
     blocked_scripts = _normalize_scripts(current_result.get("generatedScripts") if isinstance(current_result, dict) else [])
-    scripts = _generate_scripts_sequentially(
-        source_text=original_copy,
-        target_count=script_count,
-        prompt_builder=lambda script_index, existing_scripts: build_single_refine_script_prompt(
-            original_copy=original_copy,
-            user_instruction=user_instruction,
-            user_background=user_background,
-            script_index=script_index,
-            existing_scripts=existing_scripts,
-        ),
-        compact_prompt_builder=lambda script_index, existing_scripts: build_compact_single_refine_script_prompt(
-            original_copy=original_copy,
-            user_instruction=user_instruction,
-            script_index=script_index,
-            existing_scripts=existing_scripts,
-        ),
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        timeout_seconds=timeout_seconds,
-        max_tokens=_target_max_tokens(original_copy, 1),
-        blocked_scripts=blocked_scripts,
-    )
+    prefer_chunked = _should_prefer_chunked_rewrite(original_copy)
+    if prefer_chunked:
+        try:
+            scripts = _generate_chunked_script_with_qwen(
+                original_copy=original_copy,
+                industry="",
+                needs="字数相近，结构一致，只做去重和改写",
+                user_background=user_background,
+                extra_instruction=user_instruction,
+                blocked_scripts=blocked_scripts,
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                timeout_seconds=timeout_seconds,
+            )
+        except QwenApiError:
+            scripts = _generate_scripts_sequentially(
+                source_text=original_copy,
+                target_count=script_count,
+                prompt_builder=lambda script_index, existing_scripts: build_single_refine_script_prompt(
+                    original_copy=original_copy,
+                    user_instruction=user_instruction,
+                    user_background=user_background,
+                    script_index=script_index,
+                    existing_scripts=existing_scripts,
+                ),
+                compact_prompt_builder=lambda script_index, existing_scripts: build_compact_single_refine_script_prompt(
+                    original_copy=original_copy,
+                    user_instruction=user_instruction,
+                    script_index=script_index,
+                    existing_scripts=existing_scripts,
+                ),
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                timeout_seconds=timeout_seconds,
+                max_tokens=_target_max_tokens(original_copy, 1),
+                blocked_scripts=blocked_scripts,
+            )
+    else:
+        try:
+            scripts = _generate_scripts_sequentially(
+                source_text=original_copy,
+                target_count=script_count,
+                prompt_builder=lambda script_index, existing_scripts: build_single_refine_script_prompt(
+                    original_copy=original_copy,
+                    user_instruction=user_instruction,
+                    user_background=user_background,
+                    script_index=script_index,
+                    existing_scripts=existing_scripts,
+                ),
+                compact_prompt_builder=lambda script_index, existing_scripts: build_compact_single_refine_script_prompt(
+                    original_copy=original_copy,
+                    user_instruction=user_instruction,
+                    script_index=script_index,
+                    existing_scripts=existing_scripts,
+                ),
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                timeout_seconds=timeout_seconds,
+                max_tokens=_target_max_tokens(original_copy, 1),
+                blocked_scripts=blocked_scripts,
+            )
+        except QwenApiError:
+            scripts = _generate_chunked_script_with_qwen(
+                original_copy=original_copy,
+                industry="",
+                needs="字数相近，结构一致，只做去重和改写",
+                user_background=user_background,
+                extra_instruction=user_instruction,
+                blocked_scripts=blocked_scripts,
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                timeout_seconds=timeout_seconds,
+            )
     return normalize_copy_refine_result(
         {
             "generatedScripts": scripts,

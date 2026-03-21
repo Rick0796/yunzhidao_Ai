@@ -1,10 +1,10 @@
 {
   "port": 8787,
   "defaultModel": "gemini-2.5-flash",
-  "anthropicBaseUrl": "http://proxy.example.com/back",
-  "anthropicModel": "claude-sonnet-4-6",
+  "qwenBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "qwenModel": "qwen-plus",
   "promptVersion": "copy-workbench-v2026-03-09",
   "retries": 2,
   "timeoutSeconds": 120,
-  "_comment": "Gemini 继续用于视频分析。爆款仿写优先读取 ANTHROPIC_BASE_URL 和 ANTHROPIC_API_KEY，也兼容 CLAUDE_BASE_URL 和 CLAUDE_API_KEY。"
+  "_comment": "Gemini continues to serve video analysis. Rewrite and compose dedupe read DASHSCOPE_API_KEY, QWEN_BASE_URL, and QWEN_MODEL."
 }

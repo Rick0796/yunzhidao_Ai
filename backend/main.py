@@ -38,12 +38,12 @@ except ImportError as exc:  # pragma: no cover
 
 
 from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
-from backend.anthropic_client import AnthropicApiError, DEFAULT_ANTHROPIC_MODEL, normalize_anthropic_model_name
+from backend.qwen_client import DEFAULT_QWEN_BASE_URL, DEFAULT_QWEN_MODEL, QwenApiError, normalize_qwen_model_name
 from backend.gemini_models import DEFAULT_GEMINI_MODEL, normalize_gemini_model_name
 from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
 from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini, generate_json_with_gemini, generate_text_with_gemini
-from backend.compose_dedupe_service import dedupe_compose_blocks_with_claude
-from backend.rewrite_service import analyze_copy_with_claude, normalize_multiline_text, refine_copy_with_claude
+from backend.compose_dedupe_service import dedupe_compose_blocks_with_qwen
+from backend.rewrite_service import analyze_copy_with_qwen, normalize_multiline_text, refine_copy_with_qwen
 
 RUNTIME_PATHS = resolve_runtime_paths()
 ROOT_DIR = RUNTIME_PATHS.root_dir
@@ -577,15 +577,11 @@ def read_config() -> dict[str, Any]:
         env_text("GEMINI_MODEL") or clean_config_text(config.get("defaultModel", DEFAULT_GEMINI_MODEL)),
         DEFAULT_GEMINI_MODEL,
     )
-    anthropic_base_url = env_text("ANTHROPIC_BASE_URL", "CLAUDE_BASE_URL") or clean_config_text(
-        config.get("anthropicBaseUrl") or config.get("claudeBaseUrl", "")
-    )
-    anthropic_api_key = env_text("ANTHROPIC_API_KEY", "CLAUDE_API_KEY") or clean_config_text(
-        config.get("anthropicApiKey") or config.get("claudeApiKey", "")
-    )
-    anthropic_model = normalize_anthropic_model_name(
-        env_text("ANTHROPIC_MODEL", "CLAUDE_MODEL") or clean_config_text(config.get("anthropicModel", DEFAULT_ANTHROPIC_MODEL)),
-        DEFAULT_ANTHROPIC_MODEL,
+    qwen_base_url = env_text("QWEN_BASE_URL", "DASHSCOPE_BASE_URL") or clean_config_text(config.get("qwenBaseUrl", DEFAULT_QWEN_BASE_URL)) or DEFAULT_QWEN_BASE_URL
+    qwen_api_key = env_text("DASHSCOPE_API_KEY", "QWEN_API_KEY") or clean_config_text(config.get("qwenApiKey", ""))
+    qwen_model = normalize_qwen_model_name(
+        env_text("QWEN_MODEL") or clean_config_text(config.get("qwenModel", DEFAULT_QWEN_MODEL)),
+        DEFAULT_QWEN_MODEL,
     )
     prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
     port = env_int("PORT") or to_int(config.get("port", 8788), 8788)
@@ -596,9 +592,9 @@ def read_config() -> dict[str, Any]:
         "baseUrl": base_url,
         "apiKey": api_key,
         "defaultModel": default_model,
-        "anthropicBaseUrl": anthropic_base_url,
-        "anthropicApiKey": anthropic_api_key,
-        "anthropicModel": anthropic_model,
+        "qwenBaseUrl": qwen_base_url,
+        "qwenApiKey": qwen_api_key,
+        "qwenModel": qwen_model,
         "port": port,
         "promptVersion": prompt_version,
         "retries": retries,
@@ -614,7 +610,7 @@ def resolve_model_name(raw_model: Any) -> str:
 
 
 def resolve_rewrite_model_name(raw_model: Any) -> str:
-    return normalize_anthropic_model_name(str(raw_model or ""), CONFIG["anthropicModel"])
+    return normalize_qwen_model_name(str(raw_model or ""), CONFIG["qwenModel"])
 FREE_WORKFLOW_HOT_RANK = {"id": "free_scrapers", "name": "免费热榜兼容入口"}
 FREE_WORKFLOW_MANUAL_SEARCH = {"id": "free_search", "name": "免费搜索兼容入口"}
 
@@ -2332,10 +2328,10 @@ async def list_library_compose_candidates(request: Request) -> dict[str, Any]:
 @app.post("/api/library/compose-dedupe")
 @app.post("/api/library/compose_dedupe")
 async def dedupe_library_compose_blocks(request: Request) -> JSONResponse:
-    if not CONFIG["anthropicBaseUrl"] or not CONFIG["anthropicApiKey"]:
+    if not CONFIG["qwenBaseUrl"] or not CONFIG["qwenApiKey"]:
         raise HTTPException(
             status_code=500,
-            detail="\u540e\u7aef\u672a\u914d\u7f6e Claude \u53bb\u91cd\u670d\u52a1\uff0c\u8bf7\u8bbe\u7f6e ANTHROPIC_BASE_URL \u548c ANTHROPIC_API_KEY\u3002",
+            detail="\u540e\u7aef\u672a\u914d\u7f6e\u5343\u95ee\u53bb\u91cd\u670d\u52a1\uff0c\u8bf7\u8bbe\u7f6e DASHSCOPE_API_KEY \u6216 QWEN_API_KEY\u3002",
         )
 
     body = await read_request_json(request)
@@ -2352,17 +2348,17 @@ async def dedupe_library_compose_blocks(request: Request) -> JSONResponse:
 
     try:
         result = await asyncio.to_thread(
-            dedupe_compose_blocks_with_claude,
+            dedupe_compose_blocks_with_qwen,
             theme=theme,
             blocks=blocks,
             block_ids=block_ids,
-            api_key=CONFIG["anthropicApiKey"],
-            base_url=CONFIG["anthropicBaseUrl"],
+            api_key=CONFIG["qwenApiKey"],
+            base_url=CONFIG["qwenBaseUrl"],
             model=resolve_rewrite_model_name(body.get("model")),
             timeout_seconds=max(20, min(CONFIG["timeoutSeconds"], 60)),
         )
         return JSONResponse(content=result)
-    except AnthropicApiError as exc:
+    except QwenApiError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -3770,10 +3766,10 @@ async def generate_viral_copies(request: Request) -> JSONResponse:
 @app.post("/api/rewrite/analyze")
 @app.post("/api/analyze-copy")
 async def analyze_rewrite_copy(request: Request) -> JSONResponse:
-    if not CONFIG["anthropicBaseUrl"] or not CONFIG["anthropicApiKey"]:
+    if not CONFIG["qwenBaseUrl"] or not CONFIG["qwenApiKey"]:
         raise HTTPException(
             status_code=500,
-            detail="\u540e\u7aef\u672a\u914d\u7f6e Claude \u4eff\u5199\u670d\u52a1\uff0c\u8bf7\u8bbe\u7f6e ANTHROPIC_BASE_URL \u548c ANTHROPIC_API_KEY\u3002",
+            detail="\u540e\u7aef\u672a\u914d\u7f6e\u5343\u95ee\u4eff\u5199\u670d\u52a1\uff0c\u8bf7\u8bbe\u7f6e DASHSCOPE_API_KEY \u6216 QWEN_API_KEY\u3002",
         )
 
     body = await read_request_json(request)
@@ -3787,28 +3783,28 @@ async def analyze_rewrite_copy(request: Request) -> JSONResponse:
 
     try:
         result = await asyncio.to_thread(
-            analyze_copy_with_claude,
+            analyze_copy_with_qwen,
             original_copy=original_copy,
             industry=industry,
             needs=needs,
             user_background=user_background,
-            api_key=CONFIG["anthropicApiKey"],
-            base_url=CONFIG["anthropicBaseUrl"],
+            api_key=CONFIG["qwenApiKey"],
+            base_url=CONFIG["qwenBaseUrl"],
             model=resolve_rewrite_model_name(body.get("model")),
             timeout_seconds=max(20, min(CONFIG["timeoutSeconds"], 95)),
         )
         return JSONResponse(content=result)
-    except AnthropicApiError as exc:
+    except QwenApiError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 
 
 @app.post("/api/rewrite/refine")
 @app.post("/api/refine-copy")
 async def refine_rewrite_copy(request: Request) -> JSONResponse:
-    if not CONFIG["anthropicBaseUrl"] or not CONFIG["anthropicApiKey"]:
+    if not CONFIG["qwenBaseUrl"] or not CONFIG["qwenApiKey"]:
         raise HTTPException(
             status_code=500,
-            detail="\u540e\u7aef\u672a\u914d\u7f6e Claude \u4eff\u5199\u670d\u52a1\uff0c\u8bf7\u8bbe\u7f6e ANTHROPIC_BASE_URL \u548c ANTHROPIC_API_KEY\u3002",
+            detail="\u540e\u7aef\u672a\u914d\u7f6e\u5343\u95ee\u4eff\u5199\u670d\u52a1\uff0c\u8bf7\u8bbe\u7f6e DASHSCOPE_API_KEY \u6216 QWEN_API_KEY\u3002",
         )
 
     body = await read_request_json(request)
@@ -3823,17 +3819,17 @@ async def refine_rewrite_copy(request: Request) -> JSONResponse:
 
     try:
         result = await asyncio.to_thread(
-            refine_copy_with_claude,
+            refine_copy_with_qwen,
             current_result=current_result,
             user_instruction=user_instruction,
             user_background=user_background,
-            api_key=CONFIG["anthropicApiKey"],
-            base_url=CONFIG["anthropicBaseUrl"],
+            api_key=CONFIG["qwenApiKey"],
+            base_url=CONFIG["qwenBaseUrl"],
             model=resolve_rewrite_model_name(body.get("model")),
             timeout_seconds=max(20, min(CONFIG["timeoutSeconds"], 95)),
         )
         return JSONResponse(content=result)
-    except AnthropicApiError as exc:
+    except QwenApiError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
     except Exception as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)

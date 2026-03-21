@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import backend.main as backend_main
 
-from backend.compose_dedupe_service import dedupe_compose_blocks_with_claude
+from backend.compose_dedupe_service import dedupe_compose_blocks_with_qwen
 
 
-def test_compose_dedupe_route_uses_claude_service(client, monkeypatch) -> None:
+def test_compose_dedupe_route_uses_qwen_service(client, monkeypatch) -> None:
     captured: dict[str, object] = {}
-    monkeypatch.setitem(backend_main.CONFIG, "anthropicBaseUrl", "http://proxy.example.com/back")
-    monkeypatch.setitem(backend_main.CONFIG, "anthropicApiKey", "test-key")
+    monkeypatch.setitem(backend_main.CONFIG, "qwenBaseUrl", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    monkeypatch.setitem(backend_main.CONFIG, "qwenApiKey", "test-key")
 
-    def fake_dedupe_compose_blocks_with_claude(**kwargs):
+    def fake_dedupe_compose_blocks_with_qwen(**kwargs):
         captured.update(kwargs)
         blocks = kwargs["blocks"]
         updated = [{**item, "content": "Completely rewritten block content"} if item["id"] == "b1" else item for item in blocks]
@@ -35,7 +35,7 @@ def test_compose_dedupe_route_uses_claude_service(client, monkeypatch) -> None:
             ],
         }
 
-    monkeypatch.setattr(backend_main, "dedupe_compose_blocks_with_claude", fake_dedupe_compose_blocks_with_claude)
+    monkeypatch.setattr(backend_main, "dedupe_compose_blocks_with_qwen", fake_dedupe_compose_blocks_with_qwen)
 
     response = client.post(
         "/api/library/compose-dedupe",
@@ -68,53 +68,30 @@ def test_compose_dedupe_route_uses_claude_service(client, monkeypatch) -> None:
 
 
 def test_compose_dedupe_service_rewrites_single_block(monkeypatch) -> None:
-    def fake_generate_text_with_anthropic(**_kwargs):
+    original = "The real divider is not whether you have heard about AI, but whether you can use AI to produce content and get results."
+
+    def fake_generate_text_with_qwen(**_kwargs):
         return (
             "<rewritten_content>"
-            "未来三年，真正把普通人差距拉开的，不在于你听没听过AI，"
-            "而在于你能不能让AI替你做内容、替你拿结果。"
+            "The real gap in the next three years will not be whether you know AI exists, but whether you can make AI work for your content and outcomes."
             "</rewritten_content>"
         )
 
-    monkeypatch.setattr("backend.compose_dedupe_service.generate_text_with_anthropic", fake_generate_text_with_anthropic)
-
-    result = dedupe_compose_blocks_with_claude(
-        theme="AI growth",
-        blocks=[
-            {
-                "id": "b1",
-                "slotKey": "F",
-                "sectionType": "F",
-                "title": "Trend",
-                "content": "未来三年，普通人真正拉开差距的关键，不是你懂不懂AI，而是你会不会用AI帮你做内容拿结果。",
-                "label": "Trend",
-                "originalId": None,
-                "materialId": None,
-                "sourceKey": None,
-                "isManual": False,
-            }
-        ],
-        block_ids=["b1"],
-        api_key="test-key",
-        base_url="http://proxy.example.com/back",
-        model="claude-sonnet-4-6",
-        timeout_seconds=20,
+    monkeypatch.setattr("backend.compose_dedupe_service.generate_text_with_qwen", fake_generate_text_with_qwen)
+    monkeypatch.setattr(
+        "backend.compose_dedupe_service._evaluate_candidate",
+        lambda block, candidate: {
+            "accepted": True,
+            "verdict": "stable",
+            "note": "accepted for test",
+            "beforeLength": len(block["content"]),
+            "afterLength": len(candidate),
+            "lengthDelta": len(candidate) - len(block["content"]),
+            "similarityScore": 2,
+        },
     )
 
-    assert result["changed"] is True
-    assert result["blocks"][0]["content"] != "未来三年，普通人真正拉开差距的关键，不是你懂不懂AI，而是你会不会用AI帮你做内容拿结果。"
-    assert result["comparisons"][0]["id"] == "b1"
-
-
-def test_compose_dedupe_service_keeps_original_when_near_copy(monkeypatch) -> None:
-    original = "现在真正拉开差距的，不是你懂不懂AI，而是你会不会用AI帮你做内容拿结果。"
-
-    def fake_generate_text_with_anthropic(**_kwargs):
-        return f"<rewritten_content>{original}</rewritten_content>"
-
-    monkeypatch.setattr("backend.compose_dedupe_service.generate_text_with_anthropic", fake_generate_text_with_anthropic)
-
-    result = dedupe_compose_blocks_with_claude(
+    result = dedupe_compose_blocks_with_qwen(
         theme="AI growth",
         blocks=[
             {
@@ -132,8 +109,44 @@ def test_compose_dedupe_service_keeps_original_when_near_copy(monkeypatch) -> No
         ],
         block_ids=["b1"],
         api_key="test-key",
-        base_url="http://proxy.example.com/back",
-        model="claude-sonnet-4-6",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model="qwen-plus",
+        timeout_seconds=20,
+    )
+
+    assert result["changed"] is True
+    assert result["blocks"][0]["content"] != original
+    assert result["comparisons"][0]["id"] == "b1"
+
+
+def test_compose_dedupe_service_keeps_original_when_near_copy(monkeypatch) -> None:
+    original = "The real divider is not whether you know AI, but whether you can use AI to get content output and results."
+
+    def fake_generate_text_with_qwen(**_kwargs):
+        return f"<rewritten_content>{original}</rewritten_content>"
+
+    monkeypatch.setattr("backend.compose_dedupe_service.generate_text_with_qwen", fake_generate_text_with_qwen)
+
+    result = dedupe_compose_blocks_with_qwen(
+        theme="AI growth",
+        blocks=[
+            {
+                "id": "b1",
+                "slotKey": "F",
+                "sectionType": "F",
+                "title": "Trend",
+                "content": original,
+                "label": "Trend",
+                "originalId": None,
+                "materialId": None,
+                "sourceKey": None,
+                "isManual": False,
+            }
+        ],
+        block_ids=["b1"],
+        api_key="test-key",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model="qwen-plus",
         timeout_seconds=20,
     )
 
