@@ -4,6 +4,8 @@ import { normalizeBaseUrl } from "./http";
 import { DEFAULT_QWEN_VIDEO_MODEL, normalizeVideoModel } from "./videoModels";
 
 const DEFAULT_TIMEOUT_MS = 240000;
+const VIDEO_ANALYZE_TIMEOUT_MS = 115000;
+const VIDEO_GENERATE_TIMEOUT_MS = 90000;
 
 export const DEFAULT_VIDEO_STRUCTURE: VideoStructure = {
   coreProposition: "",
@@ -95,9 +97,9 @@ async function readTextResponse(response: Response) {
   return { rawText, parsed };
 }
 
-function buildAbortSignal(signal?: AbortSignal) {
+function buildAbortSignal(timeoutMs: number, signal?: AbortSignal) {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   const merged = signal
     ? (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any?.([signal, controller.signal]) ?? controller.signal
     : controller.signal;
@@ -107,6 +109,48 @@ function buildAbortSignal(signal?: AbortSignal) {
   };
 }
 
+function getVideoTimeoutMs(requestedMs: number | undefined, fallbackMs: number): number {
+  const candidate = typeof requestedMs === "number" && Number.isFinite(requestedMs) ? requestedMs : fallbackMs;
+  return Math.max(30000, Math.min(candidate, fallbackMs));
+}
+
+function normalizeVideoRequestError(
+  error: unknown,
+  timeoutMessage: string,
+  fallbackMessage: string,
+  userAborted = false,
+): Error {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    if (userAborted) {
+      return new DOMException("aborted", "AbortError");
+    }
+    return new Error(timeoutMessage);
+  }
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(fallbackMessage);
+}
+
+function normalizeServerMessage(
+  rawText: string,
+  parsed: Record<string, unknown> | Array<unknown> | null,
+  fallbackMessage: string,
+): string {
+  const directMessage = parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof (parsed as { error?: { message?: string } }).error?.message === "string"
+    ? (parsed as { error?: { message?: string } }).error!.message!
+    : "";
+  const source = (directMessage || rawText || "").toLowerCase();
+
+  if (source.includes("function_invocation_timeout") || source.includes("bad gateway") || source.includes("gateway")) {
+    return "视频分析被平台中断了，请稍后重试；如果连续出现，建议先用本地后端测试。";
+  }
+  if (source.includes("timed out") || source.includes("timeout")) {
+    return "视频分析等待超时了，请稍后重试；如果是线上环境，可能被平台时长限制中断。";
+  }
+  return directMessage || rawText.slice(0, 240) || fallbackMessage;
+}
+
 export async function analyzeVideoFile(
   settings: ApiSettings,
   file: File,
@@ -114,7 +158,7 @@ export async function analyzeVideoFile(
   signal?: AbortSignal,
 ): Promise<VideoAnalysisResult> {
   if (!settings.useLiveApi) {
-    throw new Error("未开启实时 API，无法进行视频分析。请先在设置中开启实时 API。");
+    throw new Error("请先开启实时 API，再进行视频分析。");
   }
   if (!file) {
     throw new Error("请先上传完整视频文件。");
@@ -125,23 +169,30 @@ export async function analyzeVideoFile(
   form.append("mode", mode);
   form.append("model", normalizeVideoModel(settings.imageModel || settings.mainModel, DEFAULT_QWEN_VIDEO_MODEL));
 
-  const { signal: requestSignal, dispose } = buildAbortSignal(signal);
+  const { signal: requestSignal, dispose } = buildAbortSignal(getVideoTimeoutMs(settings.requestTimeoutMs, VIDEO_ANALYZE_TIMEOUT_MS), signal);
   try {
-    const response = await fetch(`${normalizeBaseUrl(settings.baseUrl || "/api")}/analyze-video`, {
-      method: "POST",
-      body: form,
-      signal: requestSignal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${normalizeBaseUrl(settings.baseUrl || "/api")}/analyze-video`, {
+        method: "POST",
+        body: form,
+        signal: requestSignal,
+      });
+    } catch (error) {
+      throw normalizeVideoRequestError(
+        error,
+        "视频分析等待超时了，请稍后重试；如果线上持续这样，建议先用本地后端。",
+        "视频分析请求失败，请稍后重试。",
+        signal?.aborted === true,
+      );
+    }
 
     const { rawText, parsed } = await readTextResponse(response);
     if (!response.ok) {
-      const message = parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof (parsed as { error?: { message?: string } }).error?.message === "string"
-        ? (parsed as { error?: { message?: string } }).error!.message!
-        : rawText.slice(0, 240);
-      throw new Error(message || "视频分析请求失败。");
+      throw new Error(normalizeServerMessage(rawText, parsed, "视频分析请求失败，请稍后重试。"));
     }
     if (!parsed || Array.isArray(parsed)) {
-      throw new Error("视频分析返回格式异常。");
+      throw new Error("视频分析返回格式异常，请重试。");
     }
     return normalizeAnalysisResult(parsed as Record<string, unknown>);
   } finally {
@@ -183,25 +234,28 @@ export async function generateSoraPrompts(
   form.append("count", String(Math.max(1, options.count)));
   form.append("model", normalizeVideoModel(settings.imageModel || settings.mainModel, DEFAULT_QWEN_VIDEO_MODEL));
 
-  const { signal: requestSignal, dispose } = buildAbortSignal(options.signal);
+  const { signal: requestSignal, dispose } = buildAbortSignal(getVideoTimeoutMs(settings.requestTimeoutMs, VIDEO_GENERATE_TIMEOUT_MS), options.signal);
   try {
-    const response = await fetch(`${normalizeBaseUrl(settings.baseUrl || "/api")}/generate-sora-prompts`, {
-      method: "POST",
-      body: form,
-      signal: requestSignal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${normalizeBaseUrl(settings.baseUrl || "/api")}/generate-sora-prompts`, {
+        method: "POST",
+        body: form,
+        signal: requestSignal,
+      });
+    } catch (error) {
+      throw normalizeVideoRequestError(error, "提示词生成等待超时了，请稍后重试。", "提示词生成失败，请稍后重试。", options.signal?.aborted === true);
+    }
+
     const { rawText, parsed } = await readTextResponse(response);
     if (!response.ok) {
-      const message = parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof (parsed as { error?: { message?: string } }).error?.message === "string"
-        ? (parsed as { error?: { message?: string } }).error!.message!
-        : rawText.slice(0, 240);
-      throw new Error(message || "生成 Sora 提示词失败。");
+      throw new Error(normalizeServerMessage(rawText, parsed, "提示词生成失败，请稍后重试。"));
     }
     const promptList = parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray((parsed as { prompts?: unknown[] }).prompts)
       ? (parsed as { prompts: Array<Record<string, unknown>> }).prompts
       : [];
     if (!promptList.length) {
-      throw new Error("未生成有效的 Sora 提示词。");
+      throw new Error("未生成有效的提示词，请重试。");
     }
     return promptList.map((item, index) => ({
       title: typeof item.title === "string" && item.title.trim() ? item.title : `提示词 ${index + 1}`,
@@ -233,10 +287,7 @@ export async function generateViralCopies(
 
   const { rawText, parsed } = await readTextResponse(response);
   if (!response.ok) {
-    const message = parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof (parsed as { error?: { message?: string } }).error?.message === "string"
-      ? (parsed as { error?: { message?: string } }).error!.message!
-      : rawText.slice(0, 240);
-    throw new Error(message || "生成爆款文案失败。");
+    throw new Error(normalizeServerMessage(rawText, parsed, "生成爆款文案失败，请稍后重试。"));
   }
 
   if (!parsed || Array.isArray(parsed) || !Array.isArray((parsed as { copies?: unknown[] }).copies)) {

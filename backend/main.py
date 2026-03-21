@@ -3645,6 +3645,9 @@ async def analyze_video(
     model: str | None = Form(default=None),
     mimeType: str | None = Form(default=None),
 ) -> JSONResponse:
+    start = time.perf_counter()
+    status = 200
+    error_message = ""
     if not CONFIG["qwenBaseUrl"] or not CONFIG["qwenApiKey"]:
         raise HTTPException(status_code=500, detail="Backend Qwen video config is missing API Key or Base URL")
 
@@ -3683,7 +3686,22 @@ async def analyze_video(
         )
         return JSONResponse(content=result)
     except QwenVideoError as exc:
+        status = 500
+        error_message = str(exc)
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
+    finally:
+        append_log({
+            "time": now_text(),
+            "route": "/api/analyze-video",
+            "status": status,
+            "mode": mode,
+            "model": resolve_video_model_name(model),
+            "hasCachedUri": bool(cachedUri),
+            "contentLength": content_length,
+            "mimeType": mime_type,
+            "durationMs": round((time.perf_counter() - start) * 1000, 2),
+            "error": error_message,
+        })
 
 
 @app.post("/api/generate-sora-prompts")
@@ -3695,6 +3713,9 @@ async def generate_sora_prompts(
     model: str | None = Form(default=None),
     mimeType: str | None = Form(default=None),
 ) -> JSONResponse:
+    start = time.perf_counter()
+    status = 200
+    error_message = ""
     if not CONFIG["qwenBaseUrl"] or not CONFIG["qwenApiKey"]:
         raise HTTPException(status_code=500, detail="Backend Qwen video config is missing API Key or Base URL")
 
@@ -3734,7 +3755,22 @@ async def generate_sora_prompts(
         )
         return JSONResponse(content={"prompts": prompts})
     except QwenVideoError as exc:
+        status = 500
+        error_message = str(exc)
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
+    finally:
+        append_log({
+            "time": now_text(),
+            "route": "/api/generate-sora-prompts",
+            "status": status,
+            "count": max(1, min(count, 5)),
+            "model": resolve_video_model_name(model),
+            "hasExistingFileUri": bool(existingFileUri),
+            "contentLength": content_length,
+            "mimeType": mime_type,
+            "durationMs": round((time.perf_counter() - start) * 1000, 2),
+            "error": error_message,
+        })
 
 
 @app.post("/api/generate-viral-copies")

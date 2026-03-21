@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiSettings, SoraPrompt, VideoAnalysisMode, VideoAnalysisResult, VideoHistoryItem } from "../types";
 import { analyzeVideoFile, generateSoraPrompts, generateViralCopies } from "../lib/videoAnalysis";
 import { useStoredState } from "../lib/workbenchHelpers";
@@ -43,6 +43,7 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
   const [mode, setMode] = useState<VideoAnalysisMode>("FAST");
   const [stage, setStage] = useState("");
   const [progress, setProgress] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [result, setResult] = useState<VideoAnalysisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [isDragging, setIsDragging] = useState(false);
@@ -56,6 +57,17 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (panelState !== "analyzing") {
+      setElapsedSeconds(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setElapsedSeconds((value) => value + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [panelState]);
 
   const handleFileSelect = useCallback((selectedFile: File) => {
     if (!selectedFile.type.startsWith("video/")) {
@@ -88,6 +100,7 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
     setPanelState(file ? "ready" : "idle");
     setStage("");
     setProgress(0);
+    setElapsedSeconds(0);
   }, [file]);
 
   const handleAnalyze = useCallback(async () => {
@@ -374,6 +387,10 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
           <div className="h-1.5 w-64 rounded-full bg-white/10">
             <div className="h-1.5 rounded-full bg-gradient-to-r from-[#00D4FF] to-[#8B5CF6] transition-all duration-500" style={{ width: `${progress}%` }} />
           </div>
+          <p className="text-xs text-slate-500">
+            {elapsedSeconds > 0 ? `已等待 ${elapsedSeconds} 秒。` : "正在等待返回..."}
+            {elapsedSeconds >= 45 ? " 如果长时间没有返回，通常是平台中断或上游响应慢。" : ""}
+          </p>
           <button onClick={handleCancel} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-500 transition-colors hover:text-red-400">
             取消分析
           </button>
