@@ -3,8 +3,9 @@
   "defaultModel": "gemini-2.5-flash",
   "qwenBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
   "qwenModel": "qwen-plus",
+  "qwenVideoModel": "qwen3-omni-flash",
   "promptVersion": "copy-workbench-v2026-03-09",
   "retries": 2,
   "timeoutSeconds": 120,
-  "_comment": "Gemini continues to serve video analysis. Rewrite and compose dedupe read DASHSCOPE_API_KEY, QWEN_BASE_URL, and QWEN_MODEL."
+  "_comment": "Gemini is kept for legacy text routes. Rewrite, compose dedupe, and video analysis read DASHSCOPE_API_KEY, QWEN_BASE_URL, QWEN_MODEL, and optional QWEN_VIDEO_MODEL."
 }

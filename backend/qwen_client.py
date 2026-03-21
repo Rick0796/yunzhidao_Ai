@@ -15,6 +15,8 @@ MODEL_ALIAS_MAP = {
     "qwen-3.5-plus": "qwen3.5-plus",
     "qwen3.5-flash": "qwen3.5-flash",
     "qwen-3.5-flash": "qwen3.5-flash",
+    "qwen-omni-turbo-latest": "qwen-omni-turbo",
+    "qwen3-omni-flash-latest": "qwen3-omni-flash",
 }
 
 
@@ -26,7 +28,10 @@ def normalize_qwen_model_name(model: str | None, fallback: str = DEFAULT_QWEN_MO
     cleaned = str(model or "").strip()
     if not cleaned:
         return fallback
-    return MODEL_ALIAS_MAP.get(cleaned.lower(), cleaned)
+    lowered = cleaned.lower()
+    if "qwen" not in lowered:
+        return fallback
+    return MODEL_ALIAS_MAP.get(lowered, cleaned)
 
 
 def _safe_json(text: str) -> Any:

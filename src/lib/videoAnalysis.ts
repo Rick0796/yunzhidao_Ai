@@ -1,6 +1,7 @@
 import type { ApiSettings, SoraPrompt, VideoAnalysisMode, VideoAnalysisResult, VideoStructure } from "../types";
 import { DEFAULT_GEMINI_MODEL, normalizeGeminiModel } from "./geminiModels";
 import { normalizeBaseUrl } from "./http";
+import { DEFAULT_QWEN_VIDEO_MODEL, normalizeVideoModel } from "./videoModels";
 
 const DEFAULT_TIMEOUT_MS = 240000;
 
@@ -122,7 +123,7 @@ export async function analyzeVideoFile(
   const form = new FormData();
   form.append("file", file);
   form.append("mode", mode);
-  form.append("model", normalizeGeminiModel(settings.imageModel || settings.mainModel, DEFAULT_GEMINI_MODEL));
+  form.append("model", normalizeVideoModel(settings.imageModel || settings.mainModel, DEFAULT_QWEN_VIDEO_MODEL));
 
   const { signal: requestSignal, dispose } = buildAbortSignal(signal);
   try {
@@ -180,7 +181,7 @@ export async function generateSoraPrompts(
     form.append("mimeType", options.mimeType);
   }
   form.append("count", String(Math.max(1, options.count)));
-  form.append("model", normalizeGeminiModel(settings.imageModel || settings.mainModel, DEFAULT_GEMINI_MODEL));
+  form.append("model", normalizeVideoModel(settings.imageModel || settings.mainModel, DEFAULT_QWEN_VIDEO_MODEL));
 
   const { signal: requestSignal, dispose } = buildAbortSignal(options.signal);
   try {

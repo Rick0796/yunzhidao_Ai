@@ -41,7 +41,15 @@ from backend.runtime_paths import ensure_runtime_paths, resolve_runtime_paths
 from backend.qwen_client import DEFAULT_QWEN_BASE_URL, DEFAULT_QWEN_MODEL, QwenApiError, normalize_qwen_model_name
 from backend.gemini_models import DEFAULT_GEMINI_MODEL, normalize_gemini_model_name
 from backend.platform_utils import clean_text, dedupe_strings, collect_business_keyword_hits
-from backend.gemini_video import GeminiVideoError, analyze_video_with_gemini, generate_sora_prompts_with_gemini, generate_json_with_gemini, generate_text_with_gemini
+from backend.gemini_video import GeminiVideoError, generate_json_with_gemini, generate_text_with_gemini
+from backend.qwen_video import (
+    DEFAULT_QWEN_VIDEO_MODEL,
+    QwenVideoError,
+    analyze_video_with_qwen,
+    generate_sora_prompts_with_qwen,
+    generate_viral_copies_with_qwen,
+    normalize_qwen_video_model_name,
+)
 from backend.compose_dedupe_service import dedupe_compose_blocks_with_qwen
 from backend.rewrite_service import analyze_copy_with_qwen, normalize_multiline_text, refine_copy_with_qwen
 
@@ -583,6 +591,10 @@ def read_config() -> dict[str, Any]:
         env_text("QWEN_MODEL") or clean_config_text(config.get("qwenModel", DEFAULT_QWEN_MODEL)),
         DEFAULT_QWEN_MODEL,
     )
+    qwen_video_model = normalize_qwen_video_model_name(
+        env_text("QWEN_VIDEO_MODEL") or clean_config_text(config.get("qwenVideoModel", DEFAULT_QWEN_VIDEO_MODEL)),
+        DEFAULT_QWEN_VIDEO_MODEL,
+    )
     prompt_version = env_text("PROMPT_VERSION") or clean_config_text(config.get("promptVersion", "copy-workbench-v2026-03-09")) or "copy-workbench-v2026-03-09"
     port = env_int("PORT") or to_int(config.get("port", 8788), 8788)
     retries = env_int("API_RETRIES") or to_int(config.get("retries", 2), 2)
@@ -595,6 +607,7 @@ def read_config() -> dict[str, Any]:
         "qwenBaseUrl": qwen_base_url,
         "qwenApiKey": qwen_api_key,
         "qwenModel": qwen_model,
+        "qwenVideoModel": qwen_video_model,
         "port": port,
         "promptVersion": prompt_version,
         "retries": retries,
@@ -611,6 +624,10 @@ def resolve_model_name(raw_model: Any) -> str:
 
 def resolve_rewrite_model_name(raw_model: Any) -> str:
     return normalize_qwen_model_name(str(raw_model or ""), CONFIG["qwenModel"])
+
+
+def resolve_video_model_name(raw_model: Any) -> str:
+    return normalize_qwen_video_model_name(str(raw_model or ""), CONFIG["qwenVideoModel"])
 FREE_WORKFLOW_HOT_RANK = {"id": "free_scrapers", "name": "免费热榜兼容入口"}
 FREE_WORKFLOW_MANUAL_SEARCH = {"id": "free_search", "name": "免费搜索兼容入口"}
 
@@ -3628,11 +3645,11 @@ async def analyze_video(
     model: str | None = Form(default=None),
     mimeType: str | None = Form(default=None),
 ) -> JSONResponse:
-    if not CONFIG["apiKey"] or not CONFIG["baseUrl"]:
-        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key or Base URL")
+    if not CONFIG["qwenBaseUrl"] or not CONFIG["qwenApiKey"]:
+        raise HTTPException(status_code=500, detail="Backend Qwen video config is missing API Key or Base URL")
 
     if file is None and not cachedUri:
-        raise HTTPException(status_code=400, detail="Upload a full video file or provide an existing Gemini file URI")
+        raise HTTPException(status_code=400, detail="Upload a full video file or provide an existing cached video URI")
 
     file_stream = None
     content_length = None
@@ -3651,11 +3668,12 @@ async def analyze_video(
 
     try:
         result = await asyncio.to_thread(
-            analyze_video_with_gemini,
-            api_key=CONFIG["apiKey"],
-            base_url=CONFIG["baseUrl"],
-            model=resolve_model_name(model),
+            analyze_video_with_qwen,
+            api_key=CONFIG["qwenApiKey"],
+            base_url=CONFIG["qwenBaseUrl"],
+            model=resolve_video_model_name(model),
             timeout_seconds=CONFIG["timeoutSeconds"],
+            retry_count=max(1, min(CONFIG["retries"], 2)),
             mode=mode,
             existing_file_uri=cachedUri,
             file_stream=file_stream,
@@ -3664,7 +3682,7 @@ async def analyze_video(
             display_name=display_name,
         )
         return JSONResponse(content=result)
-    except GeminiVideoError as exc:
+    except QwenVideoError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 
 
@@ -3677,11 +3695,11 @@ async def generate_sora_prompts(
     model: str | None = Form(default=None),
     mimeType: str | None = Form(default=None),
 ) -> JSONResponse:
-    if not CONFIG["apiKey"] or not CONFIG["baseUrl"]:
-        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key or Base URL")
+    if not CONFIG["qwenBaseUrl"] or not CONFIG["qwenApiKey"]:
+        raise HTTPException(status_code=500, detail="Backend Qwen video config is missing API Key or Base URL")
 
     if file is None and not existingFileUri:
-        raise HTTPException(status_code=400, detail="Upload a full video file or provide an existing Gemini file URI")
+        raise HTTPException(status_code=400, detail="Upload a full video file or provide an existing cached video URI")
 
     file_stream = None
     content_length = None
@@ -3700,11 +3718,12 @@ async def generate_sora_prompts(
 
     try:
         prompts = await asyncio.to_thread(
-            generate_sora_prompts_with_gemini,
-            api_key=CONFIG["apiKey"],
-            base_url=CONFIG["baseUrl"],
-            model=resolve_model_name(model),
+            generate_sora_prompts_with_qwen,
+            api_key=CONFIG["qwenApiKey"],
+            base_url=CONFIG["qwenBaseUrl"],
+            model=resolve_video_model_name(model),
             timeout_seconds=CONFIG["timeoutSeconds"],
+            retry_count=max(1, min(CONFIG["retries"], 2)),
             count=max(1, min(count, 5)),
             analysis_summary=analysisSummary,
             existing_file_uri=existingFileUri,
@@ -3714,52 +3733,33 @@ async def generate_sora_prompts(
             display_name=display_name,
         )
         return JSONResponse(content={"prompts": prompts})
-    except GeminiVideoError as exc:
+    except QwenVideoError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 
 
 @app.post("/api/generate-viral-copies")
 async def generate_viral_copies(request: Request) -> JSONResponse:
-    """Generate multiple viral copy variants from a source script using official Gemini."""
-    if not CONFIG["apiKey"]:
-        raise HTTPException(status_code=500, detail="Backend Gemini config is missing API Key")
+    """Generate multiple viral copy variants from a source script using official Qwen."""
+    if not CONFIG["qwenBaseUrl"] or not CONFIG["qwenApiKey"]:
+        raise HTTPException(status_code=500, detail="Backend Qwen config is missing API Key or Base URL")
 
     body = await read_request_json(request)
     script = str(body.get("script", "")).strip()
     if not script:
         raise HTTPException(status_code=400, detail="script must not be empty")
 
-    prompt = "\n".join([
-        "You are a short-video copywriting expert.",
-        "Create 3 clearly different viral short-video copy variants based on the source script.",
-        "Return only a JSON array.",
-        "Each item must be an object with a text field.",
-        "Each copy should stay in Simplified Chinese and keep a strong hook, value delivery, and CTA.",
-        "Do not copy the source script verbatim.",
-        "Source script:",
-        script,
-        "Return format:",
-        '[{"text":"variant 1"},{"text":"variant 2"},{"text":"variant 3"}]',
-    ])
-
     try:
-        parsed = await asyncio.to_thread(
-            generate_json_with_gemini,
-            prompt,
-            api_key=CONFIG["apiKey"],
-            model=resolve_model_name(body.get("model")),
-            max_output_tokens=max(512, to_int(body.get("max_tokens", 3000), 3000)),
-            temperature=0.9,
+        copies = await asyncio.to_thread(
+            generate_viral_copies_with_qwen,
+            api_key=CONFIG["qwenApiKey"],
+            base_url=CONFIG["qwenBaseUrl"],
+            model=resolve_rewrite_model_name(body.get("model")),
+            timeout_seconds=CONFIG["timeoutSeconds"],
+            retry_count=max(1, min(CONFIG["retries"], 2)),
+            script=script,
         )
-        if not isinstance(parsed, list):
-            raise ValueError("Gemini did not return a JSON array")
-
-        copies = [str(item.get("text", "") if isinstance(item, dict) else item).strip() for item in parsed]
-        copies = [item for item in copies if item]
-        if not copies:
-            raise ValueError("Gemini returned no usable copy variants")
         return JSONResponse(content={"copies": copies})
-    except GeminiVideoError as exc:
+    except QwenVideoError as exc:
         return JSONResponse(content={"error": {"message": str(exc)}}, status_code=500)
 
 

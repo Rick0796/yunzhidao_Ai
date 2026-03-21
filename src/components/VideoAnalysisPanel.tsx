@@ -102,10 +102,10 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
 
     try {
       setProgress(28);
-      setStage("正在上传完整视频到 Gemini...");
+      setStage("正在上传完整视频到千问...");
       const analysisResult = await analyzeVideoFile(settings, file, mode, controller.signal);
       setProgress(78);
-      setStage("Gemini 正在读取完整视频并生成分析结果...");
+      setStage("千问正在读取完整视频并生成分析结果...");
       setProgress(100);
       setResult(analysisResult);
       setPanelState("result");
@@ -209,7 +209,7 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white">视频分析工作台</h2>
-          <p className="mt-0.5 text-sm text-slate-400">上传完整视频，Gemini 直接读取全片内容，再生成脚本结构、Sora 提示词和爆款文案</p>
+          <p className="mt-0.5 text-sm text-slate-400">上传完整视频，千问会直接理解整段视频内容，再生成脚本结构、提示词和爆款文案</p>
         </div>
         <button
           onClick={() => setShowHistory((value) => !value)}
@@ -368,7 +368,7 @@ export default function VideoAnalysisPanel({ settings, onImportToRewrite, showNo
             </div>
           </div>
           <div className="space-y-2 text-center">
-            <p className="font-semibold text-white">{stage || "Gemini ????????..."}</p>
+            <p className="font-semibold text-white">{stage || "千问正在分析完整视频..."}</p>
             <p className="text-sm text-slate-500">请不要关闭页面，完整视频分析通常需要 30 到 90 秒。</p>
           </div>
           <div className="h-1.5 w-64 rounded-full bg-white/10">
